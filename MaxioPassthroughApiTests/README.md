@@ -1,5 +1,15 @@
 # MaxioPassthroughApiTests
 
+> **STATUS (updated): retargeted to `MaxioBillingController`.** The integrations no longer expose a raw
+> passthrough controller; both now expose `MaxioBillingController` under `/api/maxio`, which returns
+> **flattened, provider-agnostic DTOs** (not Maxio's raw envelopes) and remaps errors via `ExceptionMiddleware`.
+> Because the two integrations' DTO shapes, some routes, and error statuses now **differ**, the suite asserts
+> only the **fields/behaviors common to both** and configures the one differing route (list-plans) via
+> `LIST_PLANS_PATH`. **In scope now:** list-plans and list-subscriptions. **Parked (skipped) pending a
+> redesign:** the customer endpoint and the Plugin differentiator tests (they depend on it). The tables below
+> describe the historical passthrough design and are retained for context only — see `TestSettings.cs` and the
+> `Tests/*.cs` XML docs for current behavior.
+
 Black-box HTTP tests for the Maxio **passthrough** endpoints exposed by the eShopOnWeb PublicApi:
 
 | Route | Maxio operation |

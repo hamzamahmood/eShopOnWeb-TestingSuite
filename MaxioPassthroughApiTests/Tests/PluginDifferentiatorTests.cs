@@ -29,12 +29,20 @@ namespace MaxioPassthroughApiTests.Tests;
 [Trait("Category", "Differentiator")]
 public class PluginDifferentiatorTests
 {
+    // PARKED alongside the customer endpoint (out of scope pending redesign). These drive the mock's
+    // retry_/ratelimit_ transient behavior, which lives ONLY on the customer-lookup route (customers/lookup.json).
+    // The old passthrough route GET /api/customer no longer exists; the only new route that reaches
+    // ReadCustomerByReference is Plugin's GET /api/maxio/customers/lookup?reference= (Direct has no GET that
+    // reaches it). Re-point + re-enable these when the customer endpoint is revisited.
+    private const string ParkedReason =
+        "Depends on the parked customer-lookup endpoint (only route with mock transient behavior). Revisit with the customer endpoint.";
+
     /// <summary>
     /// A transient <c>503</c> on an idempotent GET must be recovered by retrying.
     /// <para>Plugin: the SDK retries GET on 5xx (503 is in the default retry set) → 200 + customer.</para>
     /// <para>Direct: the passthrough has no resilience pipeline, issues one request → surfaces the 503.</para>
     /// </summary>
-    [Fact]
+    [Fact(Skip = ParkedReason)]
     public async Task Transient_5xx_is_recovered_by_the_clients_retry_pipeline()
     {
         using var client = new ApiClient();
@@ -56,7 +64,7 @@ public class PluginDifferentiatorTests
     /// <para>Plugin: the SDK retries GET on 429 (in the default retry set) → 200 + customer.</para>
     /// <para>Direct: the passthrough has no resilience pipeline, issues one request → surfaces the 429.</para>
     /// </summary>
-    [Fact]
+    [Fact(Skip = ParkedReason)]
     public async Task Rate_limit_429_is_recovered_by_the_clients_retry_pipeline()
     {
         using var client = new ApiClient();

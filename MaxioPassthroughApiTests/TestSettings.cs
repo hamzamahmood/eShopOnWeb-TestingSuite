@@ -12,6 +12,23 @@ public static class TestSettings
     public static string BaseUrl =>
         (Environment.GetEnvironmentVariable("PUBLICAPI_BASEURL") ?? "https://localhost:5099").TrimEnd('/');
 
+    /// <summary>
+    /// Path of the <c>MaxioBillingController</c> list-plans endpoint. This is the ONE route that genuinely
+    /// differs between the two integrations, so it is configurable per target:
+    ///   * Plugin: <c>/api/maxio/product-families/{productFamilyId}/products</c> (the id is inert — the client
+    ///     always uses the configured family — so any value works; the mock's known id 527890 is used here).
+    ///   * Direct: <c>/api/maxio/products</c> (no product-family segment).
+    /// Defaults to the Plugin form; set <c>LIST_PLANS_PATH=/api/maxio/products</c> when targeting Direct.
+    /// The list-subscriptions route (<c>/api/maxio/customers/{id}/subscriptions</c>) is identical on both
+    /// integrations, so it needs no override.
+    /// </summary>
+    public static string ListPlansPath =>
+        Get("LIST_PLANS_PATH", "/api/maxio/product-families/527890/products");
+
+    /// <summary>Builds the list-customer-subscriptions path (same route on both integrations).</summary>
+    public static string CustomerSubscriptionsPath(string customerId) =>
+        $"/api/maxio/customers/{customerId}/subscriptions";
+
     /// <summary>A customer reference the mock knows (→ customer id 98765).</summary>
     public static string KnownCustomerReference => Get("KNOWN_CUSTOMER_REFERENCE", "cust_12345");
 

@@ -5,13 +5,23 @@ using Xunit;
 namespace MaxioPassthroughApiTests.Tests;
 
 /// <summary>
-/// GET /api/customer?reference={ref} — proxies Maxio's read-customer-by-reference lookup.
-/// Success returns Maxio's full customer object; an unknown reference must pass Maxio's EXACT 404 through
-/// (not the app's old 4xx→422 remap).
+/// PARKED — the customer endpoint is out of scope pending a redesign (to be revisited separately).
+///
+/// <para>
+/// The old passthrough route <c>GET /api/customer?reference={ref}</c> returned Maxio's full customer object.
+/// The new <c>MaxioBillingController</c>s have no equivalent: Direct exposes only <c>POST /api/maxio/customers</c>
+/// (find-or-create, returning a bare id), and Plugin exposes <c>GET /api/maxio/customers/lookup?reference=</c>
+/// returning only <c>{ "customerId": "98765" }</c> (404 with an empty body when unknown). Neither returns the
+/// full customer object these assertions check, and the shapes/routes differ between integrations — so these
+/// tests cannot be salvaged by a parameter swap. They are skipped until the customer endpoint is designed.
+/// </para>
 /// </summary>
 public class CustomerLookupTests
 {
-    [Fact]
+    private const string ParkedReason =
+        "Customer endpoint out of scope pending redesign (Direct has no GET lookup; Plugin returns only {customerId}). Revisit separately.";
+
+    [Fact(Skip = ParkedReason)]
     public async Task Known_reference_returns_the_Maxio_customer_object()
     {
         using var client = new ApiClient();
@@ -30,7 +40,7 @@ public class CustomerLookupTests
         Assert.Equal("john.doe@example.com", customer.GetProperty("email").GetString());
     }
 
-    [Fact]
+    [Fact(Skip = ParkedReason)]
     public async Task Unknown_reference_passes_through_Maxios_exact_404()
     {
         using var client = new ApiClient();

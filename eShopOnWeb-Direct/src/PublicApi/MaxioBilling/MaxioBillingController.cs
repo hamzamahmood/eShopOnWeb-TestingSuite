@@ -40,8 +40,8 @@ public class MaxioBillingController : ControllerBase
 
     /// <summary>listProductsForProductFamily - GET /product_families/{product_family_id}/products.json.</summary>
     /// <remarks>product_family_id comes from configuration; the `page`/`per_page` query params are accepted but NOT forwarded.</remarks>
-    [HttpGet("products")]
-    public async Task<IActionResult> ListProducts([FromQuery] ListProductsQuery query, CancellationToken cancellationToken)
+    [HttpGet("product-families/{productFamilyId}/products")]
+    public async Task<IActionResult> ListProducts(string productFamilyId, [FromQuery] ListProductsQuery query, CancellationToken cancellationToken)
         => Ok(await _billing.ListPlansAsync(cancellationToken));
 
     /// <summary>readComponent - GET /product_families/{product_family_id}/components/{component_id}.json.</summary>

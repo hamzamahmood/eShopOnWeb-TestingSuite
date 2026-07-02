@@ -5,19 +5,30 @@ using Xunit;
 namespace MaxioPassthroughApiTests.Tests;
 
 /// <summary>
-/// GET /api/listplans — proxies Maxio's list-products-for-product-family. This endpoint takes no caller
-/// input (it uses the PublicApi's configured product family), so only the success path is covered — a
-/// "wrong input parameter" failure can't be triggered from the request. The PublicApi must be configured
-/// with the mock's known family (ProductFamilyId=527890 / ProductFamilyHandle=acme-projects).
+/// List plans — <c>MaxioBillingController</c> list-plans endpoint (route configured via
+/// <see cref="TestSettings.ListPlansPath"/>: <c>/api/maxio/products</c> on Direct,
+/// <c>/api/maxio/product-families/{id}/products</c> on Plugin). This endpoint takes no meaningful caller
+/// input (the client always uses the PublicApi's configured product family), so only the success path is
+/// covered. The PublicApi must be configured with the mock's known family (ProductFamilyId=527890 /
+/// ProductFamilyHandle=acme-projects).
+///
+/// <para>
+/// Unlike the old passthrough controller, this endpoint returns a FLATTENED, provider-agnostic DTO — not
+/// Maxio's raw <c>{ "product": {...} }</c> envelope. The two integrations also return slightly different
+/// shapes (Direct's <c>BillingPlan</c> carries <c>priceInCents</c> + <c>providerProductId</c>; Plugin's
+/// <c>PlanDto</c> carries <c>price</c> in dollars and no id). This test therefore asserts only the fields
+/// common to BOTH shapes: <c>handle</c>, <c>name</c>, <c>intervalCount</c>, <c>intervalUnit</c>,
+/// <c>requiresPaymentMethod</c>. Price is deliberately not asserted (cents vs dollars differ by integration).
+/// </para>
 /// </summary>
 public class ListPlansTests
 {
     [Fact]
-    public async Task ListPlans_returns_the_Maxio_products_array_with_expected_fields()
+    public async Task ListPlans_returns_the_configured_familys_plans_with_common_fields()
     {
         using var client = new ApiClient();
 
-        var response = await client.GetAsync("/api/listplans");
+        var response = await client.GetAsync(TestSettings.ListPlansPath);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("application/json", response.ContentType);
@@ -25,23 +36,22 @@ public class ListPlansTests
         using var doc = JsonDocument.Parse(response.Body);
         var root = doc.RootElement;
 
-        // Maxio wire shape: an array of { "product": { ... } } envelopes.
+        // Flattened DTO shape: a bare JSON array of plan objects (no Maxio "product" envelope).
         Assert.Equal(JsonValueKind.Array, root.ValueKind);
         Assert.Equal(2, root.GetArrayLength());
 
-        var products = root.EnumerateArray().Select(e => e.GetProperty("product")).ToList();
+        var plans = root.EnumerateArray().ToList();
 
-        // Both mock products are present.
-        var ids = products.Select(p => p.GetProperty("id").GetInt32()).ToHashSet();
-        Assert.Contains(3801242, ids);
-        Assert.Contains(3858146, ids);
+        // Both mock products are present, keyed by their handle (a field both integrations expose).
+        var handles = plans.Select(p => p.GetProperty("handle").GetString()).ToHashSet();
+        Assert.Contains("zero-dollar-product", handles);
+        Assert.Contains("gold", handles);
 
-        // Verify the response parameters of the Gold Plan survive the passthrough intact.
-        var gold = products.Single(p => p.GetProperty("handle").GetString() == "gold");
-        Assert.Equal(3858146, gold.GetProperty("id").GetInt32());
+        // Verify the Gold Plan's common fields survive the flattening intact.
+        var gold = plans.Single(p => p.GetProperty("handle").GetString() == "gold");
         Assert.Equal("Gold Plan", gold.GetProperty("name").GetString());
-        Assert.Equal(1000, gold.GetProperty("price_in_cents").GetInt32());
-        Assert.Equal("month", gold.GetProperty("interval_unit").GetString());
-        Assert.Equal(527890, gold.GetProperty("product_family").GetProperty("id").GetInt32());
+        Assert.Equal(1, gold.GetProperty("intervalCount").GetInt32());
+        Assert.Equal("month", gold.GetProperty("intervalUnit").GetString());
+        Assert.True(gold.GetProperty("requiresPaymentMethod").GetBoolean());
     }
 }
