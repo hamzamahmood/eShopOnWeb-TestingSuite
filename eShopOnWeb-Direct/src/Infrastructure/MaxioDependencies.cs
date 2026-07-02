@@ -15,10 +15,9 @@ using Polly;
 namespace Microsoft.eShopWeb.Infrastructure;
 
 /// <summary>
-/// Wires the Maxio integration (plan.md section 2.2/4.3). Shared by both hosts so the client base URL, auth,
-/// and resilience pipeline are defined in one place (api-integration-quality-gate.md Gate 0) — see
-/// <see cref="ConfigureMaxioClient"/> / <see cref="AddMaxioResilience"/> — and applied to both the real billing
-/// client and the raw test-harness passthrough client.
+/// Wires the Maxio integration (plan.md section 2.2/4.3). Defines the billing client's base URL, auth,
+/// and resilience pipeline in one place (api-integration-quality-gate.md Gate 0) — see
+/// <see cref="ConfigureMaxioClient"/> / <see cref="AddMaxioResilience"/>.
 /// </summary>
 public static class MaxioDependencies
 {
@@ -31,11 +30,6 @@ public static class MaxioDependencies
 
         services.AddHttpClient<IBillingClient, MaxioBillingClient>(ConfigureMaxioClient)
             .AddMaxioResilience("maxio");
-
-        // Raw passthrough for the test-harness controller (IMaxioPassthrough). It creates and owns its own
-        // HttpClient internally (pointed at the mock), so it is registered as a plain scoped service rather
-        // than a typed HttpClient client.
-        services.AddScoped<IMaxioPassthrough, MaxioPassthroughClient>();
 
         return services;
     }

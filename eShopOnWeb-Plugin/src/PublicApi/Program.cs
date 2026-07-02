@@ -87,7 +87,12 @@ builder.Services.AddCors(options =>
         });
 });
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    // Serialize enums (e.g. SubscriptionDto.State) as their names rather than integers in controller
+    // responses. Scoped to MVC controllers only (the MaxioBilling + passthrough surfaces); the
+    // minimal-API subscription/catalog endpoints use their own JSON options and are unaffected.
+    .AddJsonOptions(options =>
+        options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter()));
 builder.Services.AddAutoMapper(typeof(MappingProfile).Assembly);
 builder.Configuration.AddEnvironmentVariables();
 
