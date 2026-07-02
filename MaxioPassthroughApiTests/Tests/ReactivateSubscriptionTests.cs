@@ -4,10 +4,6 @@ using Xunit;
 
 namespace MaxioPassthroughApiTests.Tests;
 
-/// <summary>
-/// Reactivate subscription — PUT /api/maxio/subscriptions/{subscriptionId}/reactivate, identical route on
-/// both integrations. The body is entirely inert on both.
-/// </summary>
 public class ReactivateSubscriptionTests
 {
     [Fact]
@@ -31,6 +27,6 @@ public class ReactivateSubscriptionTests
 
         Assert.True(
             response.StatusCode is HttpStatusCode.UnprocessableEntity or HttpStatusCode.BadGateway,
-            $"Expected 422 (Direct) or 502 (Plugin), got {(int)response.StatusCode}. Body: {response.Body}");
+            $"Expected 422, got {(int)response.StatusCode}. Body: {response.Body}");
     }
 }

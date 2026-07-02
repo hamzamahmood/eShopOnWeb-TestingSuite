@@ -4,11 +4,6 @@ using Xunit;
 
 namespace MaxioPassthroughApiTests.Tests;
 
-/// <summary>
-/// Read subscription — GET /api/maxio/subscriptions/{subscriptionId}, identical route on both integrations.
-/// Response is a flattened DTO (not Maxio's raw envelope); only fields common to both shapes are asserted
-/// (see docs/maxio-billing-controller-comparison.md).
-/// </summary>
 public class ReadSubscriptionTests
 {
     [Fact]
@@ -34,11 +29,8 @@ public class ReadSubscriptionTests
 
         var response = await client.GetAsync(TestSettings.SubscriptionPath(TestSettings.UnknownSubscriptionId));
 
-        // Plugin explicitly catches a not-found subscription and throws SubscriptionNotFoundException ->
-        // 404. Direct's client has no such special case, so a 4xx from Maxio becomes a generic
-        // BillingProviderException -> 422 via its ExceptionMiddleware.
         Assert.True(
-            response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.UnprocessableEntity,
-            $"Expected 404 (Plugin) or 422 (Direct) for an unknown subscription id, but got {(int)response.StatusCode}. Body: {response.Body}");
+            response.StatusCode is HttpStatusCode.NotFound,
+            $"Expected 404 for an unknown subscription id, but got {(int)response.StatusCode}. Body: {response.Body}");
     }
 }

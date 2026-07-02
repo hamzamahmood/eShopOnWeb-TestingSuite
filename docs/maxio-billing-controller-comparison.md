@@ -4,6 +4,9 @@ Comparing:
 - `eShopOnWeb-Direct\src\PublicApi\MaxioBilling\MaxioBillingController.cs`
 - `eShopOnWeb-Plugin\src\PublicApi\MaxioBilling\MaxioBillingController.cs`
 
+> For a flat Maxio-endpoint-template → exposed-controller-route mapping (both integrations), see
+> [`maxio-endpoint-path-mapping.md`](./maxio-endpoint-path-mapping.md).
+
 ## Summary
 
 Both expose `IBillingClient` as one HTTP endpoint per client method under `/api/maxio`, replacing the old raw-passthrough controller. Neither returns Maxio's raw response body anymore — both return flattened, provider-agnostic DTOs, and errors are remapped by the shared `ExceptionMiddleware` instead of being passed through with Maxio's exact status/body. Most endpoints line up route-for-route, but several diverge in route, request contract, or how many underlying Maxio calls they make — those divergences are the useful signal for anyone comparing the two integrations or extending the `MaxioPassthroughApiTests` suite.
@@ -37,7 +40,7 @@ Both expose `IBillingClient` as one HTTP endpoint per client method under `/api/
 
 ## Error handling
 
-Both propagate `BillingProviderException` / domain exceptions to the shared `ExceptionMiddleware`, but the two middlewares map statuses differently (see each repo's `PublicApi/Middleware/ExceptionMiddleware.cs`) — most notably a `BillingProviderException` with a 4xx origin status becomes **422** on Direct but **502** on Plugin. Neither controller passes Maxio's raw error body/status through anymore, unlike the old passthrough controller.
+Both propagate `BillingProviderException` / domain exceptions to the shared `ExceptionMiddleware` (see each repo's `PublicApi/Middleware/ExceptionMiddleware.cs`). A `BillingProviderException` now maps to **422 (Unprocessable Entity) on both** integrations — Direct maps a 4xx-origin `BillingProviderException` to 422 (a 5xx origin still becomes 502), and Plugin maps every `MeteredComponentMisconfiguredException`/`BillingProviderException` to 422 as well (Plugin no longer returns 502 for these). The two middlewares still differ on other exceptions: Direct maps `MeteredComponentMisconfiguredException`→500 and `InvalidSubscriptionStateException`→422; Plugin maps `SubscriptionNotFoundException`→404, `Duplicate`/`IllegalSubscriptionTransition`/`StalePreview`→409, and `PaymentVerificationRequired`→422. Neither controller passes Maxio's raw error body/status through anymore, unlike the old passthrough controller.
 
 ## Response shapes
 

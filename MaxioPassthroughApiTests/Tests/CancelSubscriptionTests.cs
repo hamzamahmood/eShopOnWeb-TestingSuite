@@ -4,12 +4,6 @@ using Xunit;
 
 namespace MaxioPassthroughApiTests.Tests;
 
-/// <summary>
-/// Cancel subscription (immediate) — DELETE /api/maxio/subscriptions/{subscriptionId}, identical route on
-/// both integrations. Plugin additionally requires a non-null body with a "timing" control field; set to
-/// "Immediate" here so both integrations invoke the same underlying cancelSubscription operation (Direct's
-/// DELETE endpoint is always immediate and ignores the extra field).
-/// </summary>
 public class CancelSubscriptionTests
 {
     [Fact]
@@ -34,7 +28,7 @@ public class CancelSubscriptionTests
         var response = await client.DeleteAsync(TestSettings.SubscriptionPath(TestSettings.KnownCanceledSubscriptionId), body);
 
         Assert.True(
-            response.StatusCode is HttpStatusCode.UnprocessableEntity or HttpStatusCode.BadGateway,
-            $"Expected 422 (Direct) or 502 (Plugin), got {(int)response.StatusCode}. Body: {response.Body}");
+            response.StatusCode is HttpStatusCode.UnprocessableEntity,
+            $"Expected 422, got {(int)response.StatusCode}. Body: {response.Body}");
     }
 }

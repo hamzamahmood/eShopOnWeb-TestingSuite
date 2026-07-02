@@ -75,7 +75,7 @@ public class ExceptionMiddleware
         }
         else if (exception is MeteredComponentMisconfiguredException or BillingProviderException)
         {
-            context.Response.StatusCode = (int)HttpStatusCode.BadGateway;
+            context.Response.StatusCode = (int)HttpStatusCode.UnprocessableEntity;
             await context.Response.WriteAsync(new ErrorDetails()
             {
                 StatusCode = context.Response.StatusCode,

@@ -4,22 +4,6 @@ using Xunit;
 
 namespace MaxioPassthroughApiTests.Tests;
 
-/// <summary>
-/// List plans — <c>MaxioBillingController</c> list-plans endpoint, identical route on both integrations
-/// (<c>/api/maxio/product-families/{productFamilyId}/products</c>, see <see cref="TestSettings.ListPlansPath"/>).
-/// This endpoint takes no meaningful caller input (the client always uses the PublicApi's configured
-/// product family), so only the success path is covered. The PublicApi must be configured with the mock's
-/// known family (ProductFamilyId=527890 / ProductFamilyHandle=acme-projects).
-///
-/// <para>
-/// Unlike the old passthrough controller, this endpoint returns a FLATTENED, provider-agnostic DTO — not
-/// Maxio's raw <c>{ "product": {...} }</c> envelope. The two integrations also return slightly different
-/// shapes (Direct's <c>BillingPlan</c> carries <c>priceInCents</c> + <c>providerProductId</c>; Plugin's
-/// <c>PlanDto</c> carries <c>price</c> in dollars and no id). This test therefore asserts only the fields
-/// common to BOTH shapes: <c>handle</c>, <c>name</c>, <c>intervalCount</c>, <c>intervalUnit</c>,
-/// <c>requiresPaymentMethod</c>. Price is deliberately not asserted (cents vs dollars differ by integration).
-/// </para>
-/// </summary>
 public class ListPlansTests
 {
     [Fact]

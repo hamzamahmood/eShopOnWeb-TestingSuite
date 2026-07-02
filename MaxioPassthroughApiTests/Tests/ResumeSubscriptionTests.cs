@@ -4,10 +4,6 @@ using Xunit;
 
 namespace MaxioPassthroughApiTests.Tests;
 
-/// <summary>
-/// Resume subscription — POST /api/maxio/subscriptions/{subscriptionId}/resume, identical route on both
-/// integrations.
-/// </summary>
 public class ResumeSubscriptionTests
 {
     [Fact]
@@ -30,7 +26,7 @@ public class ResumeSubscriptionTests
         var response = await client.PostAsync(TestSettings.ResumeSubscriptionPath(TestSettings.KnownActiveSubscriptionId));
 
         Assert.True(
-            response.StatusCode is HttpStatusCode.UnprocessableEntity or HttpStatusCode.BadGateway,
-            $"Expected 422 (Direct) or 502 (Plugin), got {(int)response.StatusCode}. Body: {response.Body}");
+            response.StatusCode is HttpStatusCode.UnprocessableEntity,
+            $"Expected 422, got {(int)response.StatusCode}. Body: {response.Body}");
     }
 }

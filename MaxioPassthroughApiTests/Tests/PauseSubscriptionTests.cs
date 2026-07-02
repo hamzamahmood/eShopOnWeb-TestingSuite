@@ -4,10 +4,6 @@ using Xunit;
 
 namespace MaxioPassthroughApiTests.Tests;
 
-/// <summary>
-/// Pause subscription — POST /api/maxio/subscriptions/{subscriptionId}/hold, identical route on both
-/// integrations. The body is entirely inert on both, so only the subscriptionId path segment is exercised.
-/// </summary>
 public class PauseSubscriptionTests
 {
     [Fact]
@@ -34,7 +30,7 @@ public class PauseSubscriptionTests
         var response = await client.PostAsync(TestSettings.PauseSubscriptionPath(TestSettings.KnownOnHoldSubscriptionId));
 
         Assert.True(
-            response.StatusCode is HttpStatusCode.UnprocessableEntity or HttpStatusCode.BadGateway,
-            $"Expected 422 (Direct) or 502 (Plugin), got {(int)response.StatusCode}. Body: {response.Body}");
+            response.StatusCode is HttpStatusCode.UnprocessableEntity,
+            $"Expected 422, got {(int)response.StatusCode}. Body: {response.Body}");
     }
 }

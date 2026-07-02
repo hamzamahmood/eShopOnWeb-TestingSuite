@@ -4,13 +4,6 @@ using Xunit;
 
 namespace MaxioPassthroughApiTests.Tests;
 
-/// <summary>
-/// Find-or-create customer — MaxioBillingController's composite endpoint (POST /api/maxio/customers), same
-/// route + request shape on both integrations (readCustomerByReference then, if absent, createCustomer).
-/// Response shapes differ (Direct's <c>EnsureCustomer</c> returns a bare provider customer id number;
-/// Plugin's <c>FindOrCreateCustomer</c> returns <c>{"customerId": "..."}</c>), so only the resolved id
-/// VALUE is compared — see <see cref="TestJson.GetCustomerId"/>. Both return 200 OK.
-/// </summary>
 public class FindOrCreateCustomerTests
 {
     [Fact]

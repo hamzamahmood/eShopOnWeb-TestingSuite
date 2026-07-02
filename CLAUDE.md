@@ -75,11 +75,15 @@ authoritative table). Direct routes add `:int` route constraints; Plugin does nu
 
 ### Key divergences (the interesting part)
 
-- **Error status mapping differs.** A `BillingProviderException` with a 4xx origin status becomes
-  **422 (Unprocessable Entity) on Direct** but **502 (Bad Gateway) on Plugin**. Full mapping lives in each
-  repo's `PublicApi/Middleware/ExceptionMiddleware.cs`. Plugin also maps: `SubscriptionNotFoundException`→404,
-  `Duplicate`/`IllegalSubscriptionTransition`/`StalePreview`→409, `PaymentVerificationRequired`→422,
-  `MeteredComponentMisconfigured`/`BillingProviderException`→502, else 500.
+- **Error status mapping.** A `BillingProviderException` now maps to **422 (Unprocessable Entity) on both**
+  integrations (previously Plugin returned 502). Full mapping lives in each repo's
+  `PublicApi/Middleware/ExceptionMiddleware.cs`. Direct: `BillingProviderException{4xx}`→422,
+  `BillingProviderException{else}`→502, `SubscriptionNotFound`→404, `StalePlanChangePreview`→409,
+  `InvalidSubscriptionState`→422, `MeteredComponentMisconfigured`→500, `Duplicate`→409, else 500.
+  Plugin: `SubscriptionNotFoundException`→404, `Duplicate`/`IllegalSubscriptionTransition`/`StalePreview`→409,
+  `PaymentVerificationRequired`→422, `MeteredComponentMisconfigured`/`BillingProviderException`→**422**, else 500.
+  (The Plugin controller's XML summaries and a `[ProducesResponseType(502)]` on `metered-component/verify` still
+  say 502 — stale source comments, not the runtime behavior.)
 - **Create-subscription success status:** Direct returns **200**, Plugin returns **201 Created**.
 - **Response shapes differ.** Plan price is `priceInCents` (Direct) vs `price` in dollars (Plugin).
   Subscription `state` is lowercase snake_case `"active"`/`"on_hold"` (Direct, raw passthrough) vs the SDK
@@ -237,8 +241,11 @@ Tiny ASP.NET Core **Minimal API** (`Program.cs`, no controllers) that stands in 
 
 ## MaxioPassthroughApiTests
 
-Standalone **xUnit** black-box HTTP suite (no project references, not in either solution). The **same tests**
-run against either integration by pointing at whichever PublicApi is up — there is **no Direct/Plugin toggle**.
+Standalone **xUnit** black-box HTTP suite (no project references, not in either solution). It runs against
+whichever PublicApi is up (point `PUBLICAPI_BASEURL` at it). The suite has since been **tightened toward
+Plugin expectations** — most facts are still green on both, but create-success (201), read-unknown (404), and
+record-usage-unknown (404), plus the 3 `PluginAdvantageTests`, now assert **Plugin-specific** behavior and
+**fail on Direct** by design. The only mechanical Direct/Plugin knob is `RECORD_USAGE_PATH_TEMPLATE` (route shape).
 
 - **Run:** `dotnet test` (defaults base URL `https://localhost:5099`), or
   `PUBLICAPI_BASEURL=http://localhost:5199 dotnet test` to target a specific instance. `tests.runsettings` is
@@ -256,13 +263,17 @@ run against either integration by pointing at whichever PublicApi is up — ther
   `GetUsageId`, `GetCustomerId`, and **`StatesEqual`** (strips non-letters + case-insensitive, so Direct's
   `on_hold` matches Plugin's `OnHold`). Use `StatesEqual` for any multi-word state assertion.
 - **`Tests/` — 12 files, 26 `[Fact]`s.** Two groups:
-  - **Shared suite (11 files, 23 facts)** — one file per endpoint, each with a success case (exact status +
-    common flattened fields) and a failure case (asserts a **status set** `{422 Direct, 502 Plugin}`, or
-    `{404 Plugin / 422 Direct}` for read-unknown-subscription, or `{200 Direct / 201 Plugin}` for
-    create-success). Green on **both** integrations. Files: `ListPlansTests`, `FindOrCreateCustomerTests`,
-    `SubscriptionTests`, `ReadSubscriptionTests`, `CreateSubscriptionTests`, `PauseSubscriptionTests`,
-    `ResumeSubscriptionTests`, `ReactivateSubscriptionTests`, `CommitPlanChangeTests`, `CancelSubscriptionTests`,
-    `RecordUsageTests`.
+  - **Endpoint suite (11 files, 23 facts)** — one file per endpoint, each with a success case (exact status +
+    common flattened fields) and a failure case. The dual **status-set** assertions were **tightened to single
+    statuses** after Plugin's middleware moved `BillingProviderException`→422: provider-error failure cases now
+    assert exactly **422** (still green on both, since Direct's 4xx-origin `BillingProviderException` is also
+    422). But three cases were narrowed to **Plugin-only** expectations and will **fail on Direct**:
+    create-success asserts **201** (Direct returns 200), read-unknown-subscription asserts **404** (Direct 422),
+    and record-usage-unknown-subscription asserts **404** (Direct 422). Files: `ListPlansTests`,
+    `FindOrCreateCustomerTests`, `SubscriptionTests`, `ReadSubscriptionTests`, `CreateSubscriptionTests`,
+    `PauseSubscriptionTests`, `ResumeSubscriptionTests`, `ReactivateSubscriptionTests`, `CommitPlanChangeTests`,
+    `CancelSubscriptionTests`, `RecordUsageTests`. (The per-file XML doc comments that documented the old
+    dual-integration design were removed with this change.)
   - **`PluginAdvantageTests` (3 facts)** — assert the **Plugin's superior behavior**, so they **pass on Plugin
     and FAIL on Direct by design** (the failure pins what Direct lacks): (1) missing subscription → **404** on
     Plugin vs 422 on Direct; (2) find-or-create **recovers from a concurrent-create race** (200) on Plugin vs

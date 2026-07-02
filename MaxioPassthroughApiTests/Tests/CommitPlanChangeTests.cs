@@ -4,12 +4,6 @@ using Xunit;
 
 namespace MaxioPassthroughApiTests.Tests;
 
-/// <summary>
-/// Commit plan change (immediate) — POST /api/maxio/subscriptions/{subscriptionId}/migrations, identical
-/// route on both integrations. Plugin additionally requires a "timing" control field in the body; set to
-/// "Immediate" here so both integrations invoke the same underlying migrateSubscriptionProduct operation
-/// (Direct has no such field and silently ignores the extra property).
-/// </summary>
 public class CommitPlanChangeTests
 {
     [Fact]
@@ -34,8 +28,8 @@ public class CommitPlanChangeTests
         var response = await client.PostAsync(TestSettings.MigrationsPath(TestSettings.KnownActiveSubscriptionId), body);
 
         Assert.True(
-            response.StatusCode is HttpStatusCode.UnprocessableEntity or HttpStatusCode.BadGateway,
-            $"Expected 422 (Direct) or 502 (Plugin), got {(int)response.StatusCode}. Body: {response.Body}");
+            response.StatusCode is HttpStatusCode.UnprocessableEntity,
+            $"Expected 422 (Direct), got {(int)response.StatusCode}. Body: {response.Body}");
     }
 
     [Fact]
@@ -47,7 +41,7 @@ public class CommitPlanChangeTests
         var response = await client.PostAsync(TestSettings.MigrationsPath(TestSettings.KnownCanceledSubscriptionId), body);
 
         Assert.True(
-            response.StatusCode is HttpStatusCode.UnprocessableEntity or HttpStatusCode.BadGateway,
-            $"Expected 422 (Direct) or 502 (Plugin), got {(int)response.StatusCode}. Body: {response.Body}");
+            response.StatusCode is HttpStatusCode.UnprocessableEntity,
+            $"Expected 422, got {(int)response.StatusCode}. Body: {response.Body}");
     }
 }

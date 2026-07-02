@@ -4,19 +4,6 @@ using Xunit;
 
 namespace MaxioPassthroughApiTests.Tests;
 
-/// <summary>
-/// Record usage — POST against the configured metered component for a subscription. Routes differ (Direct
-/// has no component-id path segment; Plugin's is present but inert), so the path is built via
-/// <see cref="TestSettings.RecordUsagePath"/> (configurable per integration, like ListPlansPath). Response
-/// DTOs differ in the id field's name/type (Direct's <c>providerUsageId</c> long vs Plugin's
-/// <c>usageId</c> string) — see <see cref="TestJson.GetUsageId"/>.
-///
-/// <para>
-/// On Direct, recording usage first calls <c>readComponent</c> to verify the configured metered component
-/// (see MaxioBillingClient.RecordUsageAsync) — the mock's <c>GET /product_families/{id}/components/{id}.json</c>
-/// route must be reachable for this endpoint's success case to work at all.
-/// </para>
-/// </summary>
 public class RecordUsageTests
 {
     [Fact]
@@ -44,7 +31,7 @@ public class RecordUsageTests
         var response = await client.PostAsync(TestSettings.RecordUsagePath(TestSettings.UnknownSubscriptionId), body);
 
         Assert.True(
-            response.StatusCode is HttpStatusCode.UnprocessableEntity or HttpStatusCode.BadGateway,
-            $"Expected 422 (Direct) or 502 (Plugin), got {(int)response.StatusCode}. Body: {response.Body}");
+            response.StatusCode is HttpStatusCode.NotFound,
+            $"Expected 404, got {(int)response.StatusCode}. Body: {response.Body}");
     }
 }
