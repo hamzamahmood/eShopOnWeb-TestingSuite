@@ -91,7 +91,6 @@ public static class Dependencies
         services.AddScoped<IBillingClient, MaxioBillingClient>();
         // Raw passthrough for the test-harness controller: uses the same SDK client, but returns Maxio's
         // response verbatim (serialized SDK model on success; exact status + body on error).
-        services.AddScoped<IMaxioPassthrough, MaxioPassthroughClient>();
         services.AddSingleton<IIdempotencyCache, MemoryIdempotencyCache>();
     }
 }
