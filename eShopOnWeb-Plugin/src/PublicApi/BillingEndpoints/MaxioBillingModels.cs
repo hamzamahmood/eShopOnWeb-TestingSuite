@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace Microsoft.eShopWeb.PublicApi.BillingApi;
+namespace Microsoft.eShopWeb.PublicApi.BillingEndpoints;
 
 // Request/response contracts for MaxioBillingController. These are the microservice's public wire shapes;
 // they are intentionally separate from both the ApplicationCore DTOs (returned directly on success) and

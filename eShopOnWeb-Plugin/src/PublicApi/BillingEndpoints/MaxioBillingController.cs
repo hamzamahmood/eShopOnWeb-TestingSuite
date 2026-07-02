@@ -9,7 +9,7 @@ using Microsoft.eShopWeb.ApplicationCore.Exceptions;
 using Microsoft.eShopWeb.ApplicationCore.Interfaces;
 using Microsoft.eShopWeb.ApplicationCore.Models.Subscriptions;
 
-namespace Microsoft.eShopWeb.PublicApi.BillingApi;
+namespace Microsoft.eShopWeb.PublicApi.BillingEndpoints;
 
 /// <summary>
 /// HTTP microservice facade over <see cref="IBillingClient"/> (the Maxio Advanced Billing integration).
