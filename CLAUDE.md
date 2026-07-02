@@ -10,8 +10,9 @@ plugin seam) is cleaner and more production-ready than the **Direct** integratio
 
 ## Layout
 
-Each subfolder is its **own independent git repository** (separate `.git`; the workspace root is *not*
-a git repo). Treat them as separate checkouts.
+The **workspace root is a single git repository** — one `.git` at the root tracks every subfolder
+(`eShopOnWeb-Direct/`, `eShopOnWeb-Plugin/`, `MaxioMockServer/`, etc.); the subfolders do *not* have
+their own `.git`. Commit from the root; there are no nested checkouts to manage separately.
 
 | Path | What it is |
 |---|---|
@@ -22,8 +23,10 @@ a git repo). Treat them as separate checkouts.
 | `openAPI/` | `openapi.yaml` (Maxio Advanced Billing spec 3.1.0) + `components/`. Source of truth for response shapes. |
 | `docs/` | `subscription-service-comparison.md` — detailed Plugin-vs-Direct architectural comparison. |
 
-> SDKs required to build everything: **.NET 8, .NET 9, and .NET 10** (each project pins its TFM; some
-> repos have a `global.json`). Build/run each repo from its own folder.
+> TFMs across the workspace: **net8.0** (Direct + Plugin), **net9.0** (tests), **net10.0** (mock). The
+> **.NET 9 and .NET 10 SDKs** are required; the eShop repos target net8.0 but their `global.json` uses
+> `rollForward: latestMajor`, so a newer SDK builds them against the installed **.NET 8 runtime** — a
+> standalone .NET 8 *SDK* is not needed. Build/run each repo from its own folder.
 
 ## The comparison in one table
 
@@ -99,8 +102,11 @@ cd MaxioPassthroughApiTests && dotnet test
 
 Required PublicApi config under the `Maxio` section for the mock to resolve (see each repo's
 `appsettings.Development.json`): `Maxio:ProductFamilyId=527890` **and** `Maxio:ProductFamilyHandle=acme-projects`
-(Plugin uses the id, Direct uses the handle), any non-empty `Maxio:ApiKey` + `Maxio:Subdomain` (mock
-enforces no auth), and `Maxio:SkipStartupValidation=true`.
+(Plugin uses the id, Direct uses the handle), and any non-empty `Maxio:ApiKey` + `Maxio:Subdomain` (mock
+enforces no auth). Direct also sets `Maxio:SkipStartupValidation=true` in its
+`appsettings.Development.json`; the Plugin does not set it (nor `DefaultProductHandle` /
+`MeteredComponentHandle`) and still starts and passes all tests, so that key is Direct-only, not
+universally required.
 
 ## Where things live (per integration)
 
