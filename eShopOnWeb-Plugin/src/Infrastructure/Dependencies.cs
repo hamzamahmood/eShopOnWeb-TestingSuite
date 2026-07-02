@@ -65,17 +65,18 @@ public static class Dependencies
 
         services.AddMaxioAdvancedBillingClient(options =>
         {
-            // options.Environment = string.Equals(maxioSettings.Environment, "EU", StringComparison.OrdinalIgnoreCase)
-            //     ? ServerEnvironment.Eu
-            //     : ServerEnvironment.Us;
-            //
-            // options.Server.Production.Us.Site = maxioSettings.Subdomain;
-            // options.Server.Production.Eu.Site = maxioSettings.Subdomain;
+            options.Environment = string.Equals(maxioSettings.Environment, "EU", StringComparison.OrdinalIgnoreCase)
+                ? ServerEnvironment.Eu
+                : ServerEnvironment.Us;
 
-            options.Server.Production.Us = new ProductionOptions.UsOptions
+            if (!string.IsNullOrEmpty(maxioSettings.BaseUrl))
             {
-                BaseUrl = "http://localhost:8080"
-            };
+                options.Server.Production.Us.BaseUrl = maxioSettings.BaseUrl;
+                options.Server.Production.Eu.BaseUrl = maxioSettings.BaseUrl;
+            }
+
+            options.Server.Production.Us.Site = maxioSettings.Subdomain;
+            options.Server.Production.Eu.Site = maxioSettings.Subdomain;
 
             options.BasicAuth = new BasicAuthCredentials
             {

@@ -12,6 +12,8 @@ public class MaxioSettings
     /// <summary>"US" (default) or "EU".</summary>
     public string Environment { get; set; } = "US";
 
+    public string BaseUrl { get; set; } = string.Empty;
+
     public string ProductFamilyHandle { get; set; } = string.Empty;
     public long ProductFamilyId { get; set; }
 
