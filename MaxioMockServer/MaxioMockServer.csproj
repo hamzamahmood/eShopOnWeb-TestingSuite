@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>MaxioMockServer</RootNamespace>
+    <AssemblyName>MaxioMockServer</AssemblyName>
+  </PropertyGroup>
+
+  <!-- Ship the canned mock payloads next to the built assembly.
+       (JSON files are already included as Content by the Web SDK, so Update, not Include.) -->
+  <ItemGroup>
+    <Content Update="MockData\**\*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

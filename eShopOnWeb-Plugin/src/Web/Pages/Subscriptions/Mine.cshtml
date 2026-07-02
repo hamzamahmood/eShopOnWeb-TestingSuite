@@ -1,0 +1,101 @@
+@page
+@model Microsoft.eShopWeb.Web.Pages.Subscriptions.MineModel
+@using Microsoft.eShopWeb.ApplicationCore.Models.Subscriptions
+@{
+    ViewData["Title"] = "My Subscriptions";
+}
+
+<div class="container">
+    <h2>My Subscriptions</h2>
+
+    @if (!string.IsNullOrEmpty(Model.StatusMessage))
+    {
+        <div class="alert alert-info">@Model.StatusMessage</div>
+    }
+
+    <div asp-validation-summary="All" class="text-danger"></div>
+
+    @if (!Model.Subscriptions.Any())
+    {
+        <p>You don't have any subscriptions yet. <a asp-page="Plans">Browse plans</a>.</p>
+    }
+    else
+    {
+        @foreach (var subscription in Model.Subscriptions)
+        {
+            <div style="border: 1px solid #ddd; padding: 15px; margin-bottom: 20px;">
+                <h4>@subscription.ProductName (@subscription.State)</h4>
+                <p>$@subscription.Price.ToString("N2") / month &mdash; next billing @(subscription.NextAssessmentAt?.ToString("d") ?? "n/a")</p>
+
+                @if (Model.UsageSummaries.TryGetValue(subscription.SubscriptionId, out var usage))
+                {
+                    <p>Usage this period (@usage.ComponentHandle): @usage.PeriodToDateQuantity.ToString("N0") unit(s)</p>
+                }
+
+                <div class="row">
+                    <div class="col-xs-12 col-md-4">
+                        <h5>Record usage</h5>
+                        <form method="post" asp-page-handler="RecordUsage">
+                            <input type="hidden" name="RecordUsage.SubscriptionId" value="@subscription.SubscriptionId" />
+                            <input type="number" step="1" min="1" name="RecordUsage.Quantity" value="1" />
+                            <input type="text" name="RecordUsage.Memo" placeholder="Memo (optional)" />
+                            <button type="submit" class="btn esh-basket-checkout">Record usage</button>
+                        </form>
+                    </div>
+
+                    <div class="col-xs-12 col-md-4">
+                        <h5>Change plan</h5>
+                        <form method="post" asp-page-handler="PreviewPlanChange">
+                            <input type="hidden" name="PreviewPlanChange.SubscriptionId" value="@subscription.SubscriptionId" />
+                            <input type="text" name="PreviewPlanChange.TargetProductHandle" placeholder="Target plan handle" />
+                            <select name="PreviewPlanChange.Timing">
+                                <option value="@PlanChangeTiming.Immediate">Now (prorated)</option>
+                                <option value="@PlanChangeTiming.AtRenewal">At renewal</option>
+                            </select>
+                            <button type="submit" class="btn esh-basket-checkout">Preview change</button>
+                        </form>
+
+                        @if (Model.LastPreview is not null && Model.LastPreview.SubscriptionId == subscription.SubscriptionId)
+                        {
+                            <p>
+                                @Model.LastPreview.FromProductHandle &rarr; @Model.LastPreview.ToProductHandle:
+                                $@Model.LastPreview.ProratedAmount.ToString("N2") on @Model.LastPreview.EffectiveAt.ToString("d")
+                            </p>
+                            <form method="post" asp-page-handler="CommitPlanChange">
+                                <input type="hidden" name="CommitPlanChange.SubscriptionId" value="@subscription.SubscriptionId" />
+                                <input type="hidden" name="CommitPlanChange.PreviewToken" value="@Model.LastPreview.PreviewToken" />
+                                <button type="submit" class="btn esh-basket-checkout">Confirm change</button>
+                            </form>
+                        }
+                    </div>
+
+                    <div class="col-xs-12 col-md-4">
+                        <h5>Lifecycle</h5>
+                        <form method="post" asp-page-handler="Pause" style="display:inline">
+                            <input type="hidden" name="Lifecycle.SubscriptionId" value="@subscription.SubscriptionId" />
+                            <button type="submit" class="btn esh-basket-checkout">Pause</button>
+                        </form>
+                        <form method="post" asp-page-handler="Resume" style="display:inline">
+                            <input type="hidden" name="Lifecycle.SubscriptionId" value="@subscription.SubscriptionId" />
+                            <button type="submit" class="btn esh-basket-checkout">Resume</button>
+                        </form>
+                        <form method="post" asp-page-handler="Reactivate" style="display:inline">
+                            <input type="hidden" name="Lifecycle.SubscriptionId" value="@subscription.SubscriptionId" />
+                            <button type="submit" class="btn esh-basket-checkout">Reactivate</button>
+                        </form>
+                        <form method="post" asp-page-handler="Cancel" style="display:inline">
+                            <input type="hidden" name="Cancel.SubscriptionId" value="@subscription.SubscriptionId" />
+                            <select name="Cancel.Timing">
+                                <option value="@CancelTiming.Immediate">Immediately</option>
+                                <option value="@CancelTiming.EndOfPeriod">End of period</option>
+                            </select>
+                            <button type="submit" class="btn esh-basket-checkout">Cancel</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        }
+    }
+
+    <a asp-page="Plans">Browse plans</a>
+</div>

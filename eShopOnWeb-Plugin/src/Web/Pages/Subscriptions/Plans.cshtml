@@ -1,0 +1,45 @@
+@page
+@model Microsoft.eShopWeb.Web.Pages.Subscriptions.PlansModel
+@{
+    ViewData["Title"] = "Subscription Plans";
+}
+
+<div class="container">
+    <h2>Subscription Plans</h2>
+
+    @if (!string.IsNullOrEmpty(Model.StatusMessage))
+    {
+        <div class="alert alert-info">@Model.StatusMessage</div>
+    }
+
+    <div asp-validation-summary="All" class="text-danger"></div>
+
+    @if (!Model.Plans.Any())
+    {
+        <p>No plans are currently available.</p>
+    }
+    else
+    {
+        <div class="row">
+            @foreach (var plan in Model.Plans)
+            {
+                <div class="col-xs-12 col-md-4">
+                    <div class="esh-catalog-items" style="padding: 15px; margin-bottom: 15px; border: 1px solid #ddd;">
+                        <h3>@plan.Name</h3>
+                        <p>$@plan.Price.ToString("N2") / @plan.IntervalCount @plan.IntervalUnit</p>
+                        @if (plan.RequiresPaymentMethod)
+                        {
+                            <p><em>Requires a payment method.</em></p>
+                        }
+                        <form method="post" asp-page-handler="Subscribe">
+                            <input type="hidden" name="Input.ProductHandle" value="@plan.Handle" />
+                            <button type="submit" class="btn esh-basket-checkout">Subscribe</button>
+                        </form>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    <a asp-page="Mine">View my subscriptions</a>
+</div>
