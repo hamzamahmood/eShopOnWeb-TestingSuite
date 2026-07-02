@@ -24,6 +24,27 @@ public static class TestSettings
     /// <summary>A well-formed but unknown numeric customer id (numeric so both integrations behave identically).</summary>
     public static string UnknownCustomerId => Get("UNKNOWN_CUSTOMER_ID", "99999999");
 
+    /// <summary>
+    /// Prefix for references whose FIRST mock request fails with a transient <c>503</c> and whose retried
+    /// request succeeds. See <see cref="NewTransient5xxReference"/>. Used by the differentiator suite: the
+    /// Plugin's SDK retries the idempotent GET and recovers (→ 200); the Direct passthrough has no
+    /// resilience pipeline and surfaces the 503.
+    /// </summary>
+    public static string Transient5xxReferencePrefix => Get("TRANSIENT_5XX_REFERENCE_PREFIX", "retry_");
+
+    /// <summary>
+    /// Prefix for references whose FIRST mock request fails with a <c>429 Too Many Requests</c> (Maxio's
+    /// documented rate-limit response) and whose retried request succeeds. See
+    /// <see cref="NewRateLimitReference"/>. Same retry mechanism as <see cref="Transient5xxReferencePrefix"/>.
+    /// </summary>
+    public static string RateLimitReferencePrefix => Get("RATE_LIMIT_REFERENCE_PREFIX", "ratelimit_");
+
+    /// <summary>Builds a fresh transient-<c>503</c> reference with a unique nonce for a single test run.</summary>
+    public static string NewTransient5xxReference() => $"{Transient5xxReferencePrefix}{Guid.NewGuid():N}";
+
+    /// <summary>Builds a fresh <c>429</c> rate-limit reference with a unique nonce for a single test run.</summary>
+    public static string NewRateLimitReference() => $"{RateLimitReferencePrefix}{Guid.NewGuid():N}";
+
     private static string Get(string key, string fallback)
     {
         var value = Environment.GetEnvironmentVariable(key);

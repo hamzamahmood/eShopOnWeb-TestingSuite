@@ -15,7 +15,8 @@ overrides `Properties/launchSettings.json`.
   (`ProductFamilyNotFound()` → bare JSON string; `Errors(...)` → `{ "errors": [...] }`).
 - **`MockStore.cs`** — sealed; holds the three raw JSON payloads + frozen sets of "known" ids; loaded
   from `MockData/` next to the assembly via `Load(contentRootPath)` (throws `FileNotFoundException` if a
-  file is missing).
+  file is missing). Also holds `NextAttempt(reference)` — a per-reference `ConcurrentDictionary<string,int>`
+  counter backing the `retry_`/`ratelimit_` transient behaviors (see below).
 - **`MockData/*.json`** — `products.json`, `customer.json`, `subscriptions.json` (marked `Content`,
   `CopyToOutputDirectory=PreserveNewest` so they ship next to the build).
 - **`Middleware/RequestResponseLoggingMiddleware.cs`** — dependency-free logger; buffers the response
@@ -37,6 +38,25 @@ overrides `Properties/launchSettings.json`.
 The `:int` route constraint on subscriptions is deliberate so non-integer ids fall through to the
 body-returning fallback (not a bare 404). Products 404 is a **bare JSON string**; customer/subscription/
 fallback 404s use the `{ "errors": [...] }` shape.
+
+### Comparison-harness transient behaviors (customer lookup)
+
+The customer-lookup handler recognizes two **reference prefixes** that emulate transient upstream failures.
+They exist to demonstrate the **resilience gap** between the two integrations (see
+`../MaxioPassthroughApiTests` → `PluginDifferentiatorTests`): the Plugin reuses the SDK client, which
+retries idempotent GETs on transient statuses; the Direct passthrough is a hand-rolled `HttpClient` with
+no resilience pipeline and surfaces the failure. Both are gated behind prefixes so the plain
+`cust_12345` / unknown-reference paths are unaffected.
+
+| Reference prefix | 1st request for that reference | Retried request | Emulates |
+|---|---|---|---|
+| `retry_{nonce}` | `503` `{ "errors": [...] }` | `200` canned customer | generic transient 5xx |
+| `ratelimit_{nonce}` | `429` `{ "errors": [...] }` + `Retry-After: 1` | `200` canned customer | Maxio-documented rate limit |
+
+Attempts are counted per full reference by `MockStore.NextAttempt(reference)` (a
+`ConcurrentDictionary<string,int>`). Tests append a fresh **nonce** (`Guid`) per run, so each run's counter
+starts at zero — the demonstration is **independent of test ordering** and needs no reset. `503`/`429` both
+sit in the SDK's default retry set (`408/429/500/502/503/504`).
 
 ## Canned data (`MockData/` + `MockStore.cs`)
 

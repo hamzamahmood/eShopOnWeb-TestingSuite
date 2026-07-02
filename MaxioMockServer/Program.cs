@@ -44,6 +44,35 @@ app.MapGet("/customers/lookup.json",
             return Errors(StatusCodes.Status404NotFound, "A customer reference is required.");
         }
 
+        // --- Comparison-harness transient-failure behaviors (keyed on the reference) ------------------
+        // Idempotent GETs are retried by the SDK on transient statuses (429/5xx are in its default retry
+        // set); the Direct passthrough is a hand-rolled HttpClient with no resilience pipeline, so it
+        // issues a single request and surfaces the transient error. The FIRST attempt for a given
+        // reference fails transiently; a RETRIED attempt succeeds. Keyed per-reference so a unique nonce
+        // per test run keeps the demonstration independent of test ordering. Gated behind dedicated
+        // prefixes so the existing customer route/tests are unaffected.
+        if (reference.StartsWith("retry_", StringComparison.Ordinal))
+        {
+            // Generic transient 5xx (e.g. a brief upstream outage).
+            return mocks.NextAttempt(reference) == 1
+                ? Errors(StatusCodes.Status503ServiceUnavailable,
+                    "The billing service is temporarily unavailable. Please retry.")
+                : Results.Text(mocks.CustomerJson, "application/json");
+        }
+
+        if (reference.StartsWith("ratelimit_", StringComparison.Ordinal))
+        {
+            // Maxio-documented 429 rate limit; real Maxio also sends Retry-After.
+            if (mocks.NextAttempt(reference) == 1)
+            {
+                ctx.Response.Headers.RetryAfter = "1";
+                return Errors(StatusCodes.Status429TooManyRequests,
+                    "Too many requests for this customer. You can perform 5 requests within 00:30:00.");
+            }
+
+            return Results.Text(mocks.CustomerJson, "application/json");
+        }
+
         return mocks.KnownCustomerReferences.Contains(reference)
             ? Results.Text(mocks.CustomerJson, "application/json")
             : Errors(StatusCodes.Status404NotFound, "Customer not found.");

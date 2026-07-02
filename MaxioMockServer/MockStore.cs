@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Frozen;
 
 namespace MaxioMockServer;
@@ -29,6 +30,18 @@ public sealed class MockStore
     /// <summary>Customer ids that return the canned subscription list.</summary>
     public FrozenSet<int> KnownCustomerIds { get; } =
         new[] { 98765 }.ToFrozenSet();
+
+    /// <summary>
+    /// Per-key attempt counter for the comparison-harness "transient failure" behaviors (references
+    /// starting with <c>retry_</c> or <c>ratelimit_</c>). The first request for a given key returns a
+    /// transient error (503 / 429); a retried request succeeds. Keyed by the full reference so each test
+    /// run — which appends a fresh nonce — is independent of every other run's state, making the
+    /// demonstration robust to test ordering.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, int> _attempts = new(StringComparer.Ordinal);
+
+    /// <summary>Records another attempt for <paramref name="key"/> and returns the new attempt number (1-based).</summary>
+    public int NextAttempt(string key) => _attempts.AddOrUpdate(key, 1, (_, current) => current + 1);
 
     private MockStore(string productsJson, string customerJson, string subscriptionsJson)
     {

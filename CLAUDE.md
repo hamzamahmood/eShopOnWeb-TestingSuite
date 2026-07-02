@@ -79,10 +79,42 @@ Products payload has 2 items: Free (`id 3801242`) and **Gold Plan** (`id 3858146
 `price_in_cents 1000`, `interval_unit month`). The flow is internally consistent:
 `cust_12345` → `98765` → subscription `id 15100121` (state `active`, product `gold`).
 
-The 5 tests (`MaxioPassthroughApiTests/Tests/`) assert both success payloads **and exact `404`
+Two extra customer-reference prefixes drive the differentiator tests (transient-then-recover, keyed by a
+per-run nonce): `retry_{nonce}` → `503` then `200`, `ratelimit_{nonce}` → `429` then `200`. See
+"Demonstrating Plugin superiority" above and `MaxioMockServer/CLAUDE.md`.
+
+The **5 shared tests** (`MaxioPassthroughApiTests/Tests/`) assert both success payloads **and exact `404`
 passthrough** (guarding against the app's old `4xx → 422` remap):
 `ListPlansTests` (success only — no request input), `CustomerLookupTests` (success + 404),
-`SubscriptionTests` (success + 404).
+`SubscriptionTests` (success + 404). They pass against **both** integrations.
+
+There are also **2 differentiator tests** (`PluginDifferentiatorTests`, `Category=Differentiator`) that
+demonstrate the Plugin is more production-ready — they **pass on Plugin, fail on Direct by design**. See
+"Demonstrating Plugin superiority" below.
+
+## Demonstrating Plugin superiority (differentiator tests)
+
+The shared suite proves the two integrations are *behaviorally equivalent* on the happy/404 paths. To show
+the Plugin is **more production-ready**, `PluginDifferentiatorTests` targets a cross-cutting concern the
+SDK-behind-a-seam design gets for free but the hand-rolled Direct client does not: **resilience**.
+
+- **What differs:** the Plugin configures the SDK client once with `RetryOptions.Default()` (retries
+  idempotent GETs on `408/429/500/502/503/504`, 3× with backoff) and *both* the billing client and the
+  passthrough inherit it. The Direct passthrough (`MaxioPassthroughClient`) is a **separate** hand-rolled
+  `new HttpClient()` that never received a resilience pipeline (its "configured identically" XML comment is
+  inaccurate — a known discrepancy). This drift is exactly what a shared SDK client prevents.
+- **How it's tested (black-box):** the mock's customer-lookup recognizes two reference prefixes whose
+  **first** request fails transiently and whose **retry** succeeds — `retry_{nonce}` → `503`-then-`200`,
+  `ratelimit_{nonce}` → `429`-then-`200` (a nonce per run keeps it order-independent). A `200` can only
+  appear if the client retried, so no direct mock access is needed. Plugin recovers to `200`; Direct
+  surfaces the `503`/`429`.
+- **Run:** `dotnet test --filter Category=Differentiator` (green on Plugin, red on Direct — the red is the
+  measurement). The shared 5 stay green on both: `dotnet test --filter "Category!=Differentiator"`.
+
+> **Scope note.** Auth is intentionally *not* a differentiator here: the Direct passthrough's missing
+> Basic auth is by design in this harness (the mock ignores auth), so it is not used to distinguish the
+> integrations. The `customerId` `double.Parse` in the Plugin is a Plugin *weakness*, not a strength —
+> which is why the shared subscription 404 test deliberately uses a numeric unknown id.
 
 ## Running the harness locally
 
