@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 using Xunit.Sdk;
 
 namespace MaxioPassthroughApiTests;
@@ -28,17 +29,48 @@ public sealed class ApiClient : IDisposable
     }
 
     /// <summary>GET the given path and read the full response (status, raw body, content-type).</summary>
-    public async Task<ApiResponse> GetAsync(string path)
+    public Task<ApiResponse> GetAsync(string path) => SendAsync(() => _http.GetAsync(path), HttpMethod.Get, path);
+
+    /// <summary>POST <paramref name="body"/> (serialized as JSON, or no body when null) to the given path.</summary>
+    public Task<ApiResponse> PostAsync(string path, object? body = null) =>
+        SendAsync(() => _http.PostAsync(path, JsonBody(body)), HttpMethod.Post, path);
+
+    /// <summary>PUT <paramref name="body"/> (serialized as JSON, or no body when null) to the given path.</summary>
+    public Task<ApiResponse> PutAsync(string path, object? body = null) =>
+        SendAsync(() => _http.PutAsync(path, JsonBody(body)), HttpMethod.Put, path);
+
+    /// <summary>DELETE the given path, optionally with a JSON body.</summary>
+    public Task<ApiResponse> DeleteAsync(string path, object? body = null)
+    {
+        return SendAsync(async () =>
+        {
+            // The `using` must wrap the await, not just the SendAsync call: SendAsync returns before the
+            // request body has necessarily finished being read, so disposing `request` (and its Content)
+            // synchronously right after invoking it — rather than after it completes — races the in-flight
+            // send and previously surfaced as a spurious HttpRequestException on every DELETE-with-body call.
+            using var request = new HttpRequestMessage(HttpMethod.Delete, path);
+            if (body is not null)
+            {
+                request.Content = JsonContent.Create(body);
+            }
+
+            return await _http.SendAsync(request);
+        }, HttpMethod.Delete, path);
+    }
+
+    private static HttpContent? JsonBody(object? body) => body is null ? null : JsonContent.Create(body);
+
+    private async Task<ApiResponse> SendAsync(Func<Task<HttpResponseMessage>> send, HttpMethod method, string path)
     {
         HttpResponseMessage response;
         try
         {
-            response = await _http.GetAsync(path);
+            response = await send();
         }
         catch (HttpRequestException ex)
         {
             throw new XunitException(
-                $"Could not reach {TestSettings.BaseUrl}{path}. Is the PublicApi running and routed to the " +
+                $"Could not {method} {TestSettings.BaseUrl}{path}. Is the PublicApi running and routed to the " +
                 $"Maxio mock (http://localhost:8080)? See README.md. Underlying error: {ex.Message}");
         }
 

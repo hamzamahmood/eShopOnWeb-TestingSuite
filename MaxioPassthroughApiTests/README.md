@@ -1,63 +1,72 @@
 # MaxioPassthroughApiTests
 
-> **STATUS (updated): retargeted to `MaxioBillingController`.** The integrations no longer expose a raw
-> passthrough controller; both now expose `MaxioBillingController` under `/api/maxio`, which returns
-> **flattened, provider-agnostic DTOs** (not Maxio's raw envelopes) and remaps errors via `ExceptionMiddleware`.
-> Because the two integrations' DTO shapes, some routes, and error statuses now **differ**, the suite asserts
-> only the **fields/behaviors common to both** and configures the one differing route (list-plans) via
-> `LIST_PLANS_PATH`. **In scope now:** list-plans and list-subscriptions. **Parked (skipped) pending a
-> redesign:** the customer endpoint and the Plugin differentiator tests (they depend on it). The tables below
-> describe the historical passthrough design and are retained for context only — see `TestSettings.cs` and the
-> `Tests/*.cs` XML docs for current behavior.
-
-Black-box HTTP tests for the Maxio **passthrough** endpoints exposed by the eShopOnWeb PublicApi:
-
-| Route | Maxio operation |
-|---|---|
-| `GET /api/listplans` | list products for the configured product family |
-| `GET /api/customer?reference={ref}` | look up a customer by reference |
-| `GET /api/subscription?customerId={id}` | list a customer's subscriptions |
+Black-box HTTP tests for the `MaxioBillingController` endpoints exposed by the eShopOnWeb PublicApi
+(Direct and Plugin). Both integrations expose the same operation set under `/api/maxio`, one endpoint
+per `IBillingClient` method, returning **flattened, provider-agnostic DTOs** — not Maxio's raw
+envelopes — with errors remapped by the shared `ExceptionMiddleware`.
 
 This project is **standalone**: it lives outside both `eShopOnWeb-Direct.sln` and `eShopOnWeb-Plugin.sln`,
-has **no project references**, and talks to the running PublicApi purely over HTTP (the `curl -k`
-equivalent). The exact same tests validate **either** integration — just point `PUBLICAPI_BASEURL` at
-whichever one is running. Because both integrations proxy Maxio's raw response and pass its exact status
-through, the assertions (specific fields + exact 404) hold for both.
+has **no project references**, and talks to the running PublicApi purely over HTTP. The same tests run
+against **either** integration — just point `PUBLICAPI_BASEURL` at whichever one is running.
 
-## Tests (5)
+## Why one suite covers both, and where it can't
 
-| File | Test | Expectation |
+11 endpoints are identical (or near-identical) in route and request shape between the two integrations
+— see `../docs/maxio-billing-controller-comparison.md` for the full route-by-route comparison. This
+suite covers exactly those 11. Where the two integrations' *response* shapes genuinely differ (field
+names, casing, or status codes), tests either:
+- assert only the fields common to both shapes (e.g. `productHandle`, `state` — compared via
+  `TestJson.StatesEqual`, since Plugin renders `on_hold` as `"OnHold"`, not snake_case),
+- read an id via a tolerant getter (`TestJson.GetSubscriptionId` / `GetUsageId` / `GetCustomerId`),
+  since the two integrations use different property names/types for provider ids, or
+- accept a *set* of statuses (e.g. `{422, 502}`) where the two `ExceptionMiddleware`s map the same
+  underlying failure differently.
+
+**Not covered** (parked, `[Fact(Skip=...)]`): `CustomerLookupTests` and `PluginDifferentiatorTests`.
+The customer-lookup-only endpoint (`GET /api/maxio/customers/lookup`) exists only on Plugin — Direct has
+no equivalent — so it doesn't fit this suite's "same endpoint, both integrations" premise. Revisit
+separately if that endpoint gets a Direct-side equivalent.
+
+## Tests (23)
+
+| File | Endpoint | Covers |
 |---|---|---|
-| `ListPlansTests` | success | `200` + both mock products; Gold Plan fields (`id 3858146`, `price_in_cents 1000`, `product_family.id 527890`) |
-| `CustomerLookupTests` | success | `200` + customer object (`id 98765`, `reference cust_12345`) |
-| `CustomerLookupTests` | failure | unknown reference → **`404`** + Maxio `{ "errors": ["Customer not found."] }` (proves exact-status passthrough, not the old `422`) |
-| `SubscriptionTests` | success | `200` + subscription array (`customer.id 98765`, `product.handle "gold"`, `state "active"`) |
-| `SubscriptionTests` | failure | unknown numeric customer id → **`404`** + Maxio `{ "errors": ["Customer not found."] }` |
-
-> `/api/listplans` has no request input (it uses the PublicApi's configured product family), so only a
-> success test is meaningful — a "wrong input parameter" case can't be triggered from the request.
+| `ListPlansTests` | List plans | success only (no caller input to vary) |
+| `FindOrCreateCustomerTests` | Find-or-create customer | success + idempotency on repeat calls; blank-email 400 |
+| `SubscriptionTests` | List customer subscriptions | success; unknown customer → error |
+| `ReadSubscriptionTests` | Read subscription | success; unknown subscription → error |
+| `CreateSubscriptionTests` | Create subscription | success; unknown product; unknown customer |
+| `PauseSubscriptionTests` | Pause subscription | success; already on-hold → error |
+| `ResumeSubscriptionTests` | Resume subscription | success; not on-hold → error |
+| `ReactivateSubscriptionTests` | Reactivate subscription | success; not canceled → error |
+| `CommitPlanChangeTests` | Migrate plan (immediate) | success; unknown product; not-active subscription |
+| `CancelSubscriptionTests` | Cancel subscription | success; already canceled → error |
+| `RecordUsageTests` | Record usage | success; unknown subscription → error |
 
 ## Prerequisites to run end-to-end
 
-The tests call the PublicApi, which in turn calls Maxio. To exercise them against canned data you need
-**three things running/wired**:
-
 1. **The Maxio mock server** (canned Maxio responses on `http://localhost:8080`):
    ```sh
-   cd ../openAPI/MaxioMockServer
+   cd ../MaxioMockServer
    dotnet run
    ```
-   Known data: product family `527890` / `handle:acme-projects`; customer reference `cust_12345` → id
-   `98765`; that customer has one Gold Plan subscription.
+   See `../MaxioMockServer/README.md` for the full set of known ids/handles this suite relies on
+   (product family `527890`, customer `cust_12345`→`98765`, subscriptions `15100121`/`15100210`/`15100299`
+   in active/on_hold/canceled states, component `641814`/`api-calls`).
 
-2. **One eShopOnWeb PublicApi** (Direct *or* Plugin) running, **with its Maxio calls routed to the mock**.
-   The integration repos were intentionally left unmodified, so **redirecting the app's Maxio base URL to
-   `http://localhost:8080` is up to you** (e.g. a local reverse proxy / hosts mapping, or a temporary
-   config/code tweak in your own checkout). The app also needs, under the `Maxio` config section:
-   - `Maxio:ProductFamilyId=527890` **and** `Maxio:ProductFamilyHandle=acme-projects` (so `/api/listplans`
-     resolves to the mock's known family — Plugin uses the id, Direct uses the handle),
-   - any non-empty `Maxio:ApiKey` and `Maxio:Subdomain` (the mock enforces no auth),
-   - `Maxio:SkipStartupValidation=true` (skip the startup metered-component check).
+2. **One eShopOnWeb PublicApi** (Direct *or* Plugin), booted with its Maxio calls routed to the mock. An
+   in-memory-DB boot needs no SQL Server or real Maxio credentials:
+   ```sh
+   # from eShopOnWeb-Plugin/ or eShopOnWeb-Direct/
+   UseOnlyInMemoryDatabase=true ASPNETCORE_URLS=http://localhost:5199 ASPNETCORE_ENVIRONMENT=Development \
+   Maxio__BaseUrl=http://localhost:8080 Maxio__Subdomain=acme Maxio__ApiKey=test-api-key \
+   Maxio__ProductFamilyId=527890 Maxio__ProductFamilyHandle=acme-projects \
+   Maxio__MeteredComponentHandle=api-calls Maxio__MeteredComponentId=641814 \
+   Maxio__SkipStartupValidation=true \
+     dotnet run --project src/PublicApi --no-launch-profile
+   ```
+   `Maxio__SkipStartupValidation` only exists on Direct's `MaxioSettings` (Plugin doesn't verify the
+   metered component at boot, so the setting is a no-op there — harmless to always pass it).
 
 3. **This test project**, pointed at that PublicApi.
 
@@ -68,20 +77,43 @@ The tests call the PublicApi, which in turn calls Maxio. To exercise them agains
 dotnet test
 
 # or target a specific instance / port
-PUBLICAPI_BASEURL=https://localhost:5099 dotnet test
+PUBLICAPI_BASEURL=http://localhost:5199 dotnet test
 ```
 
 ## Configuration (environment variables)
 
-All optional; defaults match the mock's canned data.
+All optional; defaults match the mock's canned data and Plugin's route shapes.
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `PUBLICAPI_BASEURL` | `https://localhost:5099` | Base URL of the PublicApi under test |
+| `LIST_PLANS_PATH` | `/api/maxio/product-families/527890/products` | List-plans route (identical on both integrations) |
+| `RECORD_USAGE_PATH_TEMPLATE` | `/api/maxio/subscriptions/{subscriptionId}/components/1/usages` | Record-usage route — **differs by integration**; set to `/api/maxio/subscriptions/{subscriptionId}/usages` for Direct (no component-id segment) |
 | `KNOWN_CUSTOMER_REFERENCE` | `cust_12345` | A reference the mock resolves |
 | `KNOWN_CUSTOMER_ID` | `98765` | A customer id the mock has subscriptions for |
 | `UNKNOWN_CUSTOMER_REFERENCE` | `no_such_customer_ref` | A reference the mock 404s |
 | `UNKNOWN_CUSTOMER_ID` | `99999999` | A well-formed but unknown numeric customer id |
+| `KNOWN_ACTIVE_SUBSCRIPTION_ID` | `15100121` | The mock's canned active subscription |
+| `KNOWN_ON_HOLD_SUBSCRIPTION_ID` | `15100210` | The mock's canned on-hold subscription |
+| `KNOWN_CANCELED_SUBSCRIPTION_ID` | `15100299` | The mock's canned canceled subscription |
+| `UNKNOWN_SUBSCRIPTION_ID` | `88888888` | A well-formed but unknown numeric subscription id |
+| `KNOWN_PRODUCT_HANDLE` | `gold` | The active subscription's current product |
+| `ALTERNATE_PRODUCT_HANDLE` | `zero-dollar-product` | A second known product, used as a migration target |
+| `UNKNOWN_PRODUCT_HANDLE` | `no-such-plan` | Drives the "unknown product" validation path |
+
+`TRANSIENT_5XX_REFERENCE_PREFIX` / `RATE_LIMIT_REFERENCE_PREFIX` also exist for the parked
+`PluginDifferentiatorTests`.
 
 If the PublicApi isn't reachable, tests fail with a clear message telling you to start it and point it at
 the mock (rather than an opaque connection error).
+
+## Adding tests for a new endpoint
+
+Add a `Tests/*.cs` file with a success case and, where a failure is reachable through valid caller
+input, a failure case. If the two integrations' response shapes differ, add a tolerant getter to
+`TestJson.cs` rather than hardcoding one integration's property names. If the two integrations' error
+statuses differ for the same failure, assert a status *set*, not a single code — trace each client's
+exception-handling path (`MaxioBillingClient.cs` in each `Infrastructure/`) through to its
+`ExceptionMiddleware` to find the real set. Then wire the mock route (see
+`../MaxioMockServer/README.md`) and update `../docs/maxio-billing-controller-comparison.md` if the
+route comparison changes.

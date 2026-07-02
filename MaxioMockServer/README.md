@@ -2,7 +2,8 @@
 
 A tiny ASP.NET Core (.NET 10, Minimal API) mock of the **Maxio Advanced Billing (Chargify)** API,
 for local development/testing of the eShop integration. It serves fixed, spec-shaped responses for
-three read endpoints and logs every request/response.
+the Maxio operations both `MaxioBillingController`s (Direct and Plugin) call, and logs every
+request/response.
 
 Base URL: **`http://localhost:8080`**
 
@@ -12,24 +13,53 @@ Base URL: **`http://localhost:8080`**
 |---------|-------|
 | List available plans (products) | `GET /product_families/{product_family_id}/products.json` |
 | Look up customer by reference | `GET /customers/lookup.json?reference=...` |
+| Create (find-or-create) a customer | `POST /customers.json` |
 | List a customer's subscriptions | `GET /customers/{customer_id}/subscriptions.json` |
+| Read a subscription | `GET /subscriptions/{subscription_id}.json` |
+| Create a subscription | `POST /subscriptions.json` |
+| Pause (hold) a subscription | `POST /subscriptions/{subscription_id}/hold.json` |
+| Resume a subscription | `POST /subscriptions/{subscription_id}/resume.json` |
+| Reactivate a subscription | `PUT /subscriptions/{subscription_id}/reactivate.json` |
+| Migrate a subscription's product | `POST /subscriptions/{subscription_id}/migrations.json` |
+| Cancel a subscription | `DELETE /subscriptions/{subscription_id}.json` |
+| Record usage | `POST /subscriptions/{subscription_id}/components/{component_id}/usages.json` |
+| Read the configured metered component | `GET /product_families/{product_family_id}/components/{component_id}.json` |
 
 Responses match the shapes in `../openapi.yaml` (`Product-Response`, `Customer-Response`,
-`Subscription-Response`, and the `{ "errors": [...] }` error shape).
+`Subscription-Response`, `Usage-Response`, `Component-Response`, and the `{ "errors": [...] }` /
+`{ "error": "..." }` error shapes).
 
 ## Known (canned) identifiers
 
-Responses are **static**. To exercise both success and error paths, the server recognizes a small
-set of known ids — matching ids return the canned payload, everything else returns a `404`:
+Responses are **static**, keyed by known ids/handles that resolve to one of a handful of canned
+states — see `MockStore.cs` for the exact sets:
 
-| Endpoint | Known value(s) → 200 | Anything else → 404 |
-|----------|----------------------|---------------------|
-| products | `527890`, `handle:acme-projects` | `"A valid product_family_id is required"` |
-| customer lookup | `reference=cust_12345` | `{ "errors": ["Customer not found."] }` |
-| subscriptions | `customer_id=98765` | `{ "errors": ["Customer not found."] }` |
+| Known value | Meaning |
+|---|---|
+| Product family `527890` / `handle:acme-projects` | The configured product family |
+| Product handles `gold`, `zero-dollar-product` | The two known plans |
+| Customer reference `cust_12345` → id `98765` | The one pre-existing customer |
+| Subscription `15100121` | **active**, Gold Plan, customer 98765 |
+| Subscription `15100210` | **on_hold** |
+| Subscription `15100299` | **canceled** |
+| Component `641814` / `handle:api-calls` | The configured metered component |
+
+Every subscription-lifecycle action (pause/resume/reactivate/migrate/cancel) only succeeds from the
+canonical "from" state a real Maxio transition would require — e.g. only the **active** subscription
+can be paused or migrated; only the **on_hold** one can be resumed; only the **canceled** one can be
+reactivated. Acting on the wrong id (or a not-in-any-set id) returns the same 422/404 a real Maxio
+call would (see each route's XML doc in `Program.cs` for the exact message). Mutating routes are
+**stateless** — they parse the canonical canned body and return a patched copy (`MockStore.WithState`
+/ `WithProduct`); the stored template is never modified, so results are deterministic across repeated
+calls and test-ordering-independent.
+
+`POST /customers.json` with a reference NOT already known always "creates" successfully with a fixed
+id (`98766`) — repeat calls for the same fresh reference return the same id, mirroring Maxio's real
+per-reference idempotency guarantee. A reference that IS already known (`cust_12345`) is rejected as a
+duplicate (`422`).
 
 The canned data is internally consistent, so a realistic flow works end-to-end:
-lookup `cust_12345` → customer `id: 98765` → list subscriptions for `98765`.
+lookup `cust_12345` → customer `id: 98765` → its one subscription `15100121`.
 
 You can add/edit ids in `MockStore.cs` and payloads in `MockData/*.json`.
 
@@ -50,6 +80,19 @@ Success paths:
 curl http://localhost:8080/product_families/527890/products.json
 curl "http://localhost:8080/customers/lookup.json?reference=cust_12345"
 curl http://localhost:8080/customers/98765/subscriptions.json
+curl http://localhost:8080/subscriptions/15100121.json
+curl -X POST http://localhost:8080/subscriptions/15100121/hold.json
+curl -X POST http://localhost:8080/subscriptions/15100210/resume.json
+curl -X PUT http://localhost:8080/subscriptions/15100299/reactivate.json
+curl -X DELETE http://localhost:8080/subscriptions/15100121.json
+curl -X POST "http://localhost:8080/subscriptions.json" -H 'Content-Type: application/json' \
+  -d '{"subscription":{"customer_id":98765,"product_handle":"gold"}}'
+curl -X POST "http://localhost:8080/subscriptions/15100121/migrations.json" -H 'Content-Type: application/json' \
+  -d '{"migration":{"product_handle":"zero-dollar-product"}}'
+curl -X POST "http://localhost:8080/subscriptions/15100121/components/handle:api-calls/usages.json" \
+  -H 'Content-Type: application/json' -d '{"usage":{"quantity":10,"memo":"test"}}'
+curl -X POST "http://localhost:8080/customers.json" -H 'Content-Type: application/json' \
+  -d '{"customer":{"reference":"new_ref_1","email":"a@b.com"}}'
 ```
 
 Error paths (add `-i` to see the status code):
@@ -60,6 +103,13 @@ curl -i "http://localhost:8080/customers/lookup.json?reference=nope"     # 404 e
 curl -i "http://localhost:8080/customers/lookup.json"                    # 404 missing reference
 curl -i http://localhost:8080/customers/111111/subscriptions.json        # 404 errors body
 curl -i http://localhost:8080/customers/abc/subscriptions.json           # 404 (non-integer id)
+curl -i http://localhost:8080/subscriptions/88888888.json                # 404 unknown subscription
+curl -i -X POST http://localhost:8080/subscriptions/15100210/hold.json   # 422 already on hold
+curl -i -X POST http://localhost:8080/subscriptions/15100121/resume.json # 422 not on hold
+curl -i -X PUT http://localhost:8080/subscriptions/15100121/reactivate.json  # 422 not canceled
+curl -i -X DELETE http://localhost:8080/subscriptions/15100299.json      # 422 already canceled (singular "error" key)
+curl -i -X POST "http://localhost:8080/customers.json" -H 'Content-Type: application/json' \
+  -d '{"customer":{"reference":"cust_12345","email":"a@b.com"}}'         # 422 duplicate reference
 curl -i http://localhost:8080/unknown/route                              # 404 fallback
 ```
 
@@ -78,4 +128,7 @@ not enforce authentication** — all requests are accepted regardless of the `Au
 
 - Query parameters (`page`, `per_page`, `filter[...]`, date filters, `include`) are accepted but
   **not applied** — the static payloads are returned as-is.
-- Only the three routes above are implemented; any other path/method returns a `404` fallback.
+- The mock has no real state machine: mutating routes return a patched copy of a canonical canned
+  subscription rather than tracking a subscription's state across calls (see "Known (canned)
+  identifiers" above for exactly which id transitions succeed).
+- Only the routes documented above are implemented; any other path/method returns a `404` fallback.

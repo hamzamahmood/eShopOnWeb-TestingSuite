@@ -5,12 +5,11 @@ using Xunit;
 namespace MaxioPassthroughApiTests.Tests;
 
 /// <summary>
-/// List plans — <c>MaxioBillingController</c> list-plans endpoint (route configured via
-/// <see cref="TestSettings.ListPlansPath"/>: <c>/api/maxio/products</c> on Direct,
-/// <c>/api/maxio/product-families/{id}/products</c> on Plugin). This endpoint takes no meaningful caller
-/// input (the client always uses the PublicApi's configured product family), so only the success path is
-/// covered. The PublicApi must be configured with the mock's known family (ProductFamilyId=527890 /
-/// ProductFamilyHandle=acme-projects).
+/// List plans — <c>MaxioBillingController</c> list-plans endpoint, identical route on both integrations
+/// (<c>/api/maxio/product-families/{productFamilyId}/products</c>, see <see cref="TestSettings.ListPlansPath"/>).
+/// This endpoint takes no meaningful caller input (the client always uses the PublicApi's configured
+/// product family), so only the success path is covered. The PublicApi must be configured with the mock's
+/// known family (ProductFamilyId=527890 / ProductFamilyHandle=acme-projects).
 ///
 /// <para>
 /// Unlike the old passthrough controller, this endpoint returns a FLATTENED, provider-agnostic DTO — not
