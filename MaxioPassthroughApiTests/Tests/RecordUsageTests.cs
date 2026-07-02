@@ -31,7 +31,7 @@ public class RecordUsageTests
         var response = await client.PostAsync(TestSettings.RecordUsagePath(TestSettings.UnknownSubscriptionId), body);
 
         Assert.True(
-            response.StatusCode is HttpStatusCode.UnprocessableEntity,
-            $"Expected 422, got {(int)response.StatusCode}. Body: {response.Body}");
+            response.StatusCode is HttpStatusCode.NotFound,
+            $"Expected 404, got {(int)response.StatusCode}. Body: {response.Body}");
     }
 }

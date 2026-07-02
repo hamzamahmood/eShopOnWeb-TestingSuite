@@ -8,20 +8,17 @@ Latest test run against both integrations. The suite has been tightened toward P
 
 **Date**: 2026-07-02  
 **Test Command**: `PUBLICAPI_BASEURL=http://localhost:5199 dotnet test`  
-**Initial Result**: ❌ 1 Failure / 25 Passed / 26 Total  
-**After Fix**: ✅ 0 Failures / 26 Passed / 26 Total (test expectation corrected to match actual behavior)
+**Result**: ❌ 1 Failure / 25 Passed / 26 Total (failure is expected/documented, not a bug)
 
-### Failure Findings
+### Expected Failure
 
-Initial test run showed 1 failure:
+| Test | Status | Issue | Classification |
+|---|---|---|---|
+| `RecordUsageTests.Unknown_subscription_yields_an_error_status` | ❌ FAIL | Test expects `404 NotFound`, Plugin returns `422 UnprocessableEntity` | **Known gap — documented, not a bug** |
 
-| Test | Status | Issue |
-|---|---|---|
-| `RecordUsageTests.Unknown_subscription_yields_an_error_status` | ❌ FAIL (before fix) | Test expected `404 NotFound`, Plugin returned `422 UnprocessableEntity` |
+**Root Cause**: The Plugin's `RecordUsageAsync` method (in `eShopOnWeb-Plugin/src/Infrastructure/Services/MaxioBillingClient.cs:220-244`) wraps all SDK errors — including 404 Not Found — as generic `BillingProviderException`, which maps to **422 (Unprocessable Entity)** in the middleware.
 
-**Root Cause**: The Plugin's `RecordUsageAsync` method (in `eShopOnWeb-Plugin/src/Infrastructure/Services/MaxioBillingClient.cs`) wraps all SDK errors — including 404 Not Found — as generic `BillingProviderException`, which maps to **422** in the middleware.
-
-By contrast, `ReadSubscriptionAsync` has special error handling:
+By contrast, `ReadSubscriptionAsync` (line 149–168) has special error handling for 404 responses:
 ```csharp
 catch (SdkException<RawError> ex) when (ex.Error.StatusCode == HttpStatusCode.NotFound)
 {
@@ -29,11 +26,16 @@ catch (SdkException<RawError> ex) when (ex.Error.StatusCode == HttpStatusCode.No
 }
 ```
 
-The `RecordUsageAsync` 404s come back as `SdkException<CreateUsageError>` (typed error), not `RawError`, so the status code is not directly accessible in a simple catch block. Unlike `ReadSubscriptionAsync`, there is no easy way to detect 404 from the typed error response.
+**Why the difference?**
 
-**Fix Applied**: Since adding special 404 handling to `RecordUsageAsync` would require more intrusive changes (parsing the error message or checking error properties), and the behavior is consistent with other typed-error operations in Plugin, the **test expectation was corrected to match the actual behavior**: `RecordUsageTests.Unknown_subscription_yields_an_error_status` now expects **422** instead of 404.
+- `ReadSubscriptionAsync` receives 404s as `SdkException<RawError>` (unstructured error) — the SDK can't parse the response as a typed schema, so it falls back to raw; the catch block inspects `StatusCode` and throws `SubscriptionNotFoundException`.
+- `RecordUsageAsync` receives 404s as `SdkException<CreateUsageError>` (structured error) — the SDK parses Maxio's error response against the `CreateUsageError` type contract, so the typed error has no `StatusCode` property. The first catch block wraps it as `BillingProviderException` (422).
 
-This reflects that **Plugin does not throw `SubscriptionNotFoundException` for usage operations** — only for `ReadSubscription` which has explicit 404 handling.
+**Decision**: The test failure is **intentional and expected** — it documents a real gap in Plugin's error handling. Rather than "fix" the test to match the implementation, the failure serves as a reminder to:
+1. Either implement 404 detection in `RecordUsageAsync` (would require parsing the error body or message), or
+2. Accept that Plugin returns 422 for unknown subscriptions in usage operations (and update the suite/docs to reflect this as intended behavior).
+
+For now, the failure is **documented and accepted**.
 
 ### Passing Tests
 
@@ -49,7 +51,7 @@ This reflects that **Plugin does not throw `SubscriptionNotFoundException` for u
 | Reactivate subscription | `ReactivateSubscriptionTests.Success`, `.Active_subscription_fails` | ✅ PASS |
 | Commit plan change | `CommitPlanChangeTests.Success`, `.Invalid_product_fails`, `.Already_canceled_fails` | ✅ PASS |
 | Cancel subscription | `CancelSubscriptionTests.Success`, `.Already_canceled_fails` | ✅ PASS |
-| Record usage | `RecordUsageTests.Success`, `.Unknown_subscription_yields_an_error_status` (expects 422) | ✅ PASS |
+| Record usage | `RecordUsageTests.Success` | ✅ PASS |
 | Plugin advantage (3 tests) | `PluginAdvantageTests.Missing_subscription_is_404`, `.Concurrent_create_race_recovers`, `.Payment_required_surfaces_typed_error` | ✅ PASS |
 
 ---
@@ -83,11 +85,16 @@ Expected results (based on prior runs):
 
 | Integration | Passed | Failed | Total | Status |
 |---|---|---|---|---|
-| Plugin | 25 | 1 | 26 | ⚠️ Partial |
+| Plugin | 25 | 1 | 26 | ⚠️ Partial (1 documented gap) |
 | Direct | — | — | — | ❓ Not Run |
 
 ### Action Items
 
-1. ✅ **Test Fix Applied**: `RecordUsageTests.Unknown_subscription_yields_an_error_status` now expects **422** (actual Plugin behavior) instead of 404. Plugin only throws `SubscriptionNotFoundException` for `ReadSubscription` operations; other operations wrap errors generically.
-2. **Future Enhancement** (optional): If consistent 404 handling for all operations is desired, add special 404-detection logic to `RecordUsageAsync` (would require parsing `CreateUsageError` or inspecting the error message, more invasive than the `ReadSubscription` approach).
-3. **Direct Test Run**: Run the suite against Direct integration separately (port 5200 or 8000 to avoid conflicts) — expected: 23/26 pass (the 3 `PluginAdvantageTests` fail by design).
+1. **Plugin `RecordUsageAsync` Gap**: The 404 detection in `RecordUsageAsync` is not implemented (unlike `ReadSubscriptionAsync`). This is a known limitation:
+   - **Option A** (Implementation): Add 404-detection logic to `RecordUsageAsync` by parsing the `CreateUsageError` message or inspecting nested properties (more invasive than the `RawError` approach).
+   - **Option B** (Accept as-is): Document that Plugin returns **422** for unknown subscriptions in usage operations, update the test expectation to match.
+   - **Option C** (Unify behavior): Make all operations return 422 for provider errors (currently `ReadSubscriptionAsync` is special-cased).
+   
+2. **Direct Test Run**: Run the suite against Direct integration separately (port 5200 or 8000 to avoid conflicts) — expected: 23/26 pass (the 3 `PluginAdvantageTests` fail by design), and this `RecordUsageTests` failure should also occur on Direct if it has the same limitation.
+
+3. **Test Refinement**: Once a decision is made on the Plugin 404 gap (implement, accept, or unify), update the test expectation accordingly and re-run both integrations.
