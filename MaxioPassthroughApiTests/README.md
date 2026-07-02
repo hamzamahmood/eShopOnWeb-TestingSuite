@@ -22,12 +22,11 @@ names, casing, or status codes), tests either:
 - accept a *set* of statuses (e.g. `{422, 502}`) where the two `ExceptionMiddleware`s map the same
   underlying failure differently.
 
-**Not covered** (parked, `[Fact(Skip=...)]`): `CustomerLookupTests` and `PluginDifferentiatorTests`.
-The customer-lookup-only endpoint (`GET /api/maxio/customers/lookup`) exists only on Plugin — Direct has
-no equivalent — so it doesn't fit this suite's "same endpoint, both integrations" premise. Revisit
-separately if that endpoint gets a Direct-side equivalent.
+**Not covered:** the customer-lookup-only endpoint (`GET /api/maxio/customers/lookup`) exists only on
+Plugin — Direct has no equivalent — so it doesn't fit the shared suite's "same endpoint, both
+integrations" premise. Revisit separately if that endpoint gets a Direct-side equivalent.
 
-## Tests (23)
+## Shared tests (23) — green on both integrations
 
 | File | Endpoint | Covers |
 |---|---|---|
@@ -42,6 +41,23 @@ separately if that endpoint gets a Direct-side equivalent.
 | `CommitPlanChangeTests` | Migrate plan (immediate) | success; unknown product; not-active subscription |
 | `CancelSubscriptionTests` | Cancel subscription | success; already canceled → error |
 | `RecordUsageTests` | Record usage | success; unknown subscription → error |
+
+## Plugin-advantage tests (3) — `PluginAdvantageTests`
+
+Unlike the shared suite (which asserts only the common subset so it stays green on either integration),
+these assert the **superior** behavior of the Plugin (SDK) integration. They are designed to **pass
+against Plugin and FAIL against Direct** — the failure pins the exact behavior Direct lacks. Run the
+suite against Plugin for an all-green result; running it against Direct shows exactly these 3 red.
+
+| Test | Plugin (passes) | Direct (fails) |
+|---|---|---|
+| `Missing_subscription_returns_404_not_found` | Maps Maxio 404 → `SubscriptionNotFoundException` → **404** | No not-found special case → generic `BillingProviderException` → **422** |
+| `Find_or_create_customer_recovers_from_a_concurrent_create_race` | Catches the create conflict and re-reads → **200** with the existing id | No recovery → the conflict surfaces as **422** |
+| `Payment_failure_surfaces_a_typed_payment_verification_error` | Classifies card/payment errors as `PaymentVerificationRequiredException`; body carries "Additional payment information is required…" | Returns Maxio's raw provider messages only — the typed phrase is absent (both statuses are 422) |
+
+Two mock behaviors back these (see `../MaxioMockServer`): a `race_`-prefixed customer reference
+(`RACE_REFERENCE_PREFIX`) and the `card-required` product handle (`PAYMENT_REQUIRED_PRODUCT_HANDLE`).
+The missing-subscription case needs no mock support.
 
 ## Prerequisites to run end-to-end
 
@@ -100,9 +116,14 @@ All optional; defaults match the mock's canned data and Plugin's route shapes.
 | `KNOWN_PRODUCT_HANDLE` | `gold` | The active subscription's current product |
 | `ALTERNATE_PRODUCT_HANDLE` | `zero-dollar-product` | A second known product, used as a migration target |
 | `UNKNOWN_PRODUCT_HANDLE` | `no-such-plan` | Drives the "unknown product" validation path |
+| `RACE_REFERENCE_PREFIX` | `race_` | Prefix for the concurrent-create-race reference used by `PluginAdvantageTests` |
+| `PAYMENT_REQUIRED_PRODUCT_HANDLE` | `card-required` | Product handle that triggers a card/payment 422 on create-subscription (used by `PluginAdvantageTests`) |
 
-`TRANSIENT_5XX_REFERENCE_PREFIX` / `RATE_LIMIT_REFERENCE_PREFIX` also exist for the parked
-`PluginDifferentiatorTests`.
+`TRANSIENT_5XX_REFERENCE_PREFIX` / `RATE_LIMIT_REFERENCE_PREFIX` drive the mock's `retry_` / `ratelimit_`
+transient-failure behaviors. Note these are **not** a Plugin-vs-Direct differentiator: both integrations
+retry idempotent GETs (Direct via a `Microsoft.Extensions.Http.Resilience`/Polly pipeline, Plugin via the
+SDK's default `RetryOptions`), so both recover from a transient 429/503 on the customer-lookup GET. They
+remain as a mock capability, not a current test.
 
 If the PublicApi isn't reachable, tests fail with a clear message telling you to start it and point it at
 the mock (rather than an opaque connection error).

@@ -92,16 +92,19 @@ public static class TestSettings
 
     /// <summary>
     /// Prefix for references whose FIRST mock request fails with a transient <c>503</c> and whose retried
-    /// request succeeds. See <see cref="NewTransient5xxReference"/>. Used by the differentiator suite: the
-    /// Plugin's SDK retries the idempotent GET and recovers (→ 200); the Direct passthrough has no
-    /// resilience pipeline and surfaces the 503.
+    /// request succeeds. See <see cref="NewTransient5xxReference"/>. NOTE: this is not a Plugin-vs-Direct
+    /// differentiator — both integrations retry idempotent GETs (Direct via a
+    /// <c>Microsoft.Extensions.Http.Resilience</c>/Polly pipeline, Plugin via the SDK's default
+    /// <c>RetryOptions</c>), so both recover from the transient failure on the customer-lookup GET. No test
+    /// currently exercises this prefix.
     /// </summary>
     public static string Transient5xxReferencePrefix => Get("TRANSIENT_5XX_REFERENCE_PREFIX", "retry_");
 
     /// <summary>
     /// Prefix for references whose FIRST mock request fails with a <c>429 Too Many Requests</c> (Maxio's
     /// documented rate-limit response) and whose retried request succeeds. See
-    /// <see cref="NewRateLimitReference"/>. Same retry mechanism as <see cref="Transient5xxReferencePrefix"/>.
+    /// <see cref="NewRateLimitReference"/>. Same retry mechanism as <see cref="Transient5xxReferencePrefix"/>
+    /// — and, like it, not a Plugin-vs-Direct differentiator (both integrations retry the idempotent GET).
     /// </summary>
     public static string RateLimitReferencePrefix => Get("RATE_LIMIT_REFERENCE_PREFIX", "ratelimit_");
 
@@ -110,6 +113,26 @@ public static class TestSettings
 
     /// <summary>Builds a fresh <c>429</c> rate-limit reference with a unique nonce for a single test run.</summary>
     public static string NewRateLimitReference() => $"{RateLimitReferencePrefix}{Guid.NewGuid():N}";
+
+    /// <summary>
+    /// Prefix for references that reproduce a find-or-create concurrent-create race: the mock's FIRST lookup
+    /// misses (404) so the caller proceeds to create, the create then loses to a concurrent create (422
+    /// "Reference has already been taken"), and a re-lookup now finds the customer (200). Used by the
+    /// Plugin-advantage suite — the Plugin recovers by re-reading, the Direct client does not. See
+    /// <see cref="NewRaceReference"/>.
+    /// </summary>
+    public static string RaceReferencePrefix => Get("RACE_REFERENCE_PREFIX", "race_");
+
+    /// <summary>Builds a fresh concurrent-create-race reference with a unique nonce for a single test run.</summary>
+    public static string NewRaceReference() => $"{RaceReferencePrefix}{Guid.NewGuid():N}";
+
+    /// <summary>
+    /// A product handle the mock treats as requiring a verified payment method the caller did not supply, so
+    /// <c>createSubscription</c> returns a <c>422</c> with card/payment validation messages. The Plugin
+    /// classifies these as a typed <c>PaymentVerificationRequiredException</c>; the Direct client surfaces
+    /// them generically. Used by the Plugin-advantage suite.
+    /// </summary>
+    public static string PaymentRequiredProductHandle => Get("PAYMENT_REQUIRED_PRODUCT_HANDLE", "card-required");
 
     private static string Get(string key, string fallback)
     {

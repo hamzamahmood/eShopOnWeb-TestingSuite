@@ -16,6 +16,10 @@ var app = builder.Build();
 // Log every incoming request and its response (console + logs/ file).
 app.UseMiddleware<RequestResponseLoggingMiddleware>();
 
+// Reject requests whose bodies violate the Maxio OpenAPI contract (required/type/enum), spec-shaped 422.
+// Runs after logging (so rejections are logged) and before the route handlers.
+app.UseMiddleware<StrictValidationMiddleware>();
+
 // Helpers for spec-shaped bodies.
 // Products endpoint returns a bare JSON string on 404 (per the OpenAPI spec).
 static IResult ProductFamilyNotFound() =>
@@ -50,12 +54,13 @@ app.MapGet("/customers/lookup.json",
         }
 
         // --- Comparison-harness transient-failure behaviors (keyed on the reference) ------------------
-        // Idempotent GETs are retried by the SDK on transient statuses (429/5xx are in its default retry
-        // set); the Direct passthrough is a hand-rolled HttpClient with no resilience pipeline, so it
-        // issues a single request and surfaces the transient error. The FIRST attempt for a given
-        // reference fails transiently; a RETRIED attempt succeeds. Keyed per-reference so a unique nonce
-        // per test run keeps the demonstration independent of test ordering. Gated behind dedicated
-        // prefixes so the existing customer route/tests are unaffected.
+        // The FIRST attempt for a given reference fails transiently (503/429); a RETRIED attempt succeeds.
+        // NOTE: this is NOT a Direct-vs-Plugin differentiator - BOTH integrations retry idempotent GETs
+        // (Direct via a Microsoft.Extensions.Http.Resilience/Polly pipeline in MaxioDependencies.cs,
+        // Plugin via the SDK's default RetryOptions), so both recover from this transient failure on the
+        // customer-lookup GET. Retained as a mock capability only. Keyed per-reference so a unique nonce
+        // per test run keeps it independent of test ordering. Gated behind dedicated prefixes so the
+        // existing customer route/tests are unaffected.
         if (reference.StartsWith("retry_", StringComparison.Ordinal))
         {
             // Generic transient 5xx (e.g. a brief upstream outage).
@@ -76,6 +81,20 @@ app.MapGet("/customers/lookup.json",
             }
 
             return Results.Text(mocks.CustomerJson, "application/json");
+        }
+
+        // --- Concurrent-create race demonstration (see ../MaxioPassthroughApiTests PluginAdvantageTests) ---
+        // The FIRST lookup for a race_ reference misses, so the caller proceeds to create. The create loses to
+        // a "concurrent" create (POST /customers.json below returns 422), after which the customer genuinely
+        // exists - so this re-lookup (which only the Plugin performs, after catching the create conflict)
+        // finds it. Keyed per-reference via NextAttempt so a fresh nonce per run stays order-independent.
+        if (reference.StartsWith("race_", StringComparison.Ordinal))
+        {
+            return mocks.NextAttempt(reference) == 1
+                ? Errors(StatusCodes.Status404NotFound, "Customer not found.")
+                : Results.Text(
+                    MockStore.NewCustomerJson(98767, reference, "race.recovered@example.com", "Race", "Recovered"),
+                    "application/json");
         }
 
         return mocks.KnownCustomerReferences.Contains(reference)
@@ -110,6 +129,14 @@ app.MapPost("/customers.json",
             return Errors(StatusCodes.Status422UnprocessableEntity, "Email address: cannot be blank.");
         }
 
+        // A "concurrent" request created this reference between the caller's lookup (which missed, see the
+        // race_ branch of the lookup route) and this create - Maxio rejects the duplicate. The Plugin recovers
+        // by re-reading; the Direct client surfaces the conflict. See PluginAdvantageTests.
+        if (!string.IsNullOrWhiteSpace(reference) && reference.StartsWith("race_", StringComparison.Ordinal))
+        {
+            return Errors(StatusCodes.Status422UnprocessableEntity, "Reference has already been taken");
+        }
+
         if (!string.IsNullOrWhiteSpace(reference) && mocks.KnownCustomerReferences.Contains(reference))
         {
             return Errors(StatusCodes.Status422UnprocessableEntity, "Reference has already been taken");
@@ -141,6 +168,17 @@ app.MapPost("/subscriptions.json",
         if (customerId is null || !mocks.KnownCustomerIds.Contains(customerId.Value))
         {
             return Errors(StatusCodes.Status422UnprocessableEntity, "Customer: must exist");
+        }
+
+        // A product whose activation requires a verified payment method the caller didn't supply. Maxio
+        // returns a 422 carrying card/payment validation messages. The Plugin classifies these (keyword match)
+        // as a typed PaymentVerificationRequiredException with a user-actionable message; the Direct client
+        // surfaces the raw messages generically. See ../MaxioPassthroughApiTests PluginAdvantageTests.
+        if (string.Equals(productHandle, "card-required", StringComparison.Ordinal))
+        {
+            return Errors(StatusCodes.Status422UnprocessableEntity,
+                "Payment method is required to activate this subscription.",
+                "The credit card on file could not be verified.");
         }
 
         if (string.IsNullOrWhiteSpace(productHandle) || !mocks.KnownProductHandles.Contains(productHandle))

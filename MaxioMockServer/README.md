@@ -58,6 +58,17 @@ id (`98766`) — repeat calls for the same fresh reference return the same id, m
 per-reference idempotency guarantee. A reference that IS already known (`cust_12345`) is rejected as a
 duplicate (`422`).
 
+### Comparison-harness behaviors
+
+A few prefixed/named inputs drive scenarios the `../MaxioPassthroughApiTests` suite uses to contrast the
+two integrations:
+
+| Input | Behavior |
+|---|---|
+| Customer reference `race_*` | Reproduces a concurrent-create race: the **first** `GET /customers/lookup.json` misses (404), `POST /customers.json` then returns `422` "Reference has already been taken", and a **subsequent** lookup returns `200`. Backs `PluginAdvantageTests` — the Plugin recovers by re-reading; the Direct client does not. |
+| Product handle `card-required` on `POST /subscriptions.json` | Returns a `422` with card/payment validation messages, as Maxio would when a subscription needs a verified payment method. The Plugin classifies this as a typed payment-verification error; the Direct client surfaces it generically. |
+| Customer reference `retry_*` / `ratelimit_*` on lookup | First attempt fails transiently (`503` / `429 + Retry-After`), a retried attempt succeeds. **Not** a Direct-vs-Plugin differentiator — both integrations retry idempotent GETs — retained as a capability only. |
+
 The canned data is internally consistent, so a realistic flow works end-to-end:
 lookup `cust_12345` → customer `id: 98765` → its one subscription `15100121`.
 
@@ -119,15 +130,42 @@ Every request and response is logged to the **console** and appended to
 `logs/requests-YYYY-MM-DD.log`. Response bodies are truncated in the log at 2,000 characters
 (the full body is still returned to the client). The `logs/` folder is created automatically.
 
+## Request validation (strict)
+
+Request **bodies** for the mutating endpoints are validated against the Maxio OpenAPI contract
+(`../openAPI/openapi.yaml`) *before* each route's own business logic, by `StrictValidationMiddleware`.
+A request that violates the spec is rejected with a spec-shaped `{ "errors": [ ... ] }` `422`, exactly
+as the real API would. Scope is deliberately spec-faithful:
+
+- the required wrapper key (`customer` / `subscription` / `usage` / `migration`) must be present and an object;
+- fields the spec marks `required` must be present and non-null — only `createCustomer` has any (`first_name`, `last_name`, `email`);
+- when present, a field must match its declared JSON type, and `payment_collection_method` must be one of `automatic` / `remittance` / `prepaid` / `invoice`;
+- **unknown/extra properties are tolerated** — the spec sets no `additionalProperties: false` (e.g. the Plugin sends a `cancel_at_end_of_period` on cancel that the current spec's `Cancellation-Options` doesn't list; the mock accepts it).
+
+Examples (add `-i` to see the `422`):
+
+```sh
+curl -i -X POST http://localhost:8080/subscriptions.json -H 'Content-Type: application/json' -d '{}'
+#  -> {"errors":["Subscription: must be provided."]}
+curl -i -X POST http://localhost:8080/subscriptions.json -H 'Content-Type: application/json' \
+  -d '{"subscription":{"payment_collection_method":"bogus"}}'
+#  -> {"errors":["Payment collection method: must be one of: automatic, remittance, prepaid, invoice."]}
+curl -i -X POST http://localhost:8080/customers.json -H 'Content-Type: application/json' \
+  -d '{"customer":{"email":"a@b.com","last_name":"X"}}'
+#  -> {"errors":["First name: cannot be blank."]}
+```
+
 ## Authentication
 
 The real Maxio API uses HTTP Basic auth (`username` = API key, `password` = `x`). **This mock does
 not enforce authentication** — all requests are accepted regardless of the `Authorization` header.
+(Request-*body* validation is enforced — see "Request validation" above — but auth is not.)
 
 ## Notes / limitations
 
 - Query parameters (`page`, `per_page`, `filter[...]`, date filters, `include`) are accepted but
-  **not applied** — the static payloads are returned as-is.
+  **not applied** — the static payloads are returned as-is. (Request *bodies*, however, are validated —
+  see "Request validation (strict)".)
 - The mock has no real state machine: mutating routes return a patched copy of a canonical canned
   subscription rather than tracking a subscription's state across calls (see "Known (canned)
   identifiers" above for exactly which id transitions succeed).

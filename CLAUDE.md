@@ -218,10 +218,20 @@ Tiny ASP.NET Core **Minimal API** (`Program.cs`, no controllers) that stands in 
 - **Error simulation:** 404 (unknown family/customer/subscription/component, missing `reference`, fallback);
   422 (blank email, duplicate reference, unknown customer/product on create, wrong-state lifecycle action);
   201 on subscription create; cancel of already-canceled 15100299 → 422 with singular `{"error":...}` key.
-- **Transient-failure simulation** on `GET /customers/lookup.json`, keyed on the `reference` prefix (per-ref
-  attempt counter, the only mutable state): `retry_*` → **503 then success**; `ratelimit_*` → **429 (Retry-After:
-  1) then success**. Designed to demo SDK retry vs. hand-rolled passthrough (used by the parked Plugin
-  differentiator tests).
+- **Strict request-body validation** (`Middleware/StrictValidationMiddleware.cs`, runs after logging, before
+  routes): validates mutating-endpoint bodies against the OpenAPI contract — required wrapper key + required
+  attributes (only `createCustomer` requires any: first_name/last_name/email), JSON types, and the
+  `payment_collection_method` enum — returning a spec-shaped `{"errors":[...]}` **422** on violation.
+  **Permissive on unknown fields** (spec sets no `additionalProperties:false`; e.g. Plugin's non-spec
+  `cancel_at_end_of_period` on cancel is tolerated). Transparent to all valid traffic (both integrations pass).
+- **Comparison-harness behaviors:**
+  - `race_*` customer reference → concurrent-create race: lookup 404 on attempt 1, `POST /customers.json`
+    422 "already taken", subsequent lookup 200. Backs `PluginAdvantageTests` (Plugin recovers, Direct doesn't).
+  - `card-required` product handle on `POST /subscriptions.json` → 422 with card/payment messages (Plugin →
+    typed `PaymentVerificationRequiredException`, Direct → generic).
+  - `retry_*`/`ratelimit_*` lookup references → 503/429 then success. **NOT a Direct-vs-Plugin differentiator**
+    — both integrations retry idempotent GETs (Direct via Polly, Plugin via the SDK's `RetryOptions`), so both
+    recover. Retained as a capability; no current test uses it.
 
 ---
 
@@ -245,15 +255,22 @@ run against either integration by pointing at whichever PublicApi is up — ther
 - **`TestJson.cs`** — tolerant readers that bridge the two integrations' differing shapes: `GetSubscriptionId`,
   `GetUsageId`, `GetCustomerId`, and **`StatesEqual`** (strips non-letters + case-insensitive, so Direct's
   `on_hold` matches Plugin's `OnHold`). Use `StatesEqual` for any multi-word state assertion.
-- **`Tests/`** — 11 files, **23 `[Fact]`s**. One file per endpoint, each with a success case (asserts exact
-  status + common flattened fields) and a failure case (asserts a **status set** `{422 Direct, 502 Plugin}`,
-  or `{404 Plugin / 422 Direct}` for read-unknown-subscription, or `{200 Direct / 201 Plugin}` for
-  create-success). Files: `ListPlansTests`, `FindOrCreateCustomerTests`, `SubscriptionTests`,
-  `ReadSubscriptionTests`, `CreateSubscriptionTests`, `PauseSubscriptionTests`, `ResumeSubscriptionTests`,
-  `ReactivateSubscriptionTests`, `CommitPlanChangeTests`, `CancelSubscriptionTests`, `RecordUsageTests`.
-  (`CustomerLookupTests` / `PluginDifferentiatorTests` are described in the README as parked but are **not
-  currently present** — the customer-lookup endpoint exists only on Plugin, out of the "same endpoint on both"
-  scope.)
+- **`Tests/` — 12 files, 26 `[Fact]`s.** Two groups:
+  - **Shared suite (11 files, 23 facts)** — one file per endpoint, each with a success case (exact status +
+    common flattened fields) and a failure case (asserts a **status set** `{422 Direct, 502 Plugin}`, or
+    `{404 Plugin / 422 Direct}` for read-unknown-subscription, or `{200 Direct / 201 Plugin}` for
+    create-success). Green on **both** integrations. Files: `ListPlansTests`, `FindOrCreateCustomerTests`,
+    `SubscriptionTests`, `ReadSubscriptionTests`, `CreateSubscriptionTests`, `PauseSubscriptionTests`,
+    `ResumeSubscriptionTests`, `ReactivateSubscriptionTests`, `CommitPlanChangeTests`, `CancelSubscriptionTests`,
+    `RecordUsageTests`.
+  - **`PluginAdvantageTests` (3 facts)** — assert the **Plugin's superior behavior**, so they **pass on Plugin
+    and FAIL on Direct by design** (the failure pins what Direct lacks): (1) missing subscription → **404** on
+    Plugin vs 422 on Direct; (2) find-or-create **recovers from a concurrent-create race** (200) on Plugin vs
+    422 on Direct; (3) payment failure surfaces a **typed** `PaymentVerificationRequiredException` body
+    ("Additional payment information is required…") on Plugin — absent on Direct (both 422). Backed by the
+    mock's `race_*` reference and `card-required` handle (see MaxioMockServer). New settings:
+    `RACE_REFERENCE_PREFIX` (`race_`), `PAYMENT_REQUIRED_PRODUCT_HANDLE` (`card-required`).
+  - (The customer-lookup endpoint exists only on Plugin, so it stays out of the shared suite's scope.)
 
 ---
 
