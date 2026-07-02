@@ -58,26 +58,47 @@ For now, the failure is **documented and accepted**.
 
 ## Direct Integration Test Results
 
-**Status**: Not run (port conflict during test execution; fixture tear-down issues prevented clean transition)
+**Date**: 2026-07-02  
+**Test Command**: `PUBLICAPI_BASEURL=http://localhost:5199 RECORD_USAGE_PATH_TEMPLATE=/api/maxio/subscriptions/{subscriptionId}/usages dotnet test`  
+**Result**: ❌ 24 Failures / 2 Passed / 26 Total
 
-The Direct integration should be tested separately with the following command:
-```bash
-UseOnlyInMemoryDatabase=true ASPNETCORE_URLS=http://localhost:5200 \
-  ASPNETCORE_ENVIRONMENT=Development \
-  Maxio__BaseUrl=http://localhost:8080 Maxio__Subdomain=acme Maxio__ApiKey=test-api-key \
-  Maxio__ProductFamilyId=527890 Maxio__ProductFamilyHandle=acme-projects \
-  Maxio__MeteredComponentHandle=api-calls Maxio__MeteredComponentId=641814 \
-  Maxio__SkipStartupValidation=true \
-  dotnet run --project src/PublicApi --no-launch-profile &
-# Then in MaxioPassthroughApiTests/:
-PUBLICAPI_BASEURL=http://localhost:5200 \
-  RECORD_USAGE_PATH_TEMPLATE=/api/maxio/subscriptions/{subscriptionId}/usages \
-  dotnet test
-```
+### Summary of Failures
 
-Expected results (based on prior runs):
-- Same 23 endpoint-suite tests should **pass** on Direct
-- The 3 `PluginAdvantageTests` tests should **fail** on Direct (by design) — they assert Plugin-specific behavior
+Direct integration encountered two distinct failure categories:
+
+#### 1. RecordUsageTests (2 tests fail)
+| Test | Error |
+|---|---|
+| `RecordUsageTests.Unknown_subscription_yields_an_error_status` | `NotSupportedException: The 'file' scheme is not supported` |
+| `RecordUsageTests.Known_subscription_records_usage_with_the_given_quantity_and_memo` | `NotSupportedException: The 'file' scheme is not supported` |
+
+**Issue**: The `RECORD_USAGE_PATH_TEMPLATE` environment variable may not be properly configured or contains an invalid file:// URL instead of a valid HTTP path.
+
+#### 2. Circuit Breaker Trip (22 tests fail)
+After the initial RecordUsageTests failure, Direct's Polly circuit breaker trips and remains open for the remaining tests. Error messages:
+- `"The circuit is now open and is not allowing calls"` (500 Internal Server Error)
+- `"The billing provider is currently unavailable"` (502 Bad Gateway)
+
+**Pattern**: 
+- Early tests return 502 Bad Gateway (provider unavailable)
+- Later tests return 500 with circuit breaker open message
+
+**Root cause**: Direct's resilience pipeline (Polly) opens the circuit breaker after the initial HTTP failures from the RecordUsageTests setup issue, and stays open.
+
+### Passing Tests on Direct
+
+Only 2 tests passed (both before circuit breaker opened):
+1. `PluginAdvantageTests.Missing_subscription_returns_404_not_found` — This test is **expected to fail on Direct** (asserts Plugin-only behavior), but ran early enough to get through before circuit opened
+2. One other early test that completed before circuit breaker triggered
+
+### Comparison Summary
+
+| Integration | Passed | Failed | Total | Root Cause |
+|---|---|---|---|---|
+| Plugin | 25 | 1 | 26 | Known gap: RecordUsageAsync doesn't detect 404s (returns 422) |
+| Direct | 2 | 24 | 26 | Critical: RecordUsageTests env var configuration + circuit breaker cascade |
+
+**Critical Issue on Direct**: The test environment setup is broken — the `RECORD_USAGE_PATH_TEMPLATE` variable is causing an early failure that cascades into circuit breaker trips, masking other test results. This must be fixed before Direct can be properly evaluated.
 
 ---
 
@@ -90,11 +111,23 @@ Expected results (based on prior runs):
 
 ### Action Items
 
-1. **Plugin `RecordUsageAsync` Gap**: The 404 detection in `RecordUsageAsync` is not implemented (unlike `ReadSubscriptionAsync`). This is a known limitation:
-   - **Option A** (Implementation): Add 404-detection logic to `RecordUsageAsync` by parsing the `CreateUsageError` message or inspecting nested properties (more invasive than the `RawError` approach).
-   - **Option B** (Accept as-is): Document that Plugin returns **422** for unknown subscriptions in usage operations, update the test expectation to match.
-   - **Option C** (Unify behavior): Make all operations return 422 for provider errors (currently `ReadSubscriptionAsync` is special-cased).
-   
-2. **Direct Test Run**: Run the suite against Direct integration separately (port 5200 or 8000 to avoid conflicts) — expected: 23/26 pass (the 3 `PluginAdvantageTests` fail by design), and this `RecordUsageTests` failure should also occur on Direct if it has the same limitation.
+#### High Priority
 
-3. **Test Refinement**: Once a decision is made on the Plugin 404 gap (implement, accept, or unify), update the test expectation accordingly and re-run both integrations.
+1. **🔴 Direct Test Environment Broken**: The `RECORD_USAGE_PATH_TEMPLATE` environment variable configuration is causing HTTP failures that cascade into Polly circuit breaker trips:
+   - Check how the test fixture expands `{subscriptionId}` — the "file" scheme error suggests variable substitution is creating invalid file:// URLs instead of HTTP paths
+   - Likely issue: The template string is not being interpolated correctly; it may be treated as a literal file path
+   - Fix this before re-running Direct tests; otherwise all results are masked by circuit breaker
+
+#### Medium Priority
+
+2. **Plugin `RecordUsageAsync` 404 Gap**: The Plugin's 404 detection in `RecordUsageAsync` is incomplete (unlike `ReadSubscriptionAsync`). Choose a path forward:
+   - **Option A** (Implementation): Add 404-detection logic to `RecordUsageAsync` by parsing the `CreateUsageError` message or inspecting response properties
+   - **Option B** (Accept as-is): Document that Plugin returns **422** for unknown subscriptions in usage operations, update the test expectation to match
+   - **Option C** (Unify behavior): Make all operations consistent (all either 404 or 422 for provider errors)
+
+#### Low Priority
+
+3. **Circuit Breaker Cascade**: Polly's circuit breaker in Direct is working as intended (fail-fast after repeated failures), but early test failures trigger it for the entire suite. Consider:
+   - Should early fixture failures reset the circuit breaker?
+   - Or should test isolation prevent one test's failures from affecting others?
+   - This is more of a test harness design question than a bug
