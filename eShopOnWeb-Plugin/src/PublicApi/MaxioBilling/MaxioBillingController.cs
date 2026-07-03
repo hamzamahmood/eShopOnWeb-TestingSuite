@@ -22,7 +22,7 @@ namespace Microsoft.eShopWeb.PublicApi.MaxioBilling;
 ///
 /// Error handling: provider/domain failures are thrown by the client as ApplicationCore exceptions and
 /// mapped to HTTP status codes by the global <c>ExceptionMiddleware</c> (SubscriptionNotFound → 404,
-/// PaymentVerificationRequired → 422, MeteredComponentMisconfigured/BillingProvider → 502). This controller
+/// PaymentVerificationRequired → 422, MeteredComponentMisconfigured/BillingProvider → 422). This controller
 /// only adds the input handling the middleware cannot: numeric-id validation and the null-means-absent case.
 ///
 /// Auth: <see cref="AllowAnonymousAttribute"/> is deliberate, matching <c>MaxioPassthroughController</c>.
@@ -141,11 +141,11 @@ public class MaxioBillingController : ControllerBase
     /// <summary>
     /// GET /components/lookup.json?handle={handle} — verifies the CONFIGURED metered component exists, is
     /// metered, and belongs to the configured family. The `handle` query is inert (the configured handle is
-    /// always used). 204 on success; a misconfiguration surfaces as 502 via the middleware.
+    /// always used). 204 on success; a misconfiguration surfaces as 422 via the middleware.
     /// </summary>
     [HttpGet("metered-component/verify")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
-    [ProducesResponseType(StatusCodes.Status502BadGateway)]
+    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> VerifyMeteredComponent([FromQuery(Name = "handle")] string? handle, CancellationToken cancellationToken)
     {
         await _billingClient.VerifyMeteredComponentAsync(cancellationToken);
