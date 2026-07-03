@@ -31,6 +31,10 @@ public sealed class MockStore
     ///   * 15100121 - active (the same subscription surfaced by <see cref="SubscriptionsJson"/>)
     ///   * 15100210 - on_hold
     ///   * 15100299 - canceled
+    ///   * 15100377 - "assessing" (a plausible-but-unknown provider state, not in either integration's known
+    ///     list — used only via the read route to show the Plugin maps drift to a safe default while Direct
+    ///     forwards the raw string; lifecycle actions gate on the three canonical ids, so hold/resume/
+    ///     reactivate/migrate return wrong-state 422s for this id — untested and harmless on the stateless mock)
     /// </summary>
     public FrozenDictionary<int, string> SubscriptionsById { get; }
 
@@ -106,7 +110,8 @@ public sealed class MockStore
         {
             [15100121] = Read("subscription-active.json"),
             [15100210] = Read("subscription-on-hold.json"),
-            [15100299] = Read("subscription-canceled.json")
+            [15100299] = Read("subscription-canceled.json"),
+            [15100377] = Read("subscription-unknown-state.json")
         }.ToFrozenDictionary();
 
         return new MockStore(

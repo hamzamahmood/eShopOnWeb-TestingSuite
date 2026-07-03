@@ -33,6 +33,22 @@ static IResult Errors(int statusCode, params string[] messages) =>
 // for an id outside MockStore.SubscriptionsById.
 static IResult SubscriptionNotFound() => Errors(StatusCodes.Status404NotFound, "Subscription not found.");
 
+// Product handles that simulate a payment/card validation failure on create-subscription -> 422 carrying
+// card/payment validation messages. Each message contains at least one keyword the Plugin's
+// ContainsPaymentKeyword matches (card / payment / 3-d secure / 3d secure / 3ds), so the Plugin classifies
+// every case as a typed PaymentVerificationRequiredException with a user-actionable message; the Direct
+// client surfaces the raw messages generically. See ../MaxioPassthroughApiTests PluginAdvantageTests.
+var paymentFailureHandles = new Dictionary<string, string[]>(StringComparer.Ordinal)
+{
+    ["card-required"] = new[]
+    {
+        "Payment method is required to activate this subscription.",
+        "The credit card on file could not be verified."
+    },
+    ["threeds-required"] = new[] { "3-D Secure authentication is required to complete this payment." },
+    ["card-declined"] = new[] { "The credit card was declined. Payment could not be collected." }
+};
+
 // 1. List available plans -----------------------------------------------------
 //    GET /product_families/{product_family_id}/products.json
 app.MapGet("/product_families/{product_family_id}/products.json",
@@ -171,14 +187,13 @@ app.MapPost("/subscriptions.json",
         }
 
         // A product whose activation requires a verified payment method the caller didn't supply. Maxio
-        // returns a 422 carrying card/payment validation messages. The Plugin classifies these (keyword match)
-        // as a typed PaymentVerificationRequiredException with a user-actionable message; the Direct client
-        // surfaces the raw messages generically. See ../MaxioPassthroughApiTests PluginAdvantageTests.
-        if (string.Equals(productHandle, "card-required", StringComparison.Ordinal))
+        // returns a 422 carrying card/payment validation messages (see paymentFailureHandles above). Kept
+        // BEFORE the known-product-handle check so these non-product handles short-circuit to the payment 422
+        // rather than the generic "Product doesn't exist".
+        if (!string.IsNullOrWhiteSpace(productHandle) &&
+            paymentFailureHandles.TryGetValue(productHandle, out var paymentMessages))
         {
-            return Errors(StatusCodes.Status422UnprocessableEntity,
-                "Payment method is required to activate this subscription.",
-                "The credit card on file could not be verified.");
+            return Errors(StatusCodes.Status422UnprocessableEntity, paymentMessages);
         }
 
         if (string.IsNullOrWhiteSpace(productHandle) || !mocks.KnownProductHandles.Contains(productHandle))

@@ -72,15 +72,18 @@ public class PluginAdvantageTests
     }
 
     /// <summary>
-    /// A payment/card validation failure on create-subscription should surface as a typed, user-actionable
-    /// error. Both integrations return <c>422</c> here, but only the Plugin classifies the card/payment
-    /// messages as a <c>PaymentVerificationRequiredException</c>, whose distinctive message
-    /// ("Additional payment information is required…") it writes into the response body. The Direct client
-    /// returns only Maxio's raw provider messages, so the Plugin-specific phrase is absent — this FAILS on
-    /// Direct on the body assertion.
+    /// Every flavor of payment/card validation failure on create-subscription should surface as the same
+    /// typed, user-actionable error. Both integrations return <c>422</c> here, but only the Plugin classifies
+    /// the card/payment messages (via its keyword matcher) as a <c>PaymentVerificationRequiredException</c>,
+    /// whose distinctive message ("Additional payment information is required…") it writes into the response
+    /// body — regardless of which underlying provider message the mock returns. The Direct client returns
+    /// only Maxio's raw provider messages, so the Plugin-specific phrase is absent — this FAILS on Direct on
+    /// the body assertion for every case. The mock backs one handle per case (see its
+    /// <c>paymentFailureHandles</c> map).
     /// </summary>
-    [Fact]
-    public async Task Payment_failure_surfaces_a_typed_payment_verification_error()
+    [Theory]
+    [MemberData(nameof(PaymentRequiredProductHandles))]
+    public async Task Payment_failure_surfaces_a_typed_payment_verification_error(string productHandle)
     {
         using var client = new ApiClient();
         var body = new
@@ -88,7 +91,7 @@ public class PluginAdvantageTests
             subscription = new
             {
                 customer_id = long.Parse(TestSettings.KnownCustomerId),
-                product_handle = TestSettings.PaymentRequiredProductHandle
+                product_handle = productHandle
             }
         };
 
@@ -97,4 +100,7 @@ public class PluginAdvantageTests
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
         Assert.Contains("Additional payment information is required", response.Body);
     }
+
+    public static IEnumerable<object[]> PaymentRequiredProductHandles() =>
+        TestSettings.PaymentRequiredProductHandles.Select(handle => new object[] { handle });
 }

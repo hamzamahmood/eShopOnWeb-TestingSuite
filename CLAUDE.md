@@ -215,7 +215,8 @@ Tiny ASP.NET Core **Minimal API** (`Program.cs`, no controllers) that stands in 
     `zero-dollar-product` (id 3801242, 0¢).
   - Customer reference **`cust_12345`** → id **98765**. Fresh reference on `POST /customers.json` → fixed id
     98766; known reference → 422 duplicate.
-  - Subscriptions **15100121** (active), **15100210** (on_hold), **15100299** (canceled).
+  - Subscriptions **15100121** (active), **15100210** (on_hold), **15100299** (canceled), and **15100377**
+    (state **`assessing`** — a plausible-but-unknown provider state; read-only, backs `StateDriftTests`).
   - Metered component **641814** / handle **`api-calls`** (in family 527890).
 - **Stateless mutations:** lifecycle/mutating routes parse a canned template and return a **patched copy**
   (`MockStore.WithState`/`WithProduct`) — the stored template is never mutated. Deterministic, order-independent.
@@ -231,11 +232,16 @@ Tiny ASP.NET Core **Minimal API** (`Program.cs`, no controllers) that stands in 
 - **Comparison-harness behaviors:**
   - `race_*` customer reference → concurrent-create race: lookup 404 on attempt 1, `POST /customers.json`
     422 "already taken", subsequent lookup 200. Backs `PluginAdvantageTests` (Plugin recovers, Direct doesn't).
-  - `card-required` product handle on `POST /subscriptions.json` → 422 with card/payment messages (Plugin →
-    typed `PaymentVerificationRequiredException`, Direct → generic).
+  - **Payment-failure product handles** (`paymentFailureHandles` map on `POST /subscriptions.json`, checked
+    before the known-product-handle check) → 422 with card/payment messages (Plugin → typed
+    `PaymentVerificationRequiredException`, Direct → generic). Three handles, each message carrying ≥1 Plugin
+    keyword: `card-required`, `threeds-required`, `card-declined`. Backs the `PluginAdvantageTests` payment
+    `[Theory]`.
+  - **`assessing`** subscription state (id 15100377, read route) → Plugin `MapState` returns `Other`, Direct
+    forwards the raw string. Backs `StateDriftTests`.
   - `retry_*`/`ratelimit_*` lookup references → 503/429 then success. **NOT a Direct-vs-Plugin differentiator**
     — both integrations retry idempotent GETs (Direct via Polly, Plugin via the SDK's `RetryOptions`), so both
-    recover. Retained as a capability; no current test uses it.
+    recover. Backs `RetrySafetyTests` (safety-net: passes on both).
 
 ---
 
@@ -244,8 +250,19 @@ Tiny ASP.NET Core **Minimal API** (`Program.cs`, no controllers) that stands in 
 Standalone **xUnit** black-box HTTP suite (no project references, not in either solution). It runs against
 whichever PublicApi is up (point `PUBLICAPI_BASEURL` at it). The suite has since been **tightened toward
 Plugin expectations** — most facts are still green on both, but create-success (201), read-unknown (404), and
-record-usage-unknown (404), plus the 3 `PluginAdvantageTests`, now assert **Plugin-specific** behavior and
-**fail on Direct** by design. The only mechanical Direct/Plugin knob is `RECORD_USAGE_PATH_TEMPLATE` (route shape).
+record-usage-unknown (404), plus the `PluginAdvantageTests` and the newer advantage tests, now assert
+**Plugin-specific** behavior and **fail on Direct** by design. The only mechanical Direct/Plugin knob is
+`RECORD_USAGE_PATH_TEMPLATE` (route shape).
+
+**Verified live (2026-07-03), both integrations against the mock:** Plugin **37/38 pass** — the sole failure
+is the pre-existing `RecordUsageTests.Unknown_subscription` (asserts 404, Plugin returns 422; unrelated to any
+recent change). Direct **28/38 pass**, **10 by-design failures**: the 6 baseline (create-201, read-unknown-404,
+record-usage-unknown-404, and the 3 original `PluginAdvantageTests`) plus 4 newer ones (2 extra payment
+`[Theory]` cases, `CustomerLookupTests` known-ref, `StateDriftTests`). The safety-net additions
+(`ErrorHygieneTests`, `RetrySafetyTests`) pass on **both**.
+> On Git Bash, do **not** pass `RECORD_USAGE_PATH_TEMPLATE=/api/...` via the `VAR=val` prefix — MSYS rewrites
+> the leading-slash value into a Windows path and the test builds a `file://` URI. Use PowerShell `$env:` (or
+> `MSYS_NO_PATHCONV=1`) for the Direct run.
 
 - **Run:** `dotnet test` (defaults base URL `https://localhost:5099`), or
   `PUBLICAPI_BASEURL=http://localhost:5199 dotnet test` to target a specific instance. `tests.runsettings` is
@@ -262,7 +279,7 @@ record-usage-unknown (404), plus the 3 `PluginAdvantageTests`, now assert **Plug
 - **`TestJson.cs`** — tolerant readers that bridge the two integrations' differing shapes: `GetSubscriptionId`,
   `GetUsageId`, `GetCustomerId`, and **`StatesEqual`** (strips non-letters + case-insensitive, so Direct's
   `on_hold` matches Plugin's `OnHold`). Use `StatesEqual` for any multi-word state assertion.
-- **`Tests/` — 12 files, 26 `[Fact]`s.** Two groups:
+- **`Tests/` — 16 files, 38 test cases.** Three groups:
   - **Endpoint suite (11 files, 23 facts)** — one file per endpoint, each with a success case (exact status +
     common flattened fields) and a failure case. The dual **status-set** assertions were **tightened to single
     statuses** after Plugin's middleware moved `BillingProviderException`→422: provider-error failure cases now
@@ -274,14 +291,24 @@ record-usage-unknown (404), plus the 3 `PluginAdvantageTests`, now assert **Plug
     `PauseSubscriptionTests`, `ResumeSubscriptionTests`, `ReactivateSubscriptionTests`, `CommitPlanChangeTests`,
     `CancelSubscriptionTests`, `RecordUsageTests`. (The per-file XML doc comments that documented the old
     dual-integration design were removed with this change.)
-  - **`PluginAdvantageTests` (3 facts)** — assert the **Plugin's superior behavior**, so they **pass on Plugin
-    and FAIL on Direct by design** (the failure pins what Direct lacks): (1) missing subscription → **404** on
-    Plugin vs 422 on Direct; (2) find-or-create **recovers from a concurrent-create race** (200) on Plugin vs
-    422 on Direct; (3) payment failure surfaces a **typed** `PaymentVerificationRequiredException` body
-    ("Additional payment information is required…") on Plugin — absent on Direct (both 422). Backed by the
-    mock's `race_*` reference and `card-required` handle (see MaxioMockServer). New settings:
-    `RACE_REFERENCE_PREFIX` (`race_`), `PAYMENT_REQUIRED_PRODUCT_HANDLE` (`card-required`).
-  - (The customer-lookup endpoint exists only on Plugin, so it stays out of the shared suite's scope.)
+  - **`PluginAdvantageTests` (2 facts + 1 `[Theory]` of 3 = 5 cases)** — assert the **Plugin's superior
+    behavior**, so they **pass on Plugin and FAIL on Direct by design** (the failure pins what Direct lacks):
+    (1) missing subscription → **404** on Plugin vs 422 on Direct; (2) find-or-create **recovers from a
+    concurrent-create race** (200) on Plugin vs 422 on Direct; (3) a payment `[Theory]` — every payment-failure
+    handle surfaces a **typed** `PaymentVerificationRequiredException` body ("Additional payment information is
+    required…") on Plugin — absent on Direct (all 422). Backed by the mock's `race_*` reference and the
+    `paymentFailureHandles` map (see MaxioMockServer). Settings: `RACE_REFERENCE_PREFIX` (`race_`),
+    `PAYMENT_REQUIRED_PRODUCT_HANDLE` (`card-required`, back-compat), `PAYMENT_REQUIRED_PRODUCT_HANDLES`
+    (`card-required,threeds-required,card-declined`).
+  - **Newer advantage + safety-net files (4 files):**
+    - `CustomerLookupTests` (advantage, 2 facts) — `GET customers/lookup?reference=` known-ref → 200 + id
+      (**fails on Direct**, no route); unknown-ref → 404 (`CustomerLookupPath` builder; Plugin-only endpoint).
+    - `StateDriftTests` (advantage, 1 fact) — unknown provider state `assessing` (id 15100377) → Plugin maps to
+      `Other` (**fails on Direct**, raw `assessing`). Setting: `UNKNOWN_STATE_SUBSCRIPTION_ID` (`15100377`).
+    - `ErrorHygieneTests` (safety-net, `[Theory]` of 5) — every failure body is clean JSON with no
+      internals leaked (forbidden-substring sweep). Passes on **both**.
+    - `RetrySafetyTests` (safety-net, 2 facts) — 429/transient-503 on the find-or-create lookup GET recovers
+      to 200 (uses `NewRateLimitReference()`/`NewTransient5xxReference()`). Passes on **both**.
 
 ---
 

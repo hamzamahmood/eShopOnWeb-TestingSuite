@@ -29,6 +29,14 @@ public static class TestSettings
     /// <summary>Path of the find-or-create-customer endpoint (identical route on both integrations).</summary>
     public static string CustomersPath => "/api/maxio/customers";
 
+    /// <summary>
+    /// Builds the read-only customer-lookup path. This endpoint exists ONLY on the Plugin integration
+    /// (<c>GET /api/maxio/customers/lookup?reference=…</c>, <c>MaxioBillingController.FindCustomerId</c>);
+    /// the Direct integration never built a standalone lookup route, so a known-reference request 404s there.
+    /// </summary>
+    public static string CustomerLookupPath(string reference) =>
+        $"/api/maxio/customers/lookup?reference={Uri.EscapeDataString(reference)}";
+
     /// <summary>Path of the create-subscription endpoint (identical route on both integrations).</summary>
     public static string SubscriptionsPath => "/api/maxio/subscriptions";
 
@@ -80,6 +88,14 @@ public static class TestSettings
 
     /// <summary>A well-formed but unknown numeric subscription id (distinct from <see cref="UnknownCustomerId"/> for clarity).</summary>
     public static string UnknownSubscriptionId => Get("UNKNOWN_SUBSCRIPTION_ID", "88888888");
+
+    /// <summary>
+    /// A canned subscription whose provider <c>state</c> is a plausible-but-unknown value (<c>"assessing"</c>)
+    /// that is in neither integration's known-state list. The Plugin's <c>MapState</c> maps it to the safe
+    /// default <c>Other</c>; the Direct client forwards the raw string. Read-only (see the mock's
+    /// <c>SubscriptionsById</c> note).
+    /// </summary>
+    public static string UnknownStateSubscriptionId => Get("UNKNOWN_STATE_SUBSCRIPTION_ID", "15100377");
 
     /// <summary>The active subscription's current product handle (see <see cref="KnownActiveSubscriptionId"/>).</summary>
     public static string KnownProductHandle => Get("KNOWN_PRODUCT_HANDLE", "gold");
@@ -133,6 +149,17 @@ public static class TestSettings
     /// them generically. Used by the Plugin-advantage suite.
     /// </summary>
     public static string PaymentRequiredProductHandle => Get("PAYMENT_REQUIRED_PRODUCT_HANDLE", "card-required");
+
+    /// <summary>
+    /// All product handles the mock treats as payment/card validation failures (each returns a <c>422</c>
+    /// carrying at least one payment keyword, so the Plugin surfaces the typed
+    /// <c>PaymentVerificationRequiredException</c> for every one). Comma-separated, overridable via
+    /// <c>PAYMENT_REQUIRED_PRODUCT_HANDLES</c>. Superset of <see cref="PaymentRequiredProductHandle"/> (kept
+    /// for back-compat). Used by the Plugin-advantage payment theory.
+    /// </summary>
+    public static IReadOnlyList<string> PaymentRequiredProductHandles =>
+        Get("PAYMENT_REQUIRED_PRODUCT_HANDLES", "card-required,threeds-required,card-declined")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     private static string Get(string key, string fallback)
     {
