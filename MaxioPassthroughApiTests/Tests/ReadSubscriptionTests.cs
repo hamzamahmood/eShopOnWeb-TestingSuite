@@ -30,7 +30,7 @@ public class ReadSubscriptionTests
         var response = await client.GetAsync(TestSettings.SubscriptionPath(TestSettings.UnknownSubscriptionId));
 
         Assert.True(
-            response.StatusCode is HttpStatusCode.NotFound,
-            $"Expected 404 for an unknown subscription id, but got {(int)response.StatusCode}. Body: {response.Body}");
+            response.StatusCode is HttpStatusCode.UnprocessableContent,
+            $"Expected 422 for an unknown subscription id, but got {(int)response.StatusCode}. Body: {response.Body}");
     }
 }
