@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
+    <AssemblyName>MaxioApiTests</AssemblyName>
     <!-- Standalone: this project deliberately lives outside eShopOnWeb-Direct.sln and
          eShopOnWeb-Plugin.sln and has NO project references. It is a black-box HTTP suite that
          drives whichever PublicApi is running. Opt out of any inherited central package management. -->
