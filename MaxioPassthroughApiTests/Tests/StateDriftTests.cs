@@ -16,6 +16,8 @@ namespace MaxioPassthroughApiTests.Tests;
 /// Backed by the mock's canned subscription <see cref="TestSettings.UnknownStateSubscriptionId"/>.
 /// </para>
 /// </summary>
+[Trait(MaxioTraits.Category, MaxioTraits.CategoryPluginAdvantage)]
+[Trait(MaxioTraits.Api, MaxioTraits.ReadSubscription)]
 public class StateDriftTests
 {
     [Fact]

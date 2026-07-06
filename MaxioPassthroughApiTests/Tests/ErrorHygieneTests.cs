@@ -12,6 +12,12 @@ namespace MaxioPassthroughApiTests.Tests;
 /// (The transport-failure path — provider completely down — is out of scope for this batch; it needs the
 /// Plugin transport-error fix and connection-drop simulation.)
 /// </summary>
+[Trait(MaxioTraits.Category, MaxioTraits.CategorySafetyNet)]
+[Trait(MaxioTraits.Api, MaxioTraits.ReadSubscription)]
+[Trait(MaxioTraits.Api, MaxioTraits.HoldSubscription)]
+[Trait(MaxioTraits.Api, MaxioTraits.CreateSubscription)]
+[Trait(MaxioTraits.Api, MaxioTraits.CancelSubscription)]
+[Trait(MaxioTraits.Api, MaxioTraits.MigrateSubscription)]
 public class ErrorHygieneTests
 {
     // Substrings that would betray an internal detail leaking into a response body.

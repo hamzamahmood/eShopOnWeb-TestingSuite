@@ -12,6 +12,8 @@ namespace MaxioPassthroughApiTests.Tests;
 /// is absent. (The unknown-reference case happens to be 404 on Direct too, but only coincidentally — every
 /// path under a missing route is a 404 there.)
 /// </summary>
+[Trait(MaxioTraits.Category, MaxioTraits.CategoryPluginAdvantage)]
+[Trait(MaxioTraits.Api, MaxioTraits.LookupCustomer)]
 public class CustomerLookupTests
 {
     [Fact]

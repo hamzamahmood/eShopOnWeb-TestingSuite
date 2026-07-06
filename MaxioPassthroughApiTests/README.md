@@ -128,10 +128,57 @@ remain as a mock capability, not a current test.
 If the PublicApi isn't reachable, tests fail with a clear message telling you to start it and point it at
 the mock (rather than an opaque connection error).
 
+## Test metadata / reports
+
+Every test carries two xUnit `[Trait]`s (defined once in `MaxioTraits.cs`) so an executor — human, CI, or
+an agent — can tell which Maxio API operation and which category a test belongs to without opening the
+test source. This is metadata only: test bodies still call nothing but the PublicApi over HTTP.
+
+- **`Category`** — `endpoint` (the 11 shared-suite files), `plugin-advantage`, or `safety-net`, mirroring
+  the grouping in `../docs/test-cases-by-integration-2026-07-03.md`.
+- **`MaxioApi`** — the underlying Maxio operation signature, verbatim `METHOD /path` from
+  `../openAPI/openapi.yaml` (e.g. `POST /subscriptions/{subscription_id}/hold.json`). Tests backed by more
+  than one Maxio call (e.g. find-or-create, which does a lookup then a create) carry multiple `MaxioApi`
+  traits.
+
+**xUnit traits do not appear in the default console output and are not reliably written to `.trx`.** Two
+ways to actually make use of them:
+
+- **Filter a run by trait:**
+  ```sh
+  dotnet test --filter "Category=endpoint"
+  dotnet test --filter "MaxioApi=POST /subscriptions/{subscription_id}/hold.json"
+  ```
+- **Get a machine-readable report** via the `JunitXml.TestLogger` package reference — it serializes every
+  trait as a `<property>` on each `<testcase>`:
+  ```sh
+  dotnet test --logger "junit;LogFilePath=maxio-results.xml"
+  ```
+  ```xml
+  <testcase classname="MaxioPassthroughApiTests.Tests.PauseSubscriptionTests" name="Active_subscription_is_paused">
+    <properties>
+      <property name="Category" value="endpoint" />
+      <property name="MaxioApi" value="POST /subscriptions/{subscription_id}/hold.json" />
+    </properties>
+  </testcase>
+  ```
+  A caller parses this XML to join each test's pass/fail with the Maxio operation it targets — e.g. to
+  regenerate the by-integration comparison report programmatically instead of by hand. `tests.runsettings`
+  also declares this logger under `LoggerRunSettings`, so `dotnet test --settings tests.runsettings` (or
+  Rider's "Use specific .runsettings file") emits `maxio-results.xml` with no extra flags.
+
+  `LogFilePath`, when relative, resolves against the working directory `dotnet test` is invoked from — not
+  the build output directory. Running from this folder writes `./maxio-results.xml` here; running from
+  elsewhere (e.g. the repo root) writes it there instead. Pass an absolute path to pin the location
+  regardless of invocation directory: `--logger "junit;LogFilePath=$(pwd)/maxio-results.xml"`.
+
 ## Adding tests for a new endpoint
 
 Add a `Tests/*.cs` file with a success case and, where a failure is reachable through valid caller
-input, a failure case. If the two integrations' response shapes differ, add a tolerant getter to
+input, a failure case. Add the class-level `[Trait(MaxioTraits.Category, …)]` and one or more
+`[Trait(MaxioTraits.Api, …)]` (add a new constant to `MaxioTraits.cs` if the operation isn't already
+listed, matching `../openAPI/openapi.yaml`'s path + method exactly) — see "Test metadata / reports" above.
+If the two integrations' response shapes differ, add a tolerant getter to
 `TestJson.cs` rather than hardcoding one integration's property names. If the two integrations' error
 statuses differ for the same failure, assert a status *set*, not a single code — trace each client's
 exception-handling path (`MaxioBillingClient.cs` in each `Infrastructure/`) through to its

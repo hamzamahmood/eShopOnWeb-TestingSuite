@@ -4,6 +4,8 @@ using Xunit;
 
 namespace MaxioPassthroughApiTests.Tests;
 
+[Trait(MaxioTraits.Category, MaxioTraits.CategoryEndpoint)]
+[Trait(MaxioTraits.Api, MaxioTraits.HoldSubscription)]
 public class PauseSubscriptionTests
 {
     [Fact]

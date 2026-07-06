@@ -23,6 +23,7 @@ namespace MaxioPassthroughApiTests.Tests;
 /// product handle. Case 1 (missing subscription) needs no mock change.
 /// </para>
 /// </summary>
+[Trait(MaxioTraits.Category, MaxioTraits.CategoryPluginAdvantage)]
 public class PluginAdvantageTests
 {
     /// <summary>
@@ -31,6 +32,7 @@ public class PluginAdvantageTests
     /// client has no not-found special case: any 4xx from Maxio becomes a generic <c>BillingProviderException</c>
     /// which its <c>ExceptionMiddleware</c> maps to <c>422 Unprocessable Entity</c> — so this FAILS on Direct.
     /// </summary>
+    [Trait(MaxioTraits.Api, MaxioTraits.ReadSubscription)]
     [Fact]
     public async Task Missing_subscription_returns_404_not_found()
     {
@@ -49,6 +51,8 @@ public class PluginAdvantageTests
     /// (<c>200 OK</c>). The Direct client's <c>EnsureCustomerAsync</c> has no such recovery — the create
     /// conflict surfaces as an error status — so this FAILS on Direct.
     /// </summary>
+    [Trait(MaxioTraits.Api, MaxioTraits.LookupCustomer)]
+    [Trait(MaxioTraits.Api, MaxioTraits.CreateCustomer)]
     [Fact]
     public async Task Find_or_create_customer_recovers_from_a_concurrent_create_race()
     {
@@ -81,6 +85,7 @@ public class PluginAdvantageTests
     /// the body assertion for every case. The mock backs one handle per case (see its
     /// <c>paymentFailureHandles</c> map).
     /// </summary>
+    [Trait(MaxioTraits.Api, MaxioTraits.CreateSubscription)]
     [Theory]
     [MemberData(nameof(PaymentRequiredProductHandles))]
     public async Task Payment_failure_surfaces_a_typed_payment_verification_error(string productHandle)

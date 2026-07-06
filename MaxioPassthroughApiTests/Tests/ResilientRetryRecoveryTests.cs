@@ -13,6 +13,9 @@ namespace MaxioPassthroughApiTests.Tests;
 /// black-box layer we can only observe recovery (a final 200 + customer id), not the in-process attempt/break
 /// counts the old unit test asserted.
 /// </summary>
+[Trait(MaxioTraits.Category, MaxioTraits.CategorySafetyNet)]
+[Trait(MaxioTraits.Api, MaxioTraits.LookupCustomer)]
+[Trait(MaxioTraits.Api, MaxioTraits.CreateCustomer)]
 public class ResilientRetryRecoveryTests
 {
     private const int CallCount = 12;

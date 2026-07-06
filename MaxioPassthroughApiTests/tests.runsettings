@@ -18,4 +18,18 @@
       -->
     </EnvironmentVariables>
   </RunConfiguration>
+
+  <!-- Emits a JUnit XML report (see the JunitXml.TestLogger package reference) whose testcase elements
+       carry a MaxioApi and a Category property per test, see README.md "Test metadata / reports".
+       LogFilePath, when relative, resolves against the working directory `dotnet test` is run from (not
+       the build output directory) — e.g. running from this folder writes ./maxio-results.xml here. -->
+  <LoggerRunSettings>
+    <Loggers>
+      <Logger friendlyName="junit">
+        <Configuration>
+          <LogFilePath>maxio-results.xml</LogFilePath>
+        </Configuration>
+      </Logger>
+    </Loggers>
+  </LoggerRunSettings>
 </RunSettings>

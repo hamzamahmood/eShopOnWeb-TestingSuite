@@ -4,6 +4,9 @@ using Xunit;
 
 namespace MaxioPassthroughApiTests.Tests;
 
+[Trait(MaxioTraits.Category, MaxioTraits.CategoryEndpoint)]
+[Trait(MaxioTraits.Api, MaxioTraits.LookupCustomer)]
+[Trait(MaxioTraits.Api, MaxioTraits.CreateCustomer)]
 public class FindOrCreateCustomerTests
 {
     [Fact]

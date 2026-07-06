@@ -17,6 +17,9 @@ namespace MaxioPassthroughApiTests.Tests;
 /// per run keeps the mock's per-reference attempt counter independent of test ordering.
 /// </para>
 /// </summary>
+[Trait(MaxioTraits.Category, MaxioTraits.CategorySafetyNet)]
+[Trait(MaxioTraits.Api, MaxioTraits.LookupCustomer)]
+[Trait(MaxioTraits.Api, MaxioTraits.CreateCustomer)]
 public class RetrySafetyTests
 {
     [Fact]
