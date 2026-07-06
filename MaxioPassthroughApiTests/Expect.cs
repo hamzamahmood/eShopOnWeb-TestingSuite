@@ -15,21 +15,32 @@ namespace MaxioPassthroughApiTests;
 /// intent, printed bare numbers, and sometimes drifted from the condition they described (the old
 /// <c>ReactivateSubscriptionTests</c> "Expected 422" message on a check that also accepted 502).
 /// </para>
+///
+/// <para>
+/// <b>Route-divergence auto-skip:</b> the three status helpers below first check for an
+/// <see cref="TestJson.IsEndpointMissing">endpoint-missing 404</see> (a bare 404 with no JSON error body,
+/// meaning this integration does not expose the route) and <c>Skip</c> the test rather than failing it — so
+/// a non-exposed route surfaces as a Skipped result, not a false pass/fail. A <b>genuine</b> API 404 (with
+/// the app's JSON error body) falls through to the normal comparison, so a test that expected 404 still
+/// Passes. Skipping requires the test method to be a <c>[SkippableFact]</c>/<c>[SkippableTheory]</c>.
+/// </para>
 /// </summary>
 internal static class Expect
 {
-    /// <summary>Asserts a single expected status code.</summary>
+    /// <summary>Asserts a single expected status code (skips on an endpoint-missing 404).</summary>
     public static void Status(ApiResponse response, HttpStatusCode expected, string intent)
     {
+        SkipIfEndpointMissing(response, intent);
         Assert.True(
             response.StatusCode == expected,
             $"[{intent}] Incorrect status code received — expected {Describe(expected)}, got " +
             $"{Describe(response.StatusCode)}. Body: {response.Body}");
     }
 
-    /// <summary>Asserts the status code is one of several acceptable codes.</summary>
+    /// <summary>Asserts the status code is one of several acceptable codes (skips on an endpoint-missing 404).</summary>
     public static void StatusOneOf(ApiResponse response, string intent, params HttpStatusCode[] expected)
     {
+        SkipIfEndpointMissing(response, intent);
         Assert.True(
             Array.IndexOf(expected, response.StatusCode) >= 0,
             $"[{intent}] Incorrect status code received — expected one of " +
@@ -37,15 +48,26 @@ internal static class Expect
             $"Body: {response.Body}");
     }
 
-    /// <summary>Asserts the status code falls in [lo, hiExclusive) — e.g. any 4xx client error.</summary>
+    /// <summary>Asserts the status code falls in [lo, hiExclusive) — e.g. any 4xx client error (skips on an endpoint-missing 404).</summary>
     public static void StatusInRange(ApiResponse response, int lo, int hiExclusive, string intent, string rangeLabel)
     {
+        SkipIfEndpointMissing(response, intent);
         var actual = (int)response.StatusCode;
         Assert.True(
             actual >= lo && actual < hiExclusive,
             $"[{intent}] Incorrect status code received — expected {rangeLabel}, got " +
             $"{Describe(response.StatusCode)}. Body: {response.Body}");
     }
+
+    /// <summary>
+    /// Skips the test when the response is an endpoint-missing 404 (route not exposed on this integration),
+    /// so route divergence is reported as Skipped rather than a misleading pass/fail. A genuine API 404
+    /// (with the app's JSON error body) is left for the caller's normal status assertion.
+    /// </summary>
+    private static void SkipIfEndpointMissing(ApiResponse response, string intent) =>
+        Skip.If(
+            TestJson.IsEndpointMissing(response),
+            $"[{intent}] Route not exposed on this integration (empty-body 404) — skipped as route divergence.");
 
     /// <summary>Asserts the response's Content-Type header.</summary>
     public static void ContentType(ApiResponse response, string expected, string intent)

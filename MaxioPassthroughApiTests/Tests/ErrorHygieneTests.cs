@@ -26,7 +26,7 @@ public class ErrorHygieneTests
         "System.", "   at ", "Exception", "MaxioAdvancedBilling", "HttpRequestException", "Polly", "StackTrace"
     };
 
-    [Theory]
+    [SkippableTheory]
     [InlineData("read-unknown-subscription")]
     [InlineData("pause-on-hold-subscription")]
     [InlineData("create-unknown-product")]

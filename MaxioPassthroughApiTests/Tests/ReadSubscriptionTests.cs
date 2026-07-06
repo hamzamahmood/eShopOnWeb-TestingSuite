@@ -8,7 +8,7 @@ namespace MaxioPassthroughApiTests.Tests;
 [Trait(MaxioTraits.Api, MaxioTraits.ReadSubscription)]
 public class ReadSubscriptionTests
 {
-    [Fact]
+    [SkippableFact]
     public async Task Known_subscription_returns_its_common_fields()
     {
         const string intent = "Read a known subscription's common fields";
@@ -25,7 +25,7 @@ public class ReadSubscriptionTests
         Expect.NonBlankId(TestJson.GetSubscriptionId(root), "subscription id", intent);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Unknown_subscription_yields_an_error_status()
     {
         const string intent = "Read an unknown subscription";

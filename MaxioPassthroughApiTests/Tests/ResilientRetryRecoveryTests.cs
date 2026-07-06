@@ -20,7 +20,7 @@ public class ResilientRetryRecoveryTests
 {
     private const int CallCount = 12;
 
-    [Fact]
+    [SkippableFact]
     public async Task Recovers_from_intermittent_connection_breaks_across_many_calls()
     {
         using var client = new ApiClient();

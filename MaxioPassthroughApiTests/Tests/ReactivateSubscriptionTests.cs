@@ -8,7 +8,7 @@ namespace MaxioPassthroughApiTests.Tests;
 [Trait(MaxioTraits.Api, MaxioTraits.ReactivateSub)]
 public class ReactivateSubscriptionTests
 {
-    [Fact]
+    [SkippableFact]
     public async Task Canceled_subscription_is_reactivated()
     {
         const string intent = "Reactivate a canceled subscription";
@@ -21,7 +21,7 @@ public class ReactivateSubscriptionTests
         Expect.State(doc.RootElement, "active", intent);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Active_subscription_cannot_be_reactivated()
     {
         const string intent = "Reactivate a subscription that is already active";

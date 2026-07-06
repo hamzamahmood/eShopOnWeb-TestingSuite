@@ -8,7 +8,7 @@ namespace MaxioPassthroughApiTests.Tests;
 [Trait(MaxioTraits.Api, MaxioTraits.RecordUsage)]
 public class RecordUsageTests
 {
-    [Fact]
+    [SkippableFact]
     public async Task Known_subscription_records_usage_with_the_given_quantity_and_memo()
     {
         const string intent = "Record usage with a given quantity and memo on a known subscription";
@@ -25,7 +25,7 @@ public class RecordUsageTests
         Expect.NonBlankId(TestJson.GetUsageId(root), "usage id", intent);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Unknown_subscription_yields_an_error_status()
     {
         const string intent = "Record usage on an unknown subscription";

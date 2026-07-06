@@ -20,7 +20,7 @@ namespace MaxioPassthroughApiTests.Tests;
 [Trait(MaxioTraits.Api, MaxioTraits.ReadSubscription)]
 public class StateDriftTests
 {
-    [Fact]
+    [SkippableFact]
     public async Task Unknown_provider_state_maps_to_a_safe_default()
     {
         const string intent = "Read a subscription whose provider state is unrecognized (Plugin advantage: safe-default mapping)";

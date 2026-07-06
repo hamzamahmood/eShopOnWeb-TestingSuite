@@ -8,7 +8,7 @@ namespace MaxioPassthroughApiTests.Tests;
 [Trait(MaxioTraits.Api, MaxioTraits.ListProducts)]
 public class ListPlansTests
 {
-    [Fact]
+    [SkippableFact]
     public async Task ListPlans_returns_the_configured_familys_plans_with_common_fields()
     {
         const string intent = "List the configured product family's plans with their common fields";

@@ -8,7 +8,7 @@ namespace MaxioPassthroughApiTests.Tests;
 [Trait(MaxioTraits.Api, MaxioTraits.HoldSubscription)]
 public class PauseSubscriptionTests
 {
-    [Fact]
+    [SkippableFact]
     public async Task Active_subscription_is_paused()
     {
         const string intent = "Pause an active subscription";
@@ -24,7 +24,7 @@ public class PauseSubscriptionTests
         Expect.State(doc.RootElement, "on_hold", intent);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Already_on_hold_subscription_yields_an_error_status()
     {
         const string intent = "Pause a subscription that is already on hold";

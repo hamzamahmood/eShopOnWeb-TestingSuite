@@ -16,7 +16,7 @@ namespace MaxioPassthroughApiTests.Tests;
 [Trait(MaxioTraits.Api, MaxioTraits.LookupCustomer)]
 public class CustomerLookupTests
 {
-    [Fact]
+    [SkippableFact]
     public async Task Known_reference_returns_the_customer_id()
     {
         const string intent = "Look up a customer by a known reference (Plugin-only endpoint)";
@@ -29,7 +29,7 @@ public class CustomerLookupTests
         Expect.Equal(TestSettings.KnownCustomerId, TestJson.GetCustomerId(doc.RootElement), "customer id", intent);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Unknown_reference_yields_404_not_found()
     {
         const string intent = "Look up a customer by an unknown reference (Plugin-only endpoint)";

@@ -22,7 +22,7 @@ namespace MaxioPassthroughApiTests.Tests;
 [Trait(MaxioTraits.Api, MaxioTraits.CreateCustomer)]
 public class RetrySafetyTests
 {
-    [Fact]
+    [SkippableFact]
     public async Task Rate_limited_lookup_recovers()
     {
         const string intent = "Recover from a 429 rate limit on the find-or-create lookup";
@@ -45,7 +45,7 @@ public class RetrySafetyTests
         Expect.NonBlankId(customerId, "customer id", intent);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Transient_503_lookup_recovers()
     {
         const string intent = "Recover from a transient 503 on the find-or-create lookup";

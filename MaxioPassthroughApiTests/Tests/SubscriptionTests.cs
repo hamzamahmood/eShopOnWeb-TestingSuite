@@ -8,7 +8,7 @@ namespace MaxioPassthroughApiTests.Tests;
 [Trait(MaxioTraits.Api, MaxioTraits.ListCustomerSubs)]
 public class SubscriptionTests
 {
-    [Fact]
+    [SkippableFact]
     public async Task Known_customer_returns_the_subscriptions_array_with_common_fields()
     {
         const string intent = "List a known customer's subscriptions with their common fields";
@@ -37,7 +37,7 @@ public class SubscriptionTests
         Expect.Equal(JsonValueKind.String, subscription.GetProperty("nextAssessmentAt").ValueKind, "'nextAssessmentAt' field kind", intent);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Unknown_customer_yields_an_error_status()
     {
         const string intent = "List subscriptions for an unknown customer";

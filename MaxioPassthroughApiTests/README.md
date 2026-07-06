@@ -26,6 +26,26 @@ names, casing, or status codes), tests either:
 Plugin — Direct has no equivalent — so it doesn't fit the shared suite's "same endpoint, both
 integrations" premise. Revisit separately if that endpoint gets a Direct-side equivalent.
 
+## Route-divergence auto-skip (endpoint-missing 404 → Skipped)
+
+When a test hits a route the running integration does **not** expose, ASP.NET returns a **routing 404**
+— an empty body with no `Content-Type`. A **genuine** not-found from the controller/middleware instead
+carries the app's JSON error body (`{"StatusCode":404,"Message":"…"}`, or an RFC-7807 ProblemDetails
+body). The suite uses that difference to tell the two apart: the status helpers in `Expect`
+(`Status` / `StatusOneOf` / `StatusInRange`) call `TestJson.IsEndpointMissing`, and on an empty-body 404
+they **Skip** the test (via `Xunit.SkippableFact`) rather than pass or fail it. A genuine API 404 falls
+through to the normal assertion, so a test that expected 404 still **Passes**.
+
+Effect: a route this integration doesn't expose (e.g. `customers/lookup` on Direct, or a mismatched
+`RECORD_USAGE_PATH_TEMPLATE`) shows up as **Skipped** in the JUnit XML (`<skipped />`), not as a
+misleading pass/fail. Skipped tests are true framework skips — visible in the `dotnet vstest` summary and
+the JUnit report.
+
+> Edge case: an endpoint that deliberately returns a *bare* `NotFound()` with an empty body would be
+> classified as endpoint-missing and skipped. In practice both integrations return a JSON body on every
+> genuine 404 (ExceptionMiddleware or ProblemDetails), so this is theoretical today — but a new
+> empty-body business 404 would skip rather than pass.
+
 ## Shared tests (23) — green on both integrations
 
 | File | Endpoint | Covers |

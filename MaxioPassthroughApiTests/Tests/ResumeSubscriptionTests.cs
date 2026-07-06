@@ -8,7 +8,7 @@ namespace MaxioPassthroughApiTests.Tests;
 [Trait(MaxioTraits.Api, MaxioTraits.ResumeSubscription)]
 public class ResumeSubscriptionTests
 {
-    [Fact]
+    [SkippableFact]
     public async Task On_hold_subscription_is_resumed()
     {
         const string intent = "Resume an on-hold subscription";
@@ -21,7 +21,7 @@ public class ResumeSubscriptionTests
         Expect.State(doc.RootElement, "active", intent);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Active_subscription_cannot_be_resumed()
     {
         const string intent = "Resume a subscription that is already active";

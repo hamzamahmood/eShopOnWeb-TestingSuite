@@ -8,7 +8,7 @@ namespace MaxioPassthroughApiTests.Tests;
 [Trait(MaxioTraits.Api, MaxioTraits.CancelSubscription)]
 public class CancelSubscriptionTests
 {
-    [Fact]
+    [SkippableFact]
     public async Task Active_subscription_is_canceled()
     {
         const string intent = "Cancel an active subscription immediately";
@@ -22,7 +22,7 @@ public class CancelSubscriptionTests
         Expect.State(doc.RootElement, "canceled", intent);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Already_canceled_subscription_yields_an_error_status()
     {
         const string intent = "Cancel a subscription that is already canceled";

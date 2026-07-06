@@ -33,7 +33,7 @@ public class PluginAdvantageTests
     /// which its <c>ExceptionMiddleware</c> maps to <c>422 Unprocessable Entity</c> — so this FAILS on Direct.
     /// </summary>
     [Trait(MaxioTraits.Api, MaxioTraits.ReadSubscription)]
-    [Fact]
+    [SkippableFact]
     public async Task Missing_subscription_returns_404_not_found()
     {
         const string intent = "Read a missing subscription (Plugin advantage: REST-correct 404 vs Direct's 422)";
@@ -54,7 +54,7 @@ public class PluginAdvantageTests
     /// </summary>
     [Trait(MaxioTraits.Api, MaxioTraits.LookupCustomer)]
     [Trait(MaxioTraits.Api, MaxioTraits.CreateCustomer)]
-    [Fact]
+    [SkippableFact]
     public async Task Find_or_create_customer_recovers_from_a_concurrent_create_race()
     {
         const string intent = "Recover find-or-create from a concurrent create race (Plugin advantage)";
@@ -88,7 +88,7 @@ public class PluginAdvantageTests
     /// <c>paymentFailureHandles</c> map).
     /// </summary>
     [Trait(MaxioTraits.Api, MaxioTraits.CreateSubscription)]
-    [Theory]
+    [SkippableTheory]
     [MemberData(nameof(PaymentRequiredProductHandles))]
     public async Task Payment_failure_surfaces_a_typed_payment_verification_error(string productHandle)
     {

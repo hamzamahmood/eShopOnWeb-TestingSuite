@@ -8,7 +8,7 @@ namespace MaxioPassthroughApiTests.Tests;
 [Trait(MaxioTraits.Api, MaxioTraits.CreateSubscription)]
 public class CreateSubscriptionTests
 {
-    [Fact]
+    [SkippableFact]
     public async Task Known_customer_and_product_creates_a_subscription()
     {
         const string intent = "Create a subscription for a known customer and product";
@@ -33,7 +33,7 @@ public class CreateSubscriptionTests
         Expect.NonBlankId(TestJson.GetSubscriptionId(root), "subscription id", intent);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Unknown_product_handle_yields_an_error_status()
     {
         const string intent = "Create a subscription with an unknown product handle";
@@ -52,7 +52,7 @@ public class CreateSubscriptionTests
         Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task Unknown_customer_id_yields_an_error_status()
     {
         const string intent = "Create a subscription for an unknown customer id";
