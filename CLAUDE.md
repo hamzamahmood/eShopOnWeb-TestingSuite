@@ -249,17 +249,22 @@ Tiny ASP.NET Core **Minimal API** (`Program.cs`, no controllers) that stands in 
 
 Standalone **xUnit** black-box HTTP suite (no project references, not in either solution). It runs against
 whichever PublicApi is up (point `PUBLICAPI_BASEURL` at it). The suite has since been **tightened toward
-Plugin expectations** — most facts are still green on both, but create-success (201), read-unknown (404), and
-record-usage-unknown (404), plus the `PluginAdvantageTests` and the newer advantage tests, now assert
-**Plugin-specific** behavior and **fail on Direct** by design. The only mechanical Direct/Plugin knob is
-`RECORD_USAGE_PATH_TEMPLATE` (route shape).
+Plugin expectations** — most facts are still green on both, but create-success (201), read-unknown (404), plus
+the `PluginAdvantageTests` and the newer advantage tests, now assert **Plugin-specific** behavior and **fail on
+Direct** by design. The only mechanical Direct/Plugin knob is `RECORD_USAGE_PATH_TEMPLATE` (route shape).
 
-**Verified live (2026-07-03), both integrations against the mock:** Plugin **37/38 pass** — the sole failure
-is the pre-existing `RecordUsageTests.Unknown_subscription` (asserts 404, Plugin returns 422; unrelated to any
-recent change). Direct **28/38 pass**, **10 by-design failures**: the 6 baseline (create-201, read-unknown-404,
-record-usage-unknown-404, and the 3 original `PluginAdvantageTests`) plus 4 newer ones (2 extra payment
-`[Theory]` cases, `CustomerLookupTests` known-ref, `StateDriftTests`). The safety-net additions
-(`ErrorHygieneTests`, `RetrySafetyTests`) pass on **both**.
+**Verified live (2026-07-06), both integrations against the mock:** Plugin **39/39 pass** (fully green).
+Direct **29/39 pass**, **8 by-design failures**: `CreateSubscriptionTests.Known_customer_and_product_creates_a_subscription`
+(201 vs Direct's 200), `ReadSubscriptionTests.Unknown_subscription_yields_an_error_status` (404 vs Direct's
+422), and the 6 `PluginAdvantageTests`/`StateDriftTests` advantage cases. Plus **2 skipped** (`CustomerLookupTests`,
+both facts — route-divergence auto-skip, no route on Direct). The safety-net additions (`ErrorHygieneTests`,
+`RetrySafetyTests`, `ResilientRetryRecoveryTests`) pass on **both**.
+
+`RecordUsageTests.Unknown_subscription_yields_an_error_status` and
+`ReactivateSubscriptionTests.Active_subscription_cannot_be_reactivated` were live-verified (both integrations)
+to return **422**, not the previously asserted 404 / hedged `{422, 502}` — see
+`docs/maxio-error-code-divergence-mock-vs-tests.md`. Both are now pinned to 422 and pass on **both**
+integrations; they are no longer part of any by-design-failure set.
 > On Git Bash, do **not** pass `RECORD_USAGE_PATH_TEMPLATE=/api/...` via the `VAR=val` prefix — MSYS rewrites
 > the leading-slash value into a Windows path and the test builds a `file://` URI. Use PowerShell `$env:` (or
 > `MSYS_NO_PATHCONV=1`) for the Direct run.
@@ -279,18 +284,22 @@ record-usage-unknown-404, and the 3 original `PluginAdvantageTests`) plus 4 newe
 - **`TestJson.cs`** — tolerant readers that bridge the two integrations' differing shapes: `GetSubscriptionId`,
   `GetUsageId`, `GetCustomerId`, and **`StatesEqual`** (strips non-letters + case-insensitive, so Direct's
   `on_hold` matches Plugin's `OnHold`). Use `StatesEqual` for any multi-word state assertion.
-- **`Tests/` — 16 files, 38 test cases.** Three groups:
+- **`Tests/` — 17 files, 39 test cases.** Three groups:
   - **Endpoint suite (11 files, 23 facts)** — one file per endpoint, each with a success case (exact status +
     common flattened fields) and a failure case. The dual **status-set** assertions were **tightened to single
     statuses** after Plugin's middleware moved `BillingProviderException`→422: provider-error failure cases now
     assert exactly **422** (still green on both, since Direct's 4xx-origin `BillingProviderException` is also
-    422). But three cases were narrowed to **Plugin-only** expectations and will **fail on Direct**:
-    create-success asserts **201** (Direct returns 200), read-unknown-subscription asserts **404** (Direct 422),
-    and record-usage-unknown-subscription asserts **404** (Direct 422). Files: `ListPlansTests`,
+    422) — including `ReactivateSubscriptionTests`, whose `{422, 502}` hedge was dropped once live verification
+    confirmed 502 is unreachable for that case on either integration. But two cases were narrowed to
+    **Plugin-only** expectations and will **fail on Direct**: create-success asserts **201** (Direct returns
+    200), and read-unknown-subscription asserts **404** (Direct 422). Files: `ListPlansTests`,
     `FindOrCreateCustomerTests`, `SubscriptionTests`, `ReadSubscriptionTests`, `CreateSubscriptionTests`,
     `PauseSubscriptionTests`, `ResumeSubscriptionTests`, `ReactivateSubscriptionTests`, `CommitPlanChangeTests`,
-    `CancelSubscriptionTests`, `RecordUsageTests`. (The per-file XML doc comments that documented the old
-    dual-integration design were removed with this change.)
+    `CancelSubscriptionTests`, `RecordUsageTests`. `RecordUsageTests.Unknown_subscription_yields_an_error_status`
+    asserts **422**, not 404 — neither integration's record-usage path classifies Maxio's 404 into a typed
+    not-found exception the way `ReadSubscriptionAsync` does, so it isn't part of the Plugin-only set either;
+    it's green on **both**. (The per-file XML doc comments that documented the old dual-integration design were
+    removed with this change.)
   - **`PluginAdvantageTests` (2 facts + 1 `[Theory]` of 3 = 5 cases)** — assert the **Plugin's superior
     behavior**, so they **pass on Plugin and FAIL on Direct by design** (the failure pins what Direct lacks):
     (1) missing subscription → **404** on Plugin vs 422 on Direct; (2) find-or-create **recovers from a
@@ -300,15 +309,19 @@ record-usage-unknown-404, and the 3 original `PluginAdvantageTests`) plus 4 newe
     `paymentFailureHandles` map (see MaxioMockServer). Settings: `RACE_REFERENCE_PREFIX` (`race_`),
     `PAYMENT_REQUIRED_PRODUCT_HANDLE` (`card-required`, back-compat), `PAYMENT_REQUIRED_PRODUCT_HANDLES`
     (`card-required,threeds-required,card-declined`).
-  - **Newer advantage + safety-net files (4 files):**
-    - `CustomerLookupTests` (advantage, 2 facts) — `GET customers/lookup?reference=` known-ref → 200 + id
-      (**fails on Direct**, no route); unknown-ref → 404 (`CustomerLookupPath` builder; Plugin-only endpoint).
+  - **Newer advantage + safety-net files (5 files):**
+    - `CustomerLookupTests` (advantage, 2 facts) — `GET customers/lookup?reference=` known-ref → 200 + id;
+      unknown-ref → 404 (`CustomerLookupPath` builder; Plugin-only endpoint). Both facts are **Skipped on
+      Direct** (route-divergence auto-skip — no route there — not a fail), and pass on Plugin.
     - `StateDriftTests` (advantage, 1 fact) — unknown provider state `assessing` (id 15100377) → Plugin maps to
       `Other` (**fails on Direct**, raw `assessing`). Setting: `UNKNOWN_STATE_SUBSCRIPTION_ID` (`15100377`).
     - `ErrorHygieneTests` (safety-net, `[Theory]` of 5) — every failure body is clean JSON with no
       internals leaked (forbidden-substring sweep). Passes on **both**.
     - `RetrySafetyTests` (safety-net, 2 facts) — 429/transient-503 on the find-or-create lookup GET recovers
       to 200 (uses `NewRateLimitReference()`/`NewTransient5xxReference()`). Passes on **both**.
+    - `ResilientRetryRecoveryTests` (safety-net, 1 fact) — 12 back-to-back find-or-create calls each hitting a
+      simulated transport-level connection break on the lookup GET's first attempt; the retry pipeline recovers
+      every time. Passes on **both**.
 
 ---
 

@@ -71,7 +71,11 @@ public static class TestSettings
     /// <summary>A reference the mock does NOT know (drives Maxio's 404 path).</summary>
     public static string UnknownCustomerReference => Get("UNKNOWN_CUSTOMER_REFERENCE", "no_such_customer_ref");
 
-    /// <summary>A well-formed but unknown numeric customer id (numeric so both integrations behave identically).</summary>
+    /// <summary>
+    /// A well-formed but unknown numeric customer id (numeric so both integrations behave identically). The
+    /// mock answers with a 404, but list-customer-subscriptions has no typed not-found exception on either
+    /// integration, so the controller remaps it to 422 before it reaches the caller.
+    /// </summary>
     public static string UnknownCustomerId => Get("UNKNOWN_CUSTOMER_ID", "99999999");
 
     /// <summary>Builds a fresh, never-before-seen customer reference for a find-or-create-customer test run.</summary>

@@ -18,9 +18,12 @@ names, casing, or status codes), tests either:
 - assert only the fields common to both shapes (e.g. `productHandle`, `state` — compared via
   `TestJson.StatesEqual`, since Plugin renders `on_hold` as `"OnHold"`, not snake_case),
 - read an id via a tolerant getter (`TestJson.GetSubscriptionId` / `GetUsageId` / `GetCustomerId`),
-  since the two integrations use different property names/types for provider ids, or
-- accept a *set* of statuses (e.g. `{422, 502}`) where the two `ExceptionMiddleware`s map the same
-  underlying failure differently.
+  since the two integrations use different property names/types for provider ids.
+
+Every shared-suite status assertion pins the single status code verified live on both integrations —
+`Expect.StatusOneOf` exists in `Expect.cs` for a set of acceptable codes, but nothing in the suite
+currently needs it (an earlier `ReactivateSubscriptionTests` case hedged `{422, 502}` without live
+verification; live-checked, both integrations return 422, so it's pinned to that single code now).
 
 **Not covered:** the customer-lookup-only endpoint (`GET /api/maxio/customers/lookup`) exists only on
 Plugin — Direct has no equivalent — so it doesn't fit the shared suite's "same endpoint, both

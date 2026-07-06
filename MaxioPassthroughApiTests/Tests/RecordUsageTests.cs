@@ -34,6 +34,10 @@ public class RecordUsageTests
 
         var response = await client.PostAsync(TestSettings.RecordUsagePath(TestSettings.UnknownSubscriptionId), body);
 
-        Expect.Status(response, HttpStatusCode.NotFound, intent);
+        // Unlike ReadSubscriptionAsync, neither integration's record-usage path classifies Maxio's 404 into a
+        // typed not-found exception — both fall through to the generic BillingProviderException -> 422 mapping.
+        // The mock itself returns a clean 404 here (see docs/maxio-mock-server-error-codes.md #12); it's just
+        // unreachable through either controller. Verified live on both integrations.
+        Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
     }
 }

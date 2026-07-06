@@ -29,6 +29,8 @@ public class ReactivateSubscriptionTests
 
         var response = await client.PutAsync(TestSettings.ReactivateSubscriptionPath(TestSettings.KnownActiveSubscriptionId));
 
-        Expect.StatusOneOf(response, intent, HttpStatusCode.UnprocessableEntity, HttpStatusCode.BadGateway);
+        // The mock's reactivate-ineligible response is always 422 (a 4xx-origin Maxio error), which both
+        // integrations' exception mapping turns into 422 — verified live on both. No 502 path is reachable here.
+        Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
     }
 }
