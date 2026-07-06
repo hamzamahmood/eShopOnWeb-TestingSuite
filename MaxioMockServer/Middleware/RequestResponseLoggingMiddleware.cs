@@ -52,17 +52,32 @@ public sealed class RequestResponseLoggingMiddleware
             buffer.Position = 0;
             var responseText = await new StreamReader(buffer, Encoding.UTF8, leaveOpen: true).ReadToEndAsync();
 
-            var loggedBody = Truncate(responseText, MaxLoggedBodyChars);
-            var responseLine =
-                $"<-- {context.Response.StatusCode} {request.Method} {request.Path}{query} " +
-                $"({buffer.Length} bytes) {loggedBody}";
+            // An aborted connection (e.g. a simulated connection break) never wrote a real status line -
+            // context.Response.StatusCode is just its unset default (200), which would misleadingly log as
+            // a normal 200-with-no-body response. Log it plainly as ABORTED instead.
+            var responseLine = context.RequestAborted.IsCancellationRequested
+                ? $"<-- ABORTED {request.Method} {request.Path}{query} (connection reset, 0 bytes sent)"
+                : $"<-- {context.Response.StatusCode} {request.Method} {request.Path}{query} " +
+                  $"({buffer.Length} bytes) {Truncate(responseText, MaxLoggedBodyChars)}";
             _logger.LogInformation("{ResponseLine}", responseLine);
 
             WriteToFile(requestLine, responseLine);
 
-            // Stream the buffered response back to the real network stream.
+            // Stream the buffered response back to the real network stream - unless the connection was
+            // aborted (e.g. a simulated connection break via HttpContext.Abort()), in which case there is
+            // nothing left to write to.
             buffer.Position = 0;
-            await buffer.CopyToAsync(originalBody);
+            if (!context.RequestAborted.IsCancellationRequested)
+            {
+                try
+                {
+                    await buffer.CopyToAsync(originalBody);
+                }
+                catch (Exception ex) when (ex is IOException or OperationCanceledException)
+                {
+                    // Connection is gone; nothing more to do.
+                }
+            }
         }
         finally
         {

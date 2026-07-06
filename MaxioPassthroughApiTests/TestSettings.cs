@@ -131,6 +131,17 @@ public static class TestSettings
     public static string NewRateLimitReference() => $"{RateLimitReferencePrefix}{Guid.NewGuid():N}";
 
     /// <summary>
+    /// Prefix for references whose FIRST mock lookup is interrupted by a simulated transport-level connection
+    /// break (the mock resets the connection) and whose retried lookup succeeds. Exercises the client's
+    /// retry-on-transport-error recovery end-to-end. Not a Plugin-vs-Direct differentiator (both retry the
+    /// idempotent GET). See <see cref="NewConnectionInterruptReference"/>.
+    /// </summary>
+    public static string ConnectionInterruptReferencePrefix => Get("CONNECTION_INTERRUPT_REFERENCE_PREFIX", "connbreak_");
+
+    /// <summary>Builds a fresh connection-interruption reference with a unique nonce for a single test run.</summary>
+    public static string NewConnectionInterruptReference() => $"{ConnectionInterruptReferencePrefix}{Guid.NewGuid():N}";
+
+    /// <summary>
     /// Prefix for references that reproduce a find-or-create concurrent-create race: the mock's FIRST lookup
     /// misses (404) so the caller proceeds to create, the create then loses to a concurrent create (422
     /// "Reference has already been taken"), and a re-lookup now finds the customer (200). Used by the

@@ -99,6 +99,28 @@ app.MapGet("/customers/lookup.json",
             return Results.Text(mocks.CustomerJson, "application/json");
         }
 
+        // Simulate a transport-level connection interruption (the client's HttpClient sees a reset ->
+        // HttpRequestException) on every 4th attempt across ALL connbreak_ references - a stable 25% failure
+        // rate, spaced 4 attempts apart so a single retry always recovers it. Deliberately mirrors the old
+        // white-box FlakyHttpMessageHandler (see ../MaxioPassthroughApiTests ResilientRetryRecoveryTests),
+        // which used the SAME ratio/spacing for the SAME reason: a per-reference one-shot break (fresh
+        // reference always fails its first attempt) makes EVERY call in a multi-call loop fail at least once,
+        // which is enough consecutive transport failures to trip Direct's Polly circuit breaker even though
+        // each individual call's retry recovers - a false negative, not a resilience gap. Keying on a fixed
+        // shared counter instead of the reference reproduces the original's proven-safe failure ratio. NOT a
+        // Direct-vs-Plugin differentiator - both integrations retry idempotent GETs and recover (Direct via a
+        // Polly pipeline, Plugin via the SDK's RetryOptions).
+        if (reference.StartsWith("connbreak_", StringComparison.Ordinal))
+        {
+            if (mocks.NextAttempt("connbreak-global-counter") % 4 == 0)
+            {
+                ctx.Abort(); // reset the TCP connection - no response bytes written
+                return Results.Empty;
+            }
+
+            return Results.Text(mocks.CustomerJson, "application/json");
+        }
+
         // --- Concurrent-create race demonstration (see ../MaxioPassthroughApiTests PluginAdvantageTests) ---
         // The FIRST lookup for a race_ reference misses, so the caller proceeds to create. The create loses to
         // a "concurrent" create (POST /customers.json below returns 422), after which the customer genuinely
