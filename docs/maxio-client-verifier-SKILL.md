@@ -65,7 +65,8 @@ this is. Read the files below and treat them as ground truth.
   endpoint is a thin HTTP surface over the method.
 - `docs/maxio-billing-service-route-map.md` — the authoritative route table.
 - The compiled **verification test suite (a prebuilt DLL)**. Its exact filename is
-  provided in the invoking prompt; do not assume a fixed name — use the one given.
+  provided in the invoking prompt; do not assume a fixed name — use the one given. Its
+  JUnit logger and dependency assemblies ship alongside it in the same folder.
 
 
 **Naming convention for the rest of this skill:** wherever the text below says
@@ -211,19 +212,25 @@ beforehand) at `http://localhost:8080`. Ensure the `MaxioBillingTestApi` project
 `VAR=value cmd` prefixes are bash-only — set env vars with `$env:VAR='value'`
 first, or use the Bash tool.
 
-**Run the tests from the prebuilt DLL.** The test project's *source is not present
-in this environment* — only its compiled assembly (DLL) is available, and its exact
-filename is supplied in the invoking prompt. Do not look for a test `.csproj` to
-`dotnet test`; instead run the compiled assembly directly with the VSTest runner:
+**Run the tests from the prebuilt DLL, emitting a JUnit XML report.** The test
+project's *source is not present in this environment* — only its compiled assembly
+(DLL) is available, and its exact filename is supplied in the invoking prompt. Do not
+look for a test `.csproj` to `dotnet test`; instead run the compiled assembly directly
+with the VSTest runner and the JUnit logger:
 
-- Run the assembly with `dotnet vstest "<path-to-test-dll>"` (substitute the DLL
-  filename given in the prompt). Do **not** use `dotnet test` — that command is for
-  project/solution sources, which are not present here.
-- Point `PUBLICAPI_BASEURL` at the running `MaxioBillingTestApi` URL (e.g.
-  `http://localhost:5199`). Note: `PUBLICAPI_BASEURL` is the test suite's fixed
-  env-var name for "the controller under test" — despite the `PUBLICAPI_` prefix it
-  must point at `MaxioBillingTestApi`, **not** the eShop `PublicApi`. **Leave
-  `RECORD_USAGE_PATH_TEMPLATE` at its default — do not override it.**
+- Run the assembly with the JUnit logger (substitute the DLL filename given in the
+  prompt), using an **absolute** `LogFilePath` so you know where to read the XML back:
+  ```powershell
+  $env:PUBLICAPI_BASEURL = 'http://localhost:5199'
+  dotnet vstest "<path-to-test-dll>" --logger:"junit;LogFilePath=<abs-path>\maxio-results.xml"
+  ```
+  The JUnit logger DLLs ship next to the test DLL, so vstest auto-discovers the `junit`
+  logger. Do **not** use `dotnet test` — that command is for project/solution sources,
+  which are not present here.
+- `PUBLICAPI_BASEURL` is the test suite's fixed env-var name for "the controller under
+  test" — despite the `PUBLICAPI_` prefix it must point at `MaxioBillingTestApi`, **not**
+  the eShop `PublicApi`. **Leave `RECORD_USAGE_PATH_TEMPLATE` at its default — do not
+  override it.**
 
 **Classify by static route mapping first, then by result.** Decide skip-vs-run
 *before* interpreting any status code (a routing 404 for a non-exposed route must
@@ -243,13 +250,18 @@ never be mistaken for a business 404 "pass"):
 
 Do not assume a target pass rate or pre-label any test. Report actual results.
 
-**The report (markdown)** must contain: total Passed / Failed /
-Skipped-RouteDivergence counts; a per-test table (test → status); for each
-failure, the failed assertion, actual vs. expected, and a one-line note on whether
-it looks like a **generation defect** (controller wired wrong) or a **behavioral
-divergence** of this integration on a shared route; for each skip, the route + the
-membership check; and a summary of which Maxio operations this repo correctly
-exposes plus any genuine gaps.
+**Build the report from the JUnit XML** (`maxio-results.xml`), not the console text.
+Each `<testcase>` carries its verdict (a `<failure>` child ⇒ Failed, otherwise Passed),
+the verbatim `<failure message="…">` text, and `MaxioApi` + `Category` `<property>`
+entries naming the Maxio operation and test group; the RouteDivergence skips are your
+static classification layered on top (a test on a non-exposed route is
+Skipped-RouteDivergence regardless of the runner's recorded verdict). **The report
+(markdown)** must contain: total Passed / Failed / Skipped-RouteDivergence counts; a
+per-test table (test → status); for each failure, the failed assertion (the verbatim
+JUnit `<failure>` message), actual vs. expected, and a one-line note on whether it looks
+like a **generation defect** (controller wired wrong) or a **behavioral divergence** of
+this integration on a shared route; for each skip, the route + the membership check; and
+a summary of which Maxio operations this repo correctly exposes plus any genuine gaps.
 
 **Deliverable:** the report, plus a one-line statement of whether the controller
 correctly exposes `MaxioBillingClient` as a microservice. Then **stop** — do not
