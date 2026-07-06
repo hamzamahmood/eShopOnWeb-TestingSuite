@@ -12,6 +12,7 @@ public class FindOrCreateCustomerTests
     [Fact]
     public async Task Fresh_reference_creates_a_customer_and_is_idempotent_on_repeat_calls()
     {
+        const string intent = "Create a customer for a fresh reference, then repeat the call idempotently";
         using var client = new ApiClient();
         var reference = TestSettings.NewCustomerReference();
         var body = new
@@ -26,23 +27,24 @@ public class FindOrCreateCustomerTests
         };
 
         var first = await client.PostAsync(TestSettings.CustomersPath, body);
-        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        Expect.Status(first, HttpStatusCode.OK, intent);
         var firstId = TestJson.GetCustomerId(JsonDocument.Parse(first.Body).RootElement);
-        Assert.False(string.IsNullOrWhiteSpace(firstId));
+        Expect.NonBlankId(firstId, "customer id", intent);
 
         // Same fresh reference again: find-or-create must be idempotent — it resolves to the SAME
         // provider customer id rather than creating a duplicate (IBillingClient.FindOrCreateCustomerAsync's
         // documented AC-03 guarantee).
         var second = await client.PostAsync(TestSettings.CustomersPath, body);
-        Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+        Expect.Status(second, HttpStatusCode.OK, intent);
         var secondId = TestJson.GetCustomerId(JsonDocument.Parse(second.Body).RootElement);
 
-        Assert.Equal(firstId, secondId);
+        Expect.Equal(firstId, secondId, "customer id on repeat call", intent);
     }
 
     [Fact]
     public async Task Blank_email_is_rejected_before_reaching_the_billing_provider()
     {
+        const string intent = "Reject a blank email before reaching the billing provider";
         using var client = new ApiClient();
         var body = new
         {
@@ -59,6 +61,6 @@ public class FindOrCreateCustomerTests
 
         // Both controllers require a non-blank email client-side (Direct via an explicit check, Plugin via
         // [Required] + automatic ModelState validation) — this never reaches the mock, so both agree on 400.
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Expect.Status(response, HttpStatusCode.BadRequest, intent);
     }
 }

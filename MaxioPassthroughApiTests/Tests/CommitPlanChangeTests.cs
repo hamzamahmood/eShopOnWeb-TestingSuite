@@ -11,39 +11,38 @@ public class CommitPlanChangeTests
     [Fact]
     public async Task Active_subscription_migrates_to_a_different_known_product()
     {
+        const string intent = "Migrate an active subscription to a different known product";
         using var client = new ApiClient();
         var body = new { migration = new { product_handle = TestSettings.AlternateProductHandle }, timing = "Immediate" };
 
         var response = await client.PostAsync(TestSettings.MigrationsPath(TestSettings.KnownActiveSubscriptionId), body);
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Expect.Status(response, HttpStatusCode.OK, intent);
         using var doc = JsonDocument.Parse(response.Body);
-        Assert.Equal(TestSettings.AlternateProductHandle, doc.RootElement.GetProperty("productHandle").GetString());
+        Expect.Field(doc.RootElement, "productHandle", TestSettings.AlternateProductHandle, intent);
     }
 
     [Fact]
     public async Task Unknown_product_handle_yields_an_error_status()
     {
+        const string intent = "Migrate a subscription to an unknown product handle";
         using var client = new ApiClient();
         var body = new { migration = new { product_handle = TestSettings.UnknownProductHandle }, timing = "Immediate" };
 
         var response = await client.PostAsync(TestSettings.MigrationsPath(TestSettings.KnownActiveSubscriptionId), body);
 
-        Assert.True(
-            response.StatusCode is HttpStatusCode.UnprocessableEntity,
-            $"Expected 422 (Direct), got {(int)response.StatusCode}. Body: {response.Body}");
+        Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
     }
 
     [Fact]
     public async Task Canceled_subscription_cannot_be_migrated()
     {
+        const string intent = "Migrate a canceled subscription";
         using var client = new ApiClient();
         var body = new { migration = new { product_handle = TestSettings.AlternateProductHandle }, timing = "Immediate" };
 
         var response = await client.PostAsync(TestSettings.MigrationsPath(TestSettings.KnownCanceledSubscriptionId), body);
 
-        Assert.True(
-            response.StatusCode is HttpStatusCode.UnprocessableEntity,
-            $"Expected 422, got {(int)response.StatusCode}. Body: {response.Body}");
+        Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
     }
 }

@@ -11,28 +11,28 @@ public class ReadSubscriptionTests
     [Fact]
     public async Task Known_subscription_returns_its_common_fields()
     {
+        const string intent = "Read a known subscription's common fields";
         using var client = new ApiClient();
 
         var response = await client.GetAsync(TestSettings.SubscriptionPath(TestSettings.KnownActiveSubscriptionId));
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Expect.Status(response, HttpStatusCode.OK, intent);
         using var doc = JsonDocument.Parse(response.Body);
         var root = doc.RootElement;
 
-        Assert.Equal(TestSettings.KnownProductHandle, root.GetProperty("productHandle").GetString());
-        Assert.Equal("active", root.GetProperty("state").GetString(), ignoreCase: true);
-        Assert.False(string.IsNullOrWhiteSpace(TestJson.GetSubscriptionId(root)));
+        Expect.Field(root, "productHandle", TestSettings.KnownProductHandle, intent);
+        Expect.State(root, "active", intent);
+        Expect.NonBlankId(TestJson.GetSubscriptionId(root), "subscription id", intent);
     }
 
     [Fact]
     public async Task Unknown_subscription_yields_an_error_status()
     {
+        const string intent = "Read an unknown subscription";
         using var client = new ApiClient();
 
         var response = await client.GetAsync(TestSettings.SubscriptionPath(TestSettings.UnknownSubscriptionId));
 
-        Assert.True(
-            response.StatusCode is HttpStatusCode.NotFound,
-            $"Expected 404 for an unknown subscription id, but got {(int)response.StatusCode}. Body: {response.Body}");
+        Expect.Status(response, HttpStatusCode.NotFound, intent);
     }
 }

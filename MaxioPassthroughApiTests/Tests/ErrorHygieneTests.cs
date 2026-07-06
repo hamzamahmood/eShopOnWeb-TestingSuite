@@ -34,21 +34,18 @@ public class ErrorHygieneTests
     [InlineData("migrate-unknown-product")]
     public async Task Error_responses_never_leak_internal_details(string scenario)
     {
+        var intent = $"Error hygiene: {scenario} response never leaks internal details";
         using var client = new ApiClient();
 
         var response = await SendFailingRequest(client, scenario);
 
-        Assert.True(
-            (int)response.StatusCode is >= 400 and < 500,
-            $"[{scenario}] expected a 4xx status, got {(int)response.StatusCode}. Body: {response.Body}");
+        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client-error status");
 
-        Assert.Equal("application/json", response.ContentType);
+        Expect.ContentType(response, "application/json", intent);
 
         foreach (var forbidden in ForbiddenSubstrings)
         {
-            Assert.False(
-                response.Body.Contains(forbidden, StringComparison.OrdinalIgnoreCase),
-                $"[{scenario}] error body leaked internal detail '{forbidden}'. Body: {response.Body}");
+            Expect.NoLeak(response, forbidden, intent);
         }
     }
 

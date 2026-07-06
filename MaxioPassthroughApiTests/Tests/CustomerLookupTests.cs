@@ -19,22 +19,24 @@ public class CustomerLookupTests
     [Fact]
     public async Task Known_reference_returns_the_customer_id()
     {
+        const string intent = "Look up a customer by a known reference (Plugin-only endpoint)";
         using var client = new ApiClient();
 
         var response = await client.GetAsync(TestSettings.CustomerLookupPath(TestSettings.KnownCustomerReference));
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Expect.Status(response, HttpStatusCode.OK, intent);
         using var doc = JsonDocument.Parse(response.Body);
-        Assert.Equal(TestSettings.KnownCustomerId, TestJson.GetCustomerId(doc.RootElement));
+        Expect.Equal(TestSettings.KnownCustomerId, TestJson.GetCustomerId(doc.RootElement), "customer id", intent);
     }
 
     [Fact]
     public async Task Unknown_reference_yields_404_not_found()
     {
+        const string intent = "Look up a customer by an unknown reference (Plugin-only endpoint)";
         using var client = new ApiClient();
 
         var response = await client.GetAsync(TestSettings.CustomerLookupPath(TestSettings.UnknownCustomerReference));
 
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Expect.Status(response, HttpStatusCode.NotFound, intent);
     }
 }

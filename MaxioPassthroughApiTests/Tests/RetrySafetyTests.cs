@@ -25,6 +25,7 @@ public class RetrySafetyTests
     [Fact]
     public async Task Rate_limited_lookup_recovers()
     {
+        const string intent = "Recover from a 429 rate limit on the find-or-create lookup";
         using var client = new ApiClient();
         var body = new
         {
@@ -39,14 +40,15 @@ public class RetrySafetyTests
 
         var response = await client.PostAsync(TestSettings.CustomersPath, body);
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Expect.Status(response, HttpStatusCode.OK, intent);
         var customerId = TestJson.GetCustomerId(JsonDocument.Parse(response.Body).RootElement);
-        Assert.False(string.IsNullOrWhiteSpace(customerId));
+        Expect.NonBlankId(customerId, "customer id", intent);
     }
 
     [Fact]
     public async Task Transient_503_lookup_recovers()
     {
+        const string intent = "Recover from a transient 503 on the find-or-create lookup";
         using var client = new ApiClient();
         var body = new
         {
@@ -61,8 +63,8 @@ public class RetrySafetyTests
 
         var response = await client.PostAsync(TestSettings.CustomersPath, body);
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Expect.Status(response, HttpStatusCode.OK, intent);
         var customerId = TestJson.GetCustomerId(JsonDocument.Parse(response.Body).RootElement);
-        Assert.False(string.IsNullOrWhiteSpace(customerId));
+        Expect.NonBlankId(customerId, "customer id", intent);
     }
 }

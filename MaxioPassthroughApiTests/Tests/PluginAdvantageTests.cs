@@ -36,11 +36,12 @@ public class PluginAdvantageTests
     [Fact]
     public async Task Missing_subscription_returns_404_not_found()
     {
+        const string intent = "Read a missing subscription (Plugin advantage: REST-correct 404 vs Direct's 422)";
         using var client = new ApiClient();
 
         var response = await client.GetAsync(TestSettings.SubscriptionPath(TestSettings.UnknownSubscriptionId));
 
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Expect.Status(response, HttpStatusCode.NotFound, intent);
     }
 
     /// <summary>
@@ -56,6 +57,7 @@ public class PluginAdvantageTests
     [Fact]
     public async Task Find_or_create_customer_recovers_from_a_concurrent_create_race()
     {
+        const string intent = "Recover find-or-create from a concurrent create race (Plugin advantage)";
         using var client = new ApiClient();
         var body = new
         {
@@ -70,9 +72,9 @@ public class PluginAdvantageTests
 
         var response = await client.PostAsync(TestSettings.CustomersPath, body);
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Expect.Status(response, HttpStatusCode.OK, intent);
         var customerId = TestJson.GetCustomerId(JsonDocument.Parse(response.Body).RootElement);
-        Assert.False(string.IsNullOrWhiteSpace(customerId));
+        Expect.NonBlankId(customerId, "customer id", intent);
     }
 
     /// <summary>
@@ -90,6 +92,8 @@ public class PluginAdvantageTests
     [MemberData(nameof(PaymentRequiredProductHandles))]
     public async Task Payment_failure_surfaces_a_typed_payment_verification_error(string productHandle)
     {
+        var intent = $"Create a subscription with payment-failure handle '{productHandle}' " +
+                      "(Plugin advantage: typed payment-verification error)";
         using var client = new ApiClient();
         var body = new
         {
@@ -102,8 +106,8 @@ public class PluginAdvantageTests
 
         var response = await client.PostAsync(TestSettings.SubscriptionsPath, body);
 
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
-        Assert.Contains("Additional payment information is required", response.Body);
+        Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
+        Expect.BodyContains(response, "Additional payment information is required", intent);
     }
 
     public static IEnumerable<object[]> PaymentRequiredProductHandles() =>

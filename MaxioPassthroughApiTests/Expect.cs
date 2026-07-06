@@ -1,0 +1,142 @@
+using System.Net;
+using System.Text.Json;
+using Xunit;
+
+namespace MaxioPassthroughApiTests;
+
+/// <summary>
+/// Uniform assertion helpers for the black-box suite. Every method takes the test's <c>intent</c> — a
+/// one-line human description of the behavior under test — and folds it into a single consistent failure
+/// message shape: <c>[{intent}] {semantic reason} — {specifics}. Body: {body}</c>, with status codes rendered
+/// by name ("404 Not Found"), never bare numbers.
+///
+/// <para>
+/// This replaces ad hoc <c>Assert.True(cond, $"Expected 422, got {(int)code}")</c> messages, which named no
+/// intent, printed bare numbers, and sometimes drifted from the condition they described (the old
+/// <c>ReactivateSubscriptionTests</c> "Expected 422" message on a check that also accepted 502).
+/// </para>
+/// </summary>
+internal static class Expect
+{
+    /// <summary>Asserts a single expected status code.</summary>
+    public static void Status(ApiResponse response, HttpStatusCode expected, string intent)
+    {
+        Assert.True(
+            response.StatusCode == expected,
+            $"[{intent}] Incorrect status code received — expected {Describe(expected)}, got " +
+            $"{Describe(response.StatusCode)}. Body: {response.Body}");
+    }
+
+    /// <summary>Asserts the status code is one of several acceptable codes.</summary>
+    public static void StatusOneOf(ApiResponse response, string intent, params HttpStatusCode[] expected)
+    {
+        Assert.True(
+            Array.IndexOf(expected, response.StatusCode) >= 0,
+            $"[{intent}] Incorrect status code received — expected one of " +
+            $"[{string.Join(", ", expected.Select(Describe))}], got {Describe(response.StatusCode)}. " +
+            $"Body: {response.Body}");
+    }
+
+    /// <summary>Asserts the status code falls in [lo, hiExclusive) — e.g. any 4xx client error.</summary>
+    public static void StatusInRange(ApiResponse response, int lo, int hiExclusive, string intent, string rangeLabel)
+    {
+        var actual = (int)response.StatusCode;
+        Assert.True(
+            actual >= lo && actual < hiExclusive,
+            $"[{intent}] Incorrect status code received — expected {rangeLabel}, got " +
+            $"{Describe(response.StatusCode)}. Body: {response.Body}");
+    }
+
+    /// <summary>Asserts the response's Content-Type header.</summary>
+    public static void ContentType(ApiResponse response, string expected, string intent)
+    {
+        Assert.True(
+            expected == response.ContentType,
+            $"[{intent}] Unexpected response content type — expected '{expected}', got " +
+            $"'{response.ContentType ?? "(none)"}'. Body: {response.Body}");
+    }
+
+    /// <summary>
+    /// Asserts a subscription's "state" field, tolerant of the two integrations' casing/separator differences
+    /// (Direct's raw "on_hold" vs Plugin's enum-rendered "OnHold" — see <see cref="TestJson.StatesEqual"/>).
+    /// </summary>
+    public static void State(JsonElement root, string expectedState, string intent)
+    {
+        var actual = root.GetProperty("state").GetString() ?? string.Empty;
+        Assert.True(
+            TestJson.StatesEqual(expectedState, actual),
+            $"[{intent}] Unexpected subscription state — expected '{expectedState}', got '{actual}'.");
+    }
+
+    /// <summary>Asserts a string-valued response field equals the expected value.</summary>
+    public static void Field(JsonElement root, string property, string expected, string intent) =>
+        Equal(expected, root.GetProperty(property).GetString(), $"'{property}' field", intent);
+
+    /// <summary>Asserts any comparable value equals its expectation, e.g. an array length or a JSON value kind.</summary>
+    public static void Equal<T>(T expected, T actual, string what, string intent)
+    {
+        Assert.True(
+            Equals(expected, actual),
+            $"[{intent}] Unexpected {what} — expected '{expected}', got '{actual}'.");
+    }
+
+    /// <summary>Asserts a collection contains an expected item, e.g. a plan handle in the returned list.</summary>
+    public static void Contains<T>(T expected, IEnumerable<T> collection, string what, string intent)
+    {
+        var list = collection.ToList();
+        Assert.True(
+            list.Contains(expected),
+            $"[{intent}] Missing expected {what} — expected to find '{expected}' among " +
+            $"[{string.Join(", ", list)}].");
+    }
+
+    /// <summary>Asserts a returned id string is present (non-blank).</summary>
+    public static void NonBlankId(string? id, string idKind, string intent)
+    {
+        Assert.True(
+            !string.IsNullOrWhiteSpace(id),
+            $"[{intent}] Missing identifier in response — expected a non-blank {idKind}, got " +
+            $"'{id ?? "(null)"}'.");
+    }
+
+    /// <summary>Asserts the raw response body contains an expected marker substring.</summary>
+    public static void BodyContains(ApiResponse response, string needle, string intent)
+    {
+        Assert.True(
+            response.Body.Contains(needle, StringComparison.Ordinal),
+            $"[{intent}] Expected marker text absent from response body — expected to find '{needle}'. " +
+            $"Body: {response.Body}");
+    }
+
+    /// <summary>Asserts the response body does NOT contain a forbidden internal-detail substring.</summary>
+    public static void NoLeak(ApiResponse response, string forbidden, string intent)
+    {
+        Assert.False(
+            response.Body.Contains(forbidden, StringComparison.OrdinalIgnoreCase),
+            $"[{intent}] Internal detail leaked into error body — found '{forbidden}'. Body: {response.Body}");
+    }
+
+    /// <summary>Renders a status code by name, e.g. "404 Not Found" instead of a bare "404".</summary>
+    public static string Describe(HttpStatusCode code) => $"{(int)code} {Humanize(code.ToString())}";
+
+    private static string Humanize(string enumName)
+    {
+        if (enumName == "OK")
+        {
+            return "OK";
+        }
+
+        var chars = new List<char>(enumName.Length + 4);
+        foreach (var c in enumName)
+        {
+            if (char.IsUpper(c) && chars.Count > 0)
+            {
+                chars.Add(' ');
+            }
+
+            chars.Add(c);
+        }
+
+        return new string(chars.ToArray());
+    }
+}

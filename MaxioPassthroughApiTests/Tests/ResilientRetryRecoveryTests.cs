@@ -27,6 +27,7 @@ public class ResilientRetryRecoveryTests
 
         for (var i = 0; i < CallCount; i++)
         {
+            var intent = $"Recover from a connection break on find-or-create call {i + 1}/{CallCount}";
             var body = new
             {
                 customer = new
@@ -40,9 +41,9 @@ public class ResilientRetryRecoveryTests
 
             var response = await client.PostAsync(TestSettings.CustomersPath, body);
 
-            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Expect.Status(response, HttpStatusCode.OK, intent);
             var customerId = TestJson.GetCustomerId(JsonDocument.Parse(response.Body).RootElement);
-            Assert.False(string.IsNullOrWhiteSpace(customerId));
+            Expect.NonBlankId(customerId, "customer id", intent);
         }
     }
 }

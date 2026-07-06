@@ -1,48 +1,44 @@
 <testsuites>
-  <testsuite name="MaxioPassthroughApiTests.dll" tests="39" skipped="0" failures="1" errors="0" time="8.216802000000001" timestamp="2026-07-06T08:12:54" hostname="DESKTOP-P9KK0NF" id="0" package="MaxioPassthroughApiTests.dll">
+  <testsuite name="MaxioPassthroughApiTests.dll" tests="39" skipped="0" failures="1" errors="0" time="10.1726565" timestamp="2026-07-06T09:43:10" hostname="DESKTOP-P9KK0NF" id="0" package="MaxioPassthroughApiTests.dll">
     <properties />
-    <testcase classname="MaxioPassthroughApiTests.Tests.ListPlansTests" name="ListPlans_returns_the_configured_familys_plans_with_common_fields" time="0.0883249">
+    <testcase classname="MaxioPassthroughApiTests.Tests.CustomerLookupTests" name="Known_reference_returns_the_customer_id" time="0.0871539">
+      <properties>
+        <property name="Category" value="plugin-advantage" />
+        <property name="MaxioApi" value="GET /customers/lookup.json" />
+      </properties>
+    </testcase>
+    <testcase classname="MaxioPassthroughApiTests.Tests.ListPlansTests" name="ListPlans_returns_the_configured_familys_plans_with_common_fields" time="0.0870794">
       <properties>
         <property name="Category" value="endpoint" />
         <property name="MaxioApi" value="GET /product_families/{product_family_id}/products.json" />
       </properties>
     </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.CustomerLookupTests" name="Known_reference_returns_the_customer_id" time="0.1045709">
+    <testcase classname="MaxioPassthroughApiTests.Tests.CustomerLookupTests" name="Unknown_reference_yields_404_not_found" time="0.0090538">
       <properties>
         <property name="Category" value="plugin-advantage" />
         <property name="MaxioApi" value="GET /customers/lookup.json" />
       </properties>
     </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.FindOrCreateCustomerTests" name="Blank_email_is_rejected_before_reaching_the_billing_provider" time="0.1057937">
+    <testcase classname="MaxioPassthroughApiTests.Tests.FindOrCreateCustomerTests" name="Blank_email_is_rejected_before_reaching_the_billing_provider" time="0.1031678">
       <properties>
         <property name="Category" value="endpoint" />
         <property name="MaxioApi" value="GET /customers/lookup.json" />
         <property name="MaxioApi" value="POST /customers.json" />
       </properties>
     </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.ReactivateSubscriptionTests" name="Active_subscription_cannot_be_reactivated" time="0.1059120">
+    <testcase classname="MaxioPassthroughApiTests.Tests.CommitPlanChangeTests" name="Canceled_subscription_cannot_be_migrated" time="0.1044991">
       <properties>
         <property name="Category" value="endpoint" />
-        <property name="MaxioApi" value="PUT /subscriptions/{subscription_id}/reactivate.json" />
-      </properties>
-    </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.ErrorHygieneTests" name="Error_responses_never_leak_internal_details(scenario: &quot;pause-on-hold-subscription&quot;)" time="0.1065461">
-      <properties>
-        <property name="Category" value="safety-net" />
-        <property name="MaxioApi" value="GET /subscriptions/{subscription_id}.json" />
-        <property name="MaxioApi" value="POST /subscriptions/{subscription_id}/hold.json" />
-        <property name="MaxioApi" value="POST /subscriptions.json" />
-        <property name="MaxioApi" value="DELETE /subscriptions/{subscription_id}.json" />
         <property name="MaxioApi" value="POST /subscriptions/{subscription_id}/migrations.json" />
       </properties>
     </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.ResumeSubscriptionTests" name="Active_subscription_cannot_be_resumed" time="0.1072214">
+    <testcase classname="MaxioPassthroughApiTests.Tests.ResumeSubscriptionTests" name="Active_subscription_cannot_be_resumed" time="0.1050252">
       <properties>
         <property name="Category" value="endpoint" />
         <property name="MaxioApi" value="POST /subscriptions/{subscription_id}/resume.json" />
       </properties>
     </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.ErrorHygieneTests" name="Error_responses_never_leak_internal_details(scenario: &quot;read-unknown-subscription&quot;)" time="0.0066263">
+    <testcase classname="MaxioPassthroughApiTests.Tests.ErrorHygieneTests" name="Error_responses_never_leak_internal_details(scenario: &quot;pause-on-hold-subscription&quot;)" time="0.1056620">
       <properties>
         <property name="Category" value="safety-net" />
         <property name="MaxioApi" value="GET /subscriptions/{subscription_id}.json" />
@@ -52,61 +48,111 @@
         <property name="MaxioApi" value="POST /subscriptions/{subscription_id}/migrations.json" />
       </properties>
     </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.CustomerLookupTests" name="Unknown_reference_yields_404_not_found" time="0.0104863">
-      <properties>
-        <property name="Category" value="plugin-advantage" />
-        <property name="MaxioApi" value="GET /customers/lookup.json" />
-      </properties>
-    </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.CommitPlanChangeTests" name="Canceled_subscription_cannot_be_migrated" time="0.1165479">
-      <properties>
-        <property name="Category" value="endpoint" />
-        <property name="MaxioApi" value="POST /subscriptions/{subscription_id}/migrations.json" />
-      </properties>
-    </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.ReactivateSubscriptionTests" name="Canceled_subscription_is_reactivated" time="0.0111427">
+    <testcase classname="MaxioPassthroughApiTests.Tests.ReactivateSubscriptionTests" name="Active_subscription_cannot_be_reactivated" time="0.1082173">
       <properties>
         <property name="Category" value="endpoint" />
         <property name="MaxioApi" value="PUT /subscriptions/{subscription_id}/reactivate.json" />
       </properties>
     </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.StateDriftTests" name="Unknown_provider_state_maps_to_a_safe_default" time="0.1211545">
+    <testcase classname="MaxioPassthroughApiTests.Tests.ErrorHygieneTests" name="Error_responses_never_leak_internal_details(scenario: &quot;read-unknown-subscription&quot;)" time="0.0064631">
       <properties>
-        <property name="Category" value="plugin-advantage" />
+        <property name="Category" value="safety-net" />
         <property name="MaxioApi" value="GET /subscriptions/{subscription_id}.json" />
+        <property name="MaxioApi" value="POST /subscriptions/{subscription_id}/hold.json" />
+        <property name="MaxioApi" value="POST /subscriptions.json" />
+        <property name="MaxioApi" value="DELETE /subscriptions/{subscription_id}.json" />
+        <property name="MaxioApi" value="POST /subscriptions/{subscription_id}/migrations.json" />
       </properties>
     </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.ResumeSubscriptionTests" name="On_hold_subscription_is_resumed" time="0.0132522">
+    <testcase classname="MaxioPassthroughApiTests.Tests.ErrorHygieneTests" name="Error_responses_never_leak_internal_details(scenario: &quot;migrate-unknown-product&quot;)" time="0.0059423">
+      <properties>
+        <property name="Category" value="safety-net" />
+        <property name="MaxioApi" value="GET /subscriptions/{subscription_id}.json" />
+        <property name="MaxioApi" value="POST /subscriptions/{subscription_id}/hold.json" />
+        <property name="MaxioApi" value="POST /subscriptions.json" />
+        <property name="MaxioApi" value="DELETE /subscriptions/{subscription_id}.json" />
+        <property name="MaxioApi" value="POST /subscriptions/{subscription_id}/migrations.json" />
+      </properties>
+    </testcase>
+    <testcase classname="MaxioPassthroughApiTests.Tests.CommitPlanChangeTests" name="Active_subscription_migrates_to_a_different_known_product" time="0.0156433">
+      <properties>
+        <property name="Category" value="endpoint" />
+        <property name="MaxioApi" value="POST /subscriptions/{subscription_id}/migrations.json" />
+      </properties>
+    </testcase>
+    <testcase classname="MaxioPassthroughApiTests.Tests.PauseSubscriptionTests" name="Active_subscription_is_paused" time="0.1204173">
+      <properties>
+        <property name="Category" value="endpoint" />
+        <property name="MaxioApi" value="POST /subscriptions/{subscription_id}/hold.json" />
+      </properties>
+    </testcase>
+    <testcase classname="MaxioPassthroughApiTests.Tests.CancelSubscriptionTests" name="Active_subscription_is_canceled" time="0.1214341">
+      <properties>
+        <property name="Category" value="endpoint" />
+        <property name="MaxioApi" value="DELETE /subscriptions/{subscription_id}.json" />
+      </properties>
+    </testcase>
+    <testcase classname="MaxioPassthroughApiTests.Tests.ResumeSubscriptionTests" name="On_hold_subscription_is_resumed" time="0.0159012">
       <properties>
         <property name="Category" value="endpoint" />
         <property name="MaxioApi" value="POST /subscriptions/{subscription_id}/resume.json" />
       </properties>
     </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.CancelSubscriptionTests" name="Active_subscription_is_canceled" time="0.1210428">
-      <properties>
-        <property name="Category" value="endpoint" />
-        <property name="MaxioApi" value="DELETE /subscriptions/{subscription_id}.json" />
-      </properties>
-    </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.SubscriptionTests" name="Known_customer_returns_the_subscriptions_array_with_common_fields" time="0.1209536">
+    <testcase classname="MaxioPassthroughApiTests.Tests.SubscriptionTests" name="Known_customer_returns_the_subscriptions_array_with_common_fields" time="0.1211947">
       <properties>
         <property name="Category" value="endpoint" />
         <property name="MaxioApi" value="GET /customers/{customer_id}/subscriptions.json" />
       </properties>
     </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.ReadSubscriptionTests" name="Known_subscription_returns_its_common_fields" time="0.1211239">
+    <testcase classname="MaxioPassthroughApiTests.Tests.ReactivateSubscriptionTests" name="Canceled_subscription_is_reactivated" time="0.0118674">
+      <properties>
+        <property name="Category" value="endpoint" />
+        <property name="MaxioApi" value="PUT /subscriptions/{subscription_id}/reactivate.json" />
+      </properties>
+    </testcase>
+    <testcase classname="MaxioPassthroughApiTests.Tests.StateDriftTests" name="Unknown_provider_state_maps_to_a_safe_default" time="0.1211555">
+      <properties>
+        <property name="Category" value="plugin-advantage" />
+        <property name="MaxioApi" value="GET /subscriptions/{subscription_id}.json" />
+      </properties>
+    </testcase>
+    <testcase classname="MaxioPassthroughApiTests.Tests.ReadSubscriptionTests" name="Known_subscription_returns_its_common_fields" time="0.1210134">
       <properties>
         <property name="Category" value="endpoint" />
         <property name="MaxioApi" value="GET /subscriptions/{subscription_id}.json" />
       </properties>
     </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.PauseSubscriptionTests" name="Active_subscription_is_paused" time="0.1216190">
+    <testcase classname="MaxioPassthroughApiTests.Tests.CommitPlanChangeTests" name="Unknown_product_handle_yields_an_error_status" time="0.0084919">
+      <properties>
+        <property name="Category" value="endpoint" />
+        <property name="MaxioApi" value="POST /subscriptions/{subscription_id}/migrations.json" />
+      </properties>
+    </testcase>
+    <testcase classname="MaxioPassthroughApiTests.Tests.PauseSubscriptionTests" name="Already_on_hold_subscription_yields_an_error_status" time="0.0082357">
       <properties>
         <property name="Category" value="endpoint" />
         <property name="MaxioApi" value="POST /subscriptions/{subscription_id}/hold.json" />
       </properties>
     </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.ErrorHygieneTests" name="Error_responses_never_leak_internal_details(scenario: &quot;migrate-unknown-product&quot;)" time="0.0103468">
+    <testcase classname="MaxioPassthroughApiTests.Tests.ReadSubscriptionTests" name="Unknown_subscription_yields_an_error_status" time="0.0044190">
+      <properties>
+        <property name="Category" value="endpoint" />
+        <property name="MaxioApi" value="GET /subscriptions/{subscription_id}.json" />
+      </properties>
+    </testcase>
+    <testcase classname="MaxioPassthroughApiTests.Tests.SubscriptionTests" name="Unknown_customer_yields_an_error_status" time="0.0064351">
+      <properties>
+        <property name="Category" value="endpoint" />
+        <property name="MaxioApi" value="GET /customers/{customer_id}/subscriptions.json" />
+      </properties>
+    </testcase>
+    <testcase classname="MaxioPassthroughApiTests.Tests.CancelSubscriptionTests" name="Already_canceled_subscription_yields_an_error_status" time="0.0116837">
+      <properties>
+        <property name="Category" value="endpoint" />
+        <property name="MaxioApi" value="DELETE /subscriptions/{subscription_id}.json" />
+      </properties>
+    </testcase>
+    <testcase classname="MaxioPassthroughApiTests.Tests.ErrorHygieneTests" name="Error_responses_never_leak_internal_details(scenario: &quot;create-unknown-product&quot;)" time="0.0193482">
       <properties>
         <property name="Category" value="safety-net" />
         <property name="MaxioApi" value="GET /subscriptions/{subscription_id}.json" />
@@ -116,73 +162,39 @@
         <property name="MaxioApi" value="POST /subscriptions/{subscription_id}/migrations.json" />
       </properties>
     </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.CommitPlanChangeTests" name="Active_subscription_migrates_to_a_different_known_product" time="0.0118971">
-      <properties>
-        <property name="Category" value="endpoint" />
-        <property name="MaxioApi" value="POST /subscriptions/{subscription_id}/migrations.json" />
-      </properties>
-    </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.ReadSubscriptionTests" name="Unknown_subscription_yields_an_error_status" time="0.0074487">
-      <properties>
-        <property name="Category" value="endpoint" />
-        <property name="MaxioApi" value="GET /subscriptions/{subscription_id}.json" />
-      </properties>
-    </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.PauseSubscriptionTests" name="Already_on_hold_subscription_yields_an_error_status" time="0.0077252">
-      <properties>
-        <property name="Category" value="endpoint" />
-        <property name="MaxioApi" value="POST /subscriptions/{subscription_id}/hold.json" />
-      </properties>
-    </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.SubscriptionTests" name="Unknown_customer_yields_an_error_status" time="0.0081165">
-      <properties>
-        <property name="Category" value="endpoint" />
-        <property name="MaxioApi" value="GET /customers/{customer_id}/subscriptions.json" />
-      </properties>
-    </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.CancelSubscriptionTests" name="Already_canceled_subscription_yields_an_error_status" time="0.0131530">
-      <properties>
-        <property name="Category" value="endpoint" />
-        <property name="MaxioApi" value="DELETE /subscriptions/{subscription_id}.json" />
-      </properties>
-    </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.CommitPlanChangeTests" name="Unknown_product_handle_yields_an_error_status" time="0.0065332">
-      <properties>
-        <property name="Category" value="endpoint" />
-        <property name="MaxioApi" value="POST /subscriptions/{subscription_id}/migrations.json" />
-      </properties>
-    </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.ErrorHygieneTests" name="Error_responses_never_leak_internal_details(scenario: &quot;create-unknown-product&quot;)" time="0.0217615">
-      <properties>
-        <property name="Category" value="safety-net" />
-        <property name="MaxioApi" value="GET /subscriptions/{subscription_id}.json" />
-        <property name="MaxioApi" value="POST /subscriptions/{subscription_id}/hold.json" />
-        <property name="MaxioApi" value="POST /subscriptions.json" />
-        <property name="MaxioApi" value="DELETE /subscriptions/{subscription_id}.json" />
-        <property name="MaxioApi" value="POST /subscriptions/{subscription_id}/migrations.json" />
-      </properties>
-    </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.CreateSubscriptionTests" name="Unknown_customer_id_yields_an_error_status" time="0.1478196">
-      <properties>
-        <property name="Category" value="endpoint" />
-        <property name="MaxioApi" value="POST /subscriptions.json" />
-      </properties>
-    </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.PluginAdvantageTests" name="Find_or_create_customer_recovers_from_a_concurrent_create_race" time="0.1497454">
+    <testcase classname="MaxioPassthroughApiTests.Tests.PluginAdvantageTests" name="Find_or_create_customer_recovers_from_a_concurrent_create_race" time="0.1396220">
       <properties>
         <property name="MaxioApi" value="GET /customers/lookup.json" />
         <property name="MaxioApi" value="POST /customers.json" />
         <property name="Category" value="plugin-advantage" />
       </properties>
     </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.FindOrCreateCustomerTests" name="Fresh_reference_creates_a_customer_and_is_idempotent_on_repeat_calls" time="0.0439729">
+    <testcase classname="MaxioPassthroughApiTests.Tests.CreateSubscriptionTests" name="Unknown_customer_id_yields_an_error_status" time="0.1396309">
+      <properties>
+        <property name="Category" value="endpoint" />
+        <property name="MaxioApi" value="POST /subscriptions.json" />
+      </properties>
+    </testcase>
+    <testcase classname="MaxioPassthroughApiTests.Tests.FindOrCreateCustomerTests" name="Fresh_reference_creates_a_customer_and_is_idempotent_on_repeat_calls" time="0.0401256">
       <properties>
         <property name="Category" value="endpoint" />
         <property name="MaxioApi" value="GET /customers/lookup.json" />
         <property name="MaxioApi" value="POST /customers.json" />
       </properties>
     </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.ErrorHygieneTests" name="Error_responses_never_leak_internal_details(scenario: &quot;cancel-already-canceled&quot;)" time="0.0061157">
+    <testcase classname="MaxioPassthroughApiTests.Tests.PluginAdvantageTests" name="Payment_failure_surfaces_a_typed_payment_verification_error(productHandle: &quot;card-required&quot;)" time="0.0057895">
+      <properties>
+        <property name="MaxioApi" value="POST /subscriptions.json" />
+        <property name="Category" value="plugin-advantage" />
+      </properties>
+    </testcase>
+    <testcase classname="MaxioPassthroughApiTests.Tests.CreateSubscriptionTests" name="Known_customer_and_product_creates_a_subscription" time="0.0059210">
+      <properties>
+        <property name="Category" value="endpoint" />
+        <property name="MaxioApi" value="POST /subscriptions.json" />
+      </properties>
+    </testcase>
+    <testcase classname="MaxioPassthroughApiTests.Tests.ErrorHygieneTests" name="Error_responses_never_leak_internal_details(scenario: &quot;cancel-already-canceled&quot;)" time="0.0062223">
       <properties>
         <property name="Category" value="safety-net" />
         <property name="MaxioApi" value="GET /subscriptions/{subscription_id}.json" />
@@ -192,71 +204,60 @@
         <property name="MaxioApi" value="POST /subscriptions/{subscription_id}/migrations.json" />
       </properties>
     </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.CreateSubscriptionTests" name="Known_customer_and_product_creates_a_subscription" time="0.0063604">
-      <properties>
-        <property name="Category" value="endpoint" />
-        <property name="MaxioApi" value="POST /subscriptions.json" />
-      </properties>
-    </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.PluginAdvantageTests" name="Payment_failure_surfaces_a_typed_payment_verification_error(productHandle: &quot;card-required&quot;)" time="0.0053734">
-      <properties>
-        <property name="MaxioApi" value="POST /subscriptions.json" />
-        <property name="Category" value="plugin-advantage" />
-      </properties>
-    </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.RecordUsageTests" name="Unknown_subscription_yields_an_error_status" time="0.1484035">
-      <failure type="failure" message="Expected 404, got 422. Body: {&quot;StatusCode&quot;:422,&quot;Message&quot;:&quot;The billing provider could not complete \u0027record usage\u0027.&quot;}">at MaxioPassthroughApiTests.Tests.RecordUsageTests.Unknown_subscription_yields_an_error_status() in D:\work\eshop-integration\eshopOnWeb\MaxioPassthroughApiTests\Tests\RecordUsageTests.cs:line 35
+    <testcase classname="MaxioPassthroughApiTests.Tests.RecordUsageTests" name="Unknown_subscription_yields_an_error_status" time="0.1426774">
+      <failure type="failure" message="[Record usage on an unknown subscription] Incorrect status code received — expected 404 Not Found, got 422 Unprocessable Entity. Body: {&quot;StatusCode&quot;:422,&quot;Message&quot;:&quot;The billing provider could not complete \u0027record usage\u0027.&quot;}">at MaxioPassthroughApiTests.Expect.Status(ApiResponse response, HttpStatusCode expected, String intent) in D:\work\eshop-integration\eshopOnWeb\MaxioPassthroughApiTests\Expect.cs:line 24
+   at MaxioPassthroughApiTests.Tests.RecordUsageTests.Unknown_subscription_yields_an_error_status() in D:\work\eshop-integration\eshopOnWeb\MaxioPassthroughApiTests\Tests\RecordUsageTests.cs:line 37
 --- End of stack trace from previous location ---</failure>
       <properties>
         <property name="Category" value="endpoint" />
         <property name="MaxioApi" value="POST /subscriptions/{subscription_id_or_reference}/components/{component_id}/usages.json" />
       </properties>
     </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.PluginAdvantageTests" name="Payment_failure_surfaces_a_typed_payment_verification_error(productHandle: &quot;threeds-required&quot;)" time="0.0045960">
+    <testcase classname="MaxioPassthroughApiTests.Tests.PluginAdvantageTests" name="Payment_failure_surfaces_a_typed_payment_verification_error(productHandle: &quot;threeds-required&quot;)" time="0.0053250">
       <properties>
         <property name="MaxioApi" value="POST /subscriptions.json" />
         <property name="Category" value="plugin-advantage" />
       </properties>
     </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.CreateSubscriptionTests" name="Unknown_product_handle_yields_an_error_status" time="0.0057460">
+    <testcase classname="MaxioPassthroughApiTests.Tests.CreateSubscriptionTests" name="Unknown_product_handle_yields_an_error_status" time="0.0057527">
       <properties>
         <property name="Category" value="endpoint" />
         <property name="MaxioApi" value="POST /subscriptions.json" />
       </properties>
     </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.PluginAdvantageTests" name="Payment_failure_surfaces_a_typed_payment_verification_error(productHandle: &quot;card-declined&quot;)" time="0.0044574">
+    <testcase classname="MaxioPassthroughApiTests.Tests.PluginAdvantageTests" name="Payment_failure_surfaces_a_typed_payment_verification_error(productHandle: &quot;card-declined&quot;)" time="0.0063253">
       <properties>
         <property name="MaxioApi" value="POST /subscriptions.json" />
         <property name="Category" value="plugin-advantage" />
       </properties>
     </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.PluginAdvantageTests" name="Missing_subscription_returns_404_not_found" time="0.0057990">
+    <testcase classname="MaxioPassthroughApiTests.Tests.PluginAdvantageTests" name="Missing_subscription_returns_404_not_found" time="0.0049190">
       <properties>
         <property name="MaxioApi" value="GET /subscriptions/{subscription_id}.json" />
         <property name="Category" value="plugin-advantage" />
       </properties>
     </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.RecordUsageTests" name="Known_subscription_records_usage_with_the_given_quantity_and_memo" time="0.0162747">
+    <testcase classname="MaxioPassthroughApiTests.Tests.RecordUsageTests" name="Known_subscription_records_usage_with_the_given_quantity_and_memo" time="0.0161267">
       <properties>
         <property name="Category" value="endpoint" />
         <property name="MaxioApi" value="POST /subscriptions/{subscription_id_or_reference}/components/{component_id}/usages.json" />
       </properties>
     </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.RetrySafetyTests" name="Rate_limited_lookup_recovers" time="1.2510007">
+    <testcase classname="MaxioPassthroughApiTests.Tests.RetrySafetyTests" name="Rate_limited_lookup_recovers" time="1.3880664">
       <properties>
         <property name="Category" value="safety-net" />
         <property name="MaxioApi" value="GET /customers/lookup.json" />
         <property name="MaxioApi" value="POST /customers.json" />
       </properties>
     </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.RetrySafetyTests" name="Transient_503_lookup_recovers" time="1.1929649">
+    <testcase classname="MaxioPassthroughApiTests.Tests.RetrySafetyTests" name="Transient_503_lookup_recovers" time="1.3730594">
       <properties>
         <property name="Category" value="safety-net" />
         <property name="MaxioApi" value="GET /customers/lookup.json" />
         <property name="MaxioApi" value="POST /customers.json" />
       </properties>
     </testcase>
-    <testcase classname="MaxioPassthroughApiTests.Tests.ResilientRetryRecoveryTests" name="Recovers_from_intermittent_connection_breaks_across_many_calls" time="3.7588722">
+    <testcase classname="MaxioPassthroughApiTests.Tests.ResilientRetryRecoveryTests" name="Recovers_from_intermittent_connection_breaks_across_many_calls" time="5.4635889">
       <properties>
         <property name="Category" value="safety-net" />
         <property name="MaxioApi" value="GET /customers/lookup.json" />
@@ -268,12 +269,13 @@ Test Framework Informational Messages:
 [xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 9.0.17)
 [xUnit.net 00:00:00.04]   Discovering: MaxioPassthroughApiTests
 [xUnit.net 00:00:00.08]   Discovered:  MaxioPassthroughApiTests
-[xUnit.net 00:00:00.08]   Starting:    MaxioPassthroughApiTests
-[xUnit.net 00:00:00.27]       Expected 404, got 422. Body: {"StatusCode":422,"Message":"The billing provider could not complete \u0027record usage\u0027."}
+[xUnit.net 00:00:00.09]   Starting:    MaxioPassthroughApiTests
+[xUnit.net 00:00:00.27]       [Record usage on an unknown subscription] Incorrect status code received — expected 404 Not Found, got 422 Unprocessable Entity. Body: {"StatusCode":422,"Message":"The billing provider could not complete \u0027record usage\u0027."}
 [xUnit.net 00:00:00.27]       Stack Trace:
-[xUnit.net 00:00:00.27]         D:\work\eshop-integration\eshopOnWeb\MaxioPassthroughApiTests\Tests\RecordUsageTests.cs(35,0): at MaxioPassthroughApiTests.Tests.RecordUsageTests.Unknown_subscription_yields_an_error_status()
+[xUnit.net 00:00:00.27]         D:\work\eshop-integration\eshopOnWeb\MaxioPassthroughApiTests\Expect.cs(24,0): at MaxioPassthroughApiTests.Expect.Status(ApiResponse response, HttpStatusCode expected, String intent)
+[xUnit.net 00:00:00.27]         D:\work\eshop-integration\eshopOnWeb\MaxioPassthroughApiTests\Tests\RecordUsageTests.cs(37,0): at MaxioPassthroughApiTests.Tests.RecordUsageTests.Unknown_subscription_yields_an_error_status()
 [xUnit.net 00:00:00.27]         --- End of stack trace from previous location ---
-[xUnit.net 00:00:03.87]   Finished:    MaxioPassthroughApiTests
+[xUnit.net 00:00:05.58]   Finished:    MaxioPassthroughApiTests
 </system-out>
     <system-err>Error - [xUnit.net 00:00:00.27]     MaxioPassthroughApiTests.Tests.RecordUsageTests.Unknown_subscription_yields_an_error_status [FAIL]
 </system-err>

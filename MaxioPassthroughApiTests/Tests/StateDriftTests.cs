@@ -23,15 +23,13 @@ public class StateDriftTests
     [Fact]
     public async Task Unknown_provider_state_maps_to_a_safe_default()
     {
+        const string intent = "Read a subscription whose provider state is unrecognized (Plugin advantage: safe-default mapping)";
         using var client = new ApiClient();
 
         var response = await client.GetAsync(TestSettings.SubscriptionPath(TestSettings.UnknownStateSubscriptionId));
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Expect.Status(response, HttpStatusCode.OK, intent);
         using var doc = JsonDocument.Parse(response.Body);
-        var state = doc.RootElement.GetProperty("state").GetString();
-        Assert.True(
-            TestJson.StatesEqual("other", state ?? string.Empty),
-            $"Expected the unknown provider state to map to a safe default 'Other', got '{state}'.");
+        Expect.State(doc.RootElement, "other", intent);
     }
 }

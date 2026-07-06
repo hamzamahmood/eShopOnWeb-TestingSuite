@@ -11,24 +11,24 @@ public class ResumeSubscriptionTests
     [Fact]
     public async Task On_hold_subscription_is_resumed()
     {
+        const string intent = "Resume an on-hold subscription";
         using var client = new ApiClient();
 
         var response = await client.PostAsync(TestSettings.ResumeSubscriptionPath(TestSettings.KnownOnHoldSubscriptionId));
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Expect.Status(response, HttpStatusCode.OK, intent);
         using var doc = JsonDocument.Parse(response.Body);
-        Assert.Equal("active", doc.RootElement.GetProperty("state").GetString(), ignoreCase: true);
+        Expect.State(doc.RootElement, "active", intent);
     }
 
     [Fact]
     public async Task Active_subscription_cannot_be_resumed()
     {
+        const string intent = "Resume a subscription that is already active";
         using var client = new ApiClient();
 
         var response = await client.PostAsync(TestSettings.ResumeSubscriptionPath(TestSettings.KnownActiveSubscriptionId));
 
-        Assert.True(
-            response.StatusCode is HttpStatusCode.UnprocessableEntity,
-            $"Expected 422, got {(int)response.StatusCode}. Body: {response.Body}");
+        Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
     }
 }

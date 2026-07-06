@@ -11,28 +11,27 @@ public class PauseSubscriptionTests
     [Fact]
     public async Task Active_subscription_is_paused()
     {
+        const string intent = "Pause an active subscription";
         using var client = new ApiClient();
 
         var response = await client.PostAsync(TestSettings.PauseSubscriptionPath(TestSettings.KnownActiveSubscriptionId));
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Expect.Status(response, HttpStatusCode.OK, intent);
         using var doc = JsonDocument.Parse(response.Body);
 
         // Not a plain case-insensitive compare: Direct forwards Maxio's raw "on_hold"; Plugin renders its
-        // SubscriptionState enum as "OnHold" — see TestJson.StatesEqual.
-        var state = doc.RootElement.GetProperty("state").GetString();
-        Assert.True(TestJson.StatesEqual("on_hold", state ?? string.Empty), $"Expected an on-hold state, got '{state}'.");
+        // SubscriptionState enum as "OnHold" — see TestJson.StatesEqual (wrapped by Expect.State).
+        Expect.State(doc.RootElement, "on_hold", intent);
     }
 
     [Fact]
     public async Task Already_on_hold_subscription_yields_an_error_status()
     {
+        const string intent = "Pause a subscription that is already on hold";
         using var client = new ApiClient();
 
         var response = await client.PostAsync(TestSettings.PauseSubscriptionPath(TestSettings.KnownOnHoldSubscriptionId));
 
-        Assert.True(
-            response.StatusCode is HttpStatusCode.UnprocessableEntity,
-            $"Expected 422, got {(int)response.StatusCode}. Body: {response.Body}");
+        Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
     }
 }

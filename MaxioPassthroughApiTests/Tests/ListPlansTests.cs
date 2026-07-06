@@ -11,32 +11,33 @@ public class ListPlansTests
     [Fact]
     public async Task ListPlans_returns_the_configured_familys_plans_with_common_fields()
     {
+        const string intent = "List the configured product family's plans with their common fields";
         using var client = new ApiClient();
 
         var response = await client.GetAsync(TestSettings.ListPlansPath);
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal("application/json", response.ContentType);
+        Expect.Status(response, HttpStatusCode.OK, intent);
+        Expect.ContentType(response, "application/json", intent);
 
         using var doc = JsonDocument.Parse(response.Body);
         var root = doc.RootElement;
 
         // Flattened DTO shape: a bare JSON array of plan objects (no Maxio "product" envelope).
-        Assert.Equal(JsonValueKind.Array, root.ValueKind);
-        Assert.Equal(2, root.GetArrayLength());
+        Expect.Equal(JsonValueKind.Array, root.ValueKind, "response shape", intent);
+        Expect.Equal(2, root.GetArrayLength(), "plan array length", intent);
 
         var plans = root.EnumerateArray().ToList();
 
         // Both mock products are present, keyed by their handle (a field both integrations expose).
         var handles = plans.Select(p => p.GetProperty("handle").GetString()).ToHashSet();
-        Assert.Contains("zero-dollar-product", handles);
-        Assert.Contains("gold", handles);
+        Expect.Contains("zero-dollar-product", handles, "plan handle", intent);
+        Expect.Contains("gold", handles, "plan handle", intent);
 
         // Verify the Gold Plan's common fields survive the flattening intact.
         var gold = plans.Single(p => p.GetProperty("handle").GetString() == "gold");
-        Assert.Equal("Gold Plan", gold.GetProperty("name").GetString());
-        Assert.Equal(1, gold.GetProperty("intervalCount").GetInt32());
-        Assert.Equal("month", gold.GetProperty("intervalUnit").GetString());
-        Assert.True(gold.GetProperty("requiresPaymentMethod").GetBoolean());
+        Expect.Field(gold, "name", "Gold Plan", intent);
+        Expect.Equal(1, gold.GetProperty("intervalCount").GetInt32(), "'intervalCount' field", intent);
+        Expect.Field(gold, "intervalUnit", "month", intent);
+        Expect.Equal(true, gold.GetProperty("requiresPaymentMethod").GetBoolean(), "'requiresPaymentMethod' field", intent);
     }
 }

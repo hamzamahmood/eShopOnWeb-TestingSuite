@@ -11,6 +11,7 @@ public class CreateSubscriptionTests
     [Fact]
     public async Task Known_customer_and_product_creates_a_subscription()
     {
+        const string intent = "Create a subscription for a known customer and product";
         using var client = new ApiClient();
         var body = new
         {
@@ -23,20 +24,19 @@ public class CreateSubscriptionTests
 
         var response = await client.PostAsync(TestSettings.SubscriptionsPath, body);
 
-        Assert.True(
-            response.StatusCode is HttpStatusCode.Created,
-            $"Expected 201, got {(int)response.StatusCode}. Body: {response.Body}");
+        Expect.Status(response, HttpStatusCode.Created, intent);
 
         using var doc = JsonDocument.Parse(response.Body);
         var root = doc.RootElement;
-        Assert.Equal(TestSettings.KnownProductHandle, root.GetProperty("productHandle").GetString());
-        Assert.Equal("active", root.GetProperty("state").GetString(), ignoreCase: true);
-        Assert.False(string.IsNullOrWhiteSpace(TestJson.GetSubscriptionId(root)));
+        Expect.Field(root, "productHandle", TestSettings.KnownProductHandle, intent);
+        Expect.State(root, "active", intent);
+        Expect.NonBlankId(TestJson.GetSubscriptionId(root), "subscription id", intent);
     }
 
     [Fact]
     public async Task Unknown_product_handle_yields_an_error_status()
     {
+        const string intent = "Create a subscription with an unknown product handle";
         using var client = new ApiClient();
         var body = new
         {
@@ -49,14 +49,13 @@ public class CreateSubscriptionTests
 
         var response = await client.PostAsync(TestSettings.SubscriptionsPath, body);
 
-        Assert.True(
-            response.StatusCode is HttpStatusCode.UnprocessableEntity,
-            $"Expected 422, got {(int)response.StatusCode}. Body: {response.Body}");
+        Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
     }
 
     [Fact]
     public async Task Unknown_customer_id_yields_an_error_status()
     {
+        const string intent = "Create a subscription for an unknown customer id";
         using var client = new ApiClient();
         var body = new
         {
@@ -69,8 +68,6 @@ public class CreateSubscriptionTests
 
         var response = await client.PostAsync(TestSettings.SubscriptionsPath, body);
 
-        Assert.True(
-            response.StatusCode is HttpStatusCode.UnprocessableEntity,
-            $"Expected 422, got {(int)response.StatusCode}. Body: {response.Body}");
+        Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
     }
 }

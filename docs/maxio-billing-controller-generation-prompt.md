@@ -68,16 +68,15 @@ Its actual shape:
      `Controller endpoint route` **verbatim** (HTTP verb + path).
   3. **Wire only rows that correspond to a method present in this repo.** Rows for operations this repo's
      `IBillingClient` does not have are simply not exposed.
-  4. When more than one row could serve a single method, disambiguate in this order:
-     a. **Prefer the route that most fully mirrors the underlying Maxio API operation** (consistent with 1b).
-        If that operation is **component-scoped** (its Maxio path includes a component id), expose the route
-        that carries `{componentId}` and accept that segment as an **ignored path param** — do not drop it
-        merely because the client fixes the component from configuration.
-     b. **If the method unifies an immediate and a deferred/at-renewal variant behind one call** (e.g. via a
-        `timing` argument), expose the **immediate-variant** route (e.g. `POST .../migrations`,
-        `DELETE subscriptions/{id}`), not the deferred-variant route (e.g. `PUT subscriptions/{id}`,
-        `POST .../delayed_cancel`).
-     c. Otherwise, pick the route whose path parameters the method's parameters can all supply.
+  4. When more than one row could serve a single method, prefer the route that most fully mirrors the
+     underlying Maxio API operation (consistent with 1b). Two known cases:
+     a. **Component-scoped operation** — the Maxio path includes a component id → expose the route that
+        carries `{componentId}`, treated as an **ignored path param**. Keep it even if this client fixes the
+        component from configuration instead of taking it as an argument.
+     b. **Immediate/deferred variant unified behind one call** (e.g. a `timing` argument) → expose the
+        **immediate-variant** route (`POST .../migrations`, `DELETE subscriptions/{id}`), not the deferred one
+        (`PUT subscriptions/{id}`, `POST .../delayed_cancel`).
+     c. **Neither applies** → pick the route whose path params the method's params can all supply.
 - Do **not** invent routes or hand-declare `[Http*]` attributes that disagree with the table.
 - **Design intent (why the table, not your own routing):** operations shared by multiple bases are given
   *identical* routes by design, so the shared test suite reaches the same paths deterministically. A handful
