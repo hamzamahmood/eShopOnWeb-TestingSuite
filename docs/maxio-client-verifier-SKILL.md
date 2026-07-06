@@ -127,18 +127,24 @@ Expose one controller endpoint per `IBillingClient` / `MaxioBillingClient` metho
 3. Wire only rows that correspond to a method present in this repo's `IBillingClient`.
 4. The Controller endpoints should accurately expose the exact MaxioBillingClient behavior as endpoints.
 
-When more than one row could serve one method, disambiguate in this order:
+When more than one row could serve one method, prefer the route that most fully mirrors
+the underlying Maxio API operation (consistent with 1b). Two concrete cases, then a
+fallback:
 
-- **a.** Prefer the route that most fully mirrors the underlying Maxio API
-  operation (consistent with 1b). If that operation is component-scoped (its
-  Maxio path includes a component id), expose the route carrying `{componentId}`
-  and accept that segment as an ignored path param — do not drop it merely
-  because the client fixes the component from configuration.
-- **b.** If the method unifies an immediate and a deferred/at-renewal variant
-  behind one call (e.g. via a timing argument), expose the **immediate**-variant
-  route (e.g. `POST .../migrations`, `DELETE subscriptions/{id}`), not the
-  deferred variant (e.g. `PUT subscriptions/{id}`, `POST .../delayed_cancel`).
-- **c.** Otherwise pick the route whose path params the method's params can supply.
+- **a. Component-scoped operation** — the Maxio path includes a component id. Expose the
+  route that carries `{componentId}` and treat that segment as an **ignored path param**
+  — keep it even when the client fixes the component from configuration rather than taking
+  it as an argument. (Example: two rows front the same
+  `.../components/{component_id}/usages.json` call — one with `{componentId}` in the
+  controller path, one without; choose the one with it.)
+- **b. A single method unifies an immediate and a deferred/at-renewal variant** (e.g. via
+  a `timing` argument). Expose the **immediate**-variant route (`POST .../migrations`,
+  `DELETE subscriptions/{id}`), not the deferred one (`PUT subscriptions/{id}`,
+  `POST .../delayed_cancel`). This applies only when *one* method picks between the two at
+  runtime; if the client has *separate* methods for the immediate and deferred variants,
+  each maps 1:1 to its own route and there is no ambiguity to resolve.
+- **c. Neither case applies** — pick the route whose path params the method's params can
+  all supply.
 
 Do not invent routes or hand-declare `[Http*]` attributes that disagree with the table.
 
