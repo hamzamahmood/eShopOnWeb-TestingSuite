@@ -37,9 +37,7 @@ internal static class Expect
             return;
         }
 
-        Assert.True(
-            false,
-            $"[{intent}] Incorrect status code received — expected {Describe(expected)}, got " +
+        Assert.Fail($"[{intent}] Incorrect status code received — expected {Describe(expected)}, got " +
             $"{Describe(response.StatusCode)}. Body: {response.Body}");
     }
 
@@ -54,9 +52,7 @@ internal static class Expect
             return;
         }
 
-        Assert.True(
-            false,
-            $"[{intent}] Incorrect status code received — expected {rangeLabel}, got " +
+        Assert.Fail($"[{intent}] Incorrect status code received — expected {rangeLabel}, got " +
             $"{Describe(response.StatusCode)}. Body: {response.Body}");
     }
 
@@ -79,9 +75,7 @@ internal static class Expect
             return;
         }
 
-        Assert.True(
-            false,
-            $"[{intent}] Unexpected response content type — expected '{expected}', got " +
+        Assert.Fail($"[{intent}] Unexpected response content type — expected '{expected}', got " +
             $"'{response.ContentType ?? "(none)"}'. Body: {response.Body}");
     }
 
@@ -94,9 +88,7 @@ internal static class Expect
             return;
         }
 
-        Assert.True(
-            false,
-            $"[{intent}] Unexpected {what} — expected '{expected}', got '{actual}'.");
+        Assert.Fail($"[{intent}] Unexpected {what} — expected '{expected}', got '{actual}'.");
     }
 
     /// <summary>Asserts a returned id string is present (non-blank).</summary>
@@ -108,9 +100,7 @@ internal static class Expect
             return;
         }
 
-        Assert.True(
-            false,
-            $"[{intent}] Missing identifier in response — expected a non-blank {idKind}, got " +
+        Assert.Fail($"[{intent}] Missing identifier in response — expected a non-blank {idKind}, got " +
             $"'{id}'.");
     }
 
@@ -123,9 +113,7 @@ internal static class Expect
             return;
         }
 
-        Assert.False(
-            true,
-            $"[{intent}] Internal detail leaked into error body — found '{forbidden}'. Body: {response.Body}");
+        Assert.Fail($"[{intent}] Internal detail leaked into error body — found '{forbidden}'. Body: {response.Body}");
     }
 
     /// <summary>
@@ -141,9 +129,7 @@ internal static class Expect
             return;
         }
 
-        Assert.True(
-            false,
-            $"[{intent}] - Test failed — {report.FailureSummary}");
+        Assert.Fail($"[{intent}] - Test failed — {report.FailureSummary}");
     }
 
     /// <summary>
