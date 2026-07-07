@@ -1,5 +1,5 @@
 using System.Net;
-using System.Text.Json;
+using MaxioPassthroughApiTests.Ai;
 using Xunit;
 
 namespace MaxioPassthroughApiTests.Tests;
@@ -28,17 +28,24 @@ public class FindOrCreateCustomerTests
 
         var first = await client.PostAsync(TestSettings.CustomersPath, body);
         Expect.Status(first, HttpStatusCode.OK, intent);
-        var firstId = TestJson.GetCustomerId(JsonDocument.Parse(first.Body).RootElement);
-        Expect.NonBlankId(firstId, "customer id", intent);
 
-        // Same fresh reference again: find-or-create must be idempotent — it resolves to the SAME
-        // provider customer id rather than creating a duplicate (IBillingClient.FindOrCreateCustomerAsync's
-        // documented AC-03 guarantee).
+        // Same fresh reference again: find-or-create must be idempotent — it resolves to the SAME provider
+        // customer id rather than creating a duplicate (IBillingClient.FindOrCreateCustomerAsync's documented
+        // AC-03 guarantee). Status 200 alone can't prove that, so we compare the customer id ACROSS both
+        // responses — via the AI verifier, so the check is robust to whatever the id field is named.
         var second = await client.PostAsync(TestSettings.CustomersPath, body);
         Expect.Status(second, HttpStatusCode.OK, intent);
-        var secondId = TestJson.GetCustomerId(JsonDocument.Parse(second.Body).RootElement);
 
-        Expect.Equal(firstId, secondId, "customer id on repeat call", intent);
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(
+            $"FIRST RESPONSE:\n{first.Body}\n\nSECOND RESPONSE (same reference, repeated call):\n{second.Body}",
+            new[]
+            {
+                "Each of the two responses contains a non-blank customer identifier.",
+                "Both responses identify the SAME customer: the customer id value is identical across the two " +
+                "responses (idempotent — no duplicate customer was created).",
+            });
+        Expect.AiPassed(report, intent);
     }
 
     [SkippableFact]

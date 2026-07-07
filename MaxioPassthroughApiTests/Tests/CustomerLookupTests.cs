@@ -1,5 +1,5 @@
 using System.Net;
-using System.Text.Json;
+using MaxioPassthroughApiTests.Ai;
 using Xunit;
 
 namespace MaxioPassthroughApiTests.Tests;
@@ -25,8 +25,12 @@ public class CustomerLookupTests
         var response = await client.GetAsync(TestSettings.CustomerLookupPath(TestSettings.KnownCustomerReference));
 
         Expect.Status(response, HttpStatusCode.OK, intent);
-        using var doc = JsonDocument.Parse(response.Body);
-        Expect.Equal(TestSettings.KnownCustomerId, TestJson.GetCustomerId(doc.RootElement), "customer id", intent);
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            $"The response identifies the customer whose id is {TestSettings.KnownCustomerId}."
+        ]);
+        Expect.AiPassed(report, intent);
     }
 
     [SkippableFact]

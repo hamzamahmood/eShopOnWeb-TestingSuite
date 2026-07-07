@@ -13,17 +13,17 @@ against **either** integration — just point `PUBLICAPI_BASEURL` at whichever o
 
 11 endpoints are identical (or near-identical) in route and request shape between the two integrations
 — see `../docs/maxio-billing-controller-comparison.md` for the full route-by-route comparison. This
-suite covers exactly those 11. Where the two integrations' *response* shapes genuinely differ (field
-names, casing, or status codes), tests either:
-- assert only the fields common to both shapes (e.g. `productHandle`, `state` — compared via
-  `TestJson.StatesEqual`, since Plugin renders `on_hold` as `"OnHold"`, not snake_case),
-- read an id via a tolerant getter (`TestJson.GetSubscriptionId` / `GetUsageId` / `GetCustomerId`),
-  since the two integrations use different property names/types for provider ids.
-
-Every shared-suite status assertion pins the single status code verified live on both integrations —
-`Expect.StatusOneOf` exists in `Expect.cs` for a set of acceptable codes, but nothing in the suite
-currently needs it (an earlier `ReactivateSubscriptionTests` case hedged `{422, 502}` without live
-verification; live-checked, both integrations return 422, so it's pinned to that single code now).
+suite covers exactly those 11. The two integrations' *response* shapes genuinely differ (field names,
+casing, id types, envelopes), and a freshly generated integration may name fields differently again. So
+each content test splits its assertions in two:
+- **Status codes** are asserted deterministically in-code (`Expect.Status` / `Expect.StatusInRange`),
+  pinned to the single code verified live on both integrations (an earlier `ReactivateSubscriptionTests`
+  case hedged `{422, 502}` without live verification; live-checked, both return 422).
+- **Response contents** are verified by an **AI payload verifier** (see "AI payload verification"
+  below): each test states plain-English rules about the body, and the model checks them by *meaning*
+  rather than exact key name — so a renamed/re-cased/re-nested field still passes. This replaced the
+  former key-dependent readers (`TestJson.GetSubscriptionId`/`GetUsageId`/`GetCustomerId`/`StatesEqual`),
+  which broke whenever a generated integration used a property name outside their small allowlist.
 
 **Not covered:** the customer-lookup-only endpoint (`GET /api/maxio/customers/lookup`) exists only on
 Plugin — Direct has no equivalent — so it doesn't fit the shared suite's "same endpoint, both
@@ -35,7 +35,7 @@ When a test hits a route the running integration does **not** expose, ASP.NET re
 — an empty body with no `Content-Type`. A **genuine** not-found from the controller/middleware instead
 carries the app's JSON error body (`{"StatusCode":404,"Message":"…"}`, or an RFC-7807 ProblemDetails
 body). The suite uses that difference to tell the two apart: the status helpers in `Expect`
-(`Status` / `StatusOneOf` / `StatusInRange`) call `TestJson.IsEndpointMissing`, and on an empty-body 404
+(`Status` / `StatusInRange`) call `TestJson.IsEndpointMissing`, and on an empty-body 404
 they **Skip** the test (via `Xunit.SkippableFact`) rather than pass or fail it. A genuine API 404 falls
 through to the normal assertion, so a test that expected 404 still **Passes**.
 
@@ -48,6 +48,35 @@ the JUnit report.
 > classified as endpoint-missing and skipped. In practice both integrations return a JSON body on every
 > genuine 404 (ExceptionMiddleware or ProblemDetails), so this is theoretical today — but a new
 > empty-body business 404 would skip rather than pass.
+
+## AI payload verification
+
+Response **bodies** are checked by an AI verifier (`Ai/OpenAIApiService.cs`, built on
+`Microsoft.Extensions.AI`), not by key-based field reads. A content test keeps its deterministic
+`Expect.Status(...)` check, obtains the verifier via `OpenAIApiService.Require(intent)`, then passes the
+raw response body plus plain-English **rules** to `VerifyAsync`; the model returns a structured
+`VerificationReport` (per-rule pass/fail + reason) and `Expect.AiPassed` asserts it. Because the model
+matches on *meaning*, the same rules hold across integrations that name/case/nest fields differently —
+which is why the former `TestJson` id/state readers were removed. The verifier judges only the body;
+status codes remain the job of the deterministic `Expect.Status` helpers.
+
+**On by default; fails (not skips) when unavailable.** When a key is resolvable the content-comparison
+tests run and AI-verify the body. When no key is configured (`AI_API_KEY`/`OPENAI_API_KEY` both unset)
+— or you override `AI_COMPARISON_ENABLED=false` — `OpenAIApiService.Require` **fails** the test with a
+message explaining how to configure it, rather than skipping. A content assertion that cannot run is a
+hard failure, not a silent pass, so it can't be mistaken for verified. (Only the status-only and
+behavioral tests, which don't call `Require`, run without a key.)
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `AI_COMPARISON_ENABLED` | `true` | Master switch for AI payload verification; with it `false` (or no key) the content tests **fail** rather than skip |
+| `AI_API_KEY` | *(falls back to `OPENAI_API_KEY`)* | API key for the OpenAI / OpenAI-compatible endpoint |
+| `AI_MODEL` | `gpt-4o` | Judge model — `gpt-4o` is run-to-run stable; `gpt-4o-mini` flips ~1 borderline verdict per run |
+| `AI_ENDPOINT` | *(OpenAI cloud)* | Optional OpenAI-compatible base-URL override (Azure / local / proxy) |
+| `AI_USE_JSON_SCHEMA` | `true` | Constrain output with a JSON schema; set `false` for endpoints lacking native schema support |
+
+> The AI verdict is not perfectly deterministic. Keep rules literal and unambiguous (judge *value*, not
+> *validity*); the deterministic status assertions remain the hard gate.
 
 ## Shared tests (23) — green on both integrations
 
@@ -201,10 +230,11 @@ Add a `Tests/*.cs` file with a success case and, where a failure is reachable th
 input, a failure case. Add the class-level `[Trait(MaxioTraits.Category, …)]` and one or more
 `[Trait(MaxioTraits.Api, …)]` (add a new constant to `MaxioTraits.cs` if the operation isn't already
 listed, matching `../openAPI/openapi.yaml`'s path + method exactly) — see "Test metadata / reports" above.
-If the two integrations' response shapes differ, add a tolerant getter to
-`TestJson.cs` rather than hardcoding one integration's property names. If the two integrations' error
-statuses differ for the same failure, assert a status *set*, not a single code — trace each client's
+For assertions on the response **body**, don't parse fields by key — state plain-English rules and
+verify them with the AI verifier (`OpenAIApiService.VerifyAsync` + `Expect.AiPassed`), so the test is
+robust to differing/renamed field names (see "AI payload verification"). For error cases, verify the
+status live and pin the single code the integration actually returns; trace each client's
 exception-handling path (`MaxioBillingClient.cs` in each `Infrastructure/`) through to its
-`ExceptionMiddleware` to find the real set. Then wire the mock route (see
+`ExceptionMiddleware` to confirm it. Then wire the mock route (see
 `../MaxioMockServer/README.md`) and update `../docs/maxio-billing-controller-comparison.md` if the
 route comparison changes.

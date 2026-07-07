@@ -1,5 +1,5 @@
 using System.Net;
-using System.Text.Json;
+using MaxioPassthroughApiTests.Ai;
 using Xunit;
 
 namespace MaxioPassthroughApiTests.Tests;
@@ -29,7 +29,13 @@ public class StateDriftTests
         var response = await client.GetAsync(TestSettings.SubscriptionPath(TestSettings.UnknownStateSubscriptionId));
 
         Expect.Status(response, HttpStatusCode.OK, intent);
-        using var doc = JsonDocument.Parse(response.Body);
-        Expect.State(doc.RootElement, "other", intent);
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The subscription's state value is exactly the string \"other\" (compare case-insensitively). " +
+            "Judge only whether the value equals \"other\"; do not consider whether \"other\" is a healthy or " +
+            "recognized lifecycle state."
+        ]);
+        Expect.AiPassed(report, intent);
     }
 }

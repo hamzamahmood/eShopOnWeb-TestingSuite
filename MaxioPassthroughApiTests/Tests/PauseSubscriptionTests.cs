@@ -1,5 +1,5 @@
 using System.Net;
-using System.Text.Json;
+using MaxioPassthroughApiTests.Ai;
 using Xunit;
 
 namespace MaxioPassthroughApiTests.Tests;
@@ -17,11 +17,12 @@ public class PauseSubscriptionTests
         var response = await client.PostAsync(TestSettings.PauseSubscriptionPath(TestSettings.KnownActiveSubscriptionId));
 
         Expect.Status(response, HttpStatusCode.OK, intent);
-        using var doc = JsonDocument.Parse(response.Body);
 
-        // Not a plain case-insensitive compare: Direct forwards Maxio's raw "on_hold"; Plugin renders its
-        // SubscriptionState enum as "OnHold" — see TestJson.StatesEqual (wrapped by Expect.State).
-        Expect.State(doc.RootElement, "on_hold", intent);
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The subscription's lifecycle state indicates it is on hold / paused (e.g. on_hold, OnHold)."
+        ]);
+        Expect.AiPassed(report, intent);
     }
 
     [SkippableFact]

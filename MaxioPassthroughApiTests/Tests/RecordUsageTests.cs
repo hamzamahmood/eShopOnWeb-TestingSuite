@@ -1,5 +1,5 @@
 using System.Net;
-using System.Text.Json;
+using MaxioPassthroughApiTests.Ai;
 using Xunit;
 
 namespace MaxioPassthroughApiTests.Tests;
@@ -18,11 +18,14 @@ public class RecordUsageTests
         var response = await client.PostAsync(TestSettings.RecordUsagePath(TestSettings.KnownActiveSubscriptionId), body);
 
         Expect.Status(response, HttpStatusCode.OK, intent);
-        using var doc = JsonDocument.Parse(response.Body);
-        var root = doc.RootElement;
-        Expect.Equal(42m, root.GetProperty("quantity").GetDecimal(), "'quantity' field", intent);
-        Expect.Field(root, "memo", "black-box test run", intent);
-        Expect.NonBlankId(TestJson.GetUsageId(root), "usage id", intent);
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The recorded usage has a quantity of 42.",
+            "The recorded usage has the memo 'black-box test run'.",
+            "The response contains a non-blank unique usage identifier."
+        ]);
+        Expect.AiPassed(report, intent);
     }
 
     [SkippableFact]

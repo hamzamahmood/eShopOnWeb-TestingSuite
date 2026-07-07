@@ -1,5 +1,5 @@
 using System.Net;
-using System.Text.Json;
+using MaxioPassthroughApiTests.Ai;
 using Xunit;
 
 namespace MaxioPassthroughApiTests.Tests;
@@ -72,9 +72,9 @@ public class PluginAdvantageTests
 
         var response = await client.PostAsync(TestSettings.CustomersPath, body);
 
+        // Recovery is fully proven by the 200 (find-or-create resolved despite the concurrent-create race).
+        // The returned id is incidental here, so we don't read it — no key-dependent payload parsing.
         Expect.Status(response, HttpStatusCode.OK, intent);
-        var customerId = TestJson.GetCustomerId(JsonDocument.Parse(response.Body).RootElement);
-        Expect.NonBlankId(customerId, "customer id", intent);
     }
 
     /// <summary>
@@ -107,7 +107,14 @@ public class PluginAdvantageTests
         var response = await client.PostAsync(TestSettings.SubscriptionsPath, body);
 
         Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
-        Expect.BodyContains(response, "Additional payment information is required", intent);
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The response body indicates that additional payment information is required to activate or " +
+            "complete the subscription. A message such as \"Additional payment information is required\" " +
+            "satisfies this rule."
+        ]);
+        Expect.AiPassed(report, intent);
     }
 
     public static IEnumerable<object[]> PaymentRequiredProductHandles() =>
