@@ -1,5 +1,6 @@
 using System.Net;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace MaxioPassthroughApiTests.Tests;
 
@@ -15,8 +16,10 @@ namespace MaxioPassthroughApiTests.Tests;
 [Trait(MaxioTraits.Category, MaxioTraits.CategorySafetyNet)]
 [Trait(MaxioTraits.Api, MaxioTraits.LookupCustomer)]
 [Trait(MaxioTraits.Api, MaxioTraits.CreateCustomer)]
-public class ResilientRetryRecoveryTests
+public class ResilientRetryRecoveryTests : BlackBoxTest
 {
+    public ResilientRetryRecoveryTests(ITestOutputHelper output) : base(output) { }
+
     private const int CallCount = 12;
 
     [SkippableFact]

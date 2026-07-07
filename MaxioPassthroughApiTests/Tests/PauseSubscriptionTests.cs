@@ -1,13 +1,16 @@
 using System.Net;
 using MaxioPassthroughApiTests.Ai;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace MaxioPassthroughApiTests.Tests;
 
 [Trait(MaxioTraits.Category, MaxioTraits.CategoryEndpoint)]
 [Trait(MaxioTraits.Api, MaxioTraits.HoldSubscription)]
-public class PauseSubscriptionTests
+public class PauseSubscriptionTests : BlackBoxTest
 {
+    public PauseSubscriptionTests(ITestOutputHelper output) : base(output) { }
+
     [SkippableFact]
     public async Task Active_subscription_is_paused()
     {

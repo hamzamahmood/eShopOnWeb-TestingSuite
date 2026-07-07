@@ -1,14 +1,17 @@
 using System.Net;
 using MaxioPassthroughApiTests.Ai;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace MaxioPassthroughApiTests.Tests;
 
 [Trait(MaxioTraits.Category, MaxioTraits.CategoryEndpoint)]
 [Trait(MaxioTraits.Api, MaxioTraits.LookupCustomer)]
 [Trait(MaxioTraits.Api, MaxioTraits.CreateCustomer)]
-public class FindOrCreateCustomerTests
+public class FindOrCreateCustomerTests : BlackBoxTest
 {
+    public FindOrCreateCustomerTests(ITestOutputHelper output) : base(output) { }
+
     [SkippableFact]
     public async Task Fresh_reference_creates_a_customer_and_is_idempotent_on_repeat_calls()
     {

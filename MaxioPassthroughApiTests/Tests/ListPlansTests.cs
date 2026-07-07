@@ -1,13 +1,16 @@
 using System.Net;
 using MaxioPassthroughApiTests.Ai;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace MaxioPassthroughApiTests.Tests;
 
 [Trait(MaxioTraits.Category, MaxioTraits.CategoryEndpoint)]
 [Trait(MaxioTraits.Api, MaxioTraits.ListProducts)]
-public class ListPlansTests
+public class ListPlansTests : BlackBoxTest
 {
+    public ListPlansTests(ITestOutputHelper output) : base(output) { }
+
     [SkippableFact]
     public async Task ListPlans_returns_the_configured_familys_plans_with_common_fields()
     {

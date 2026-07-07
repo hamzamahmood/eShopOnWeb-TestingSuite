@@ -1,13 +1,16 @@
 using System.Net;
 using MaxioPassthroughApiTests.Ai;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace MaxioPassthroughApiTests.Tests;
 
 [Trait(MaxioTraits.Category, MaxioTraits.CategoryEndpoint)]
 [Trait(MaxioTraits.Api, MaxioTraits.CreateSubscription)]
-public class CreateSubscriptionTests
+public class CreateSubscriptionTests : BlackBoxTest
 {
+    public CreateSubscriptionTests(ITestOutputHelper output) : base(output) { }
+
     [SkippableFact]
     public async Task Known_customer_and_product_creates_a_subscription()
     {

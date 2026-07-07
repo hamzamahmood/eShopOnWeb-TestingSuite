@@ -1,13 +1,16 @@
 using System.Net;
 using MaxioPassthroughApiTests.Ai;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace MaxioPassthroughApiTests.Tests;
 
 [Trait(MaxioTraits.Category, MaxioTraits.CategoryEndpoint)]
 [Trait(MaxioTraits.Api, MaxioTraits.RecordUsage)]
-public class RecordUsageTests
+public class RecordUsageTests : BlackBoxTest
 {
+    public RecordUsageTests(ITestOutputHelper output) : base(output) { }
+
     [SkippableFact]
     public async Task Known_subscription_records_usage_with_the_given_quantity_and_memo()
     {

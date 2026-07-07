@@ -1,5 +1,6 @@
 using System.Net;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace MaxioPassthroughApiTests.Tests;
 
@@ -19,8 +20,10 @@ namespace MaxioPassthroughApiTests.Tests;
 [Trait(MaxioTraits.Category, MaxioTraits.CategorySafetyNet)]
 [Trait(MaxioTraits.Api, MaxioTraits.LookupCustomer)]
 [Trait(MaxioTraits.Api, MaxioTraits.CreateCustomer)]
-public class RetrySafetyTests
+public class RetrySafetyTests : BlackBoxTest
 {
+    public RetrySafetyTests(ITestOutputHelper output) : base(output) { }
+
     [SkippableFact]
     public async Task Rate_limited_lookup_recovers()
     {

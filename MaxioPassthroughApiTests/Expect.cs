@@ -31,8 +31,14 @@ internal static class Expect
     public static void Status(ApiResponse response, HttpStatusCode expected, string intent)
     {
         SkipIfEndpointMissing(response, intent);
+        if (response.StatusCode == expected)
+        {
+            Pass(intent, $"status {Describe(expected)}");
+            return;
+        }
+
         Assert.True(
-            response.StatusCode == expected,
+            false,
             $"[{intent}] Incorrect status code received — expected {Describe(expected)}, got " +
             $"{Describe(response.StatusCode)}. Body: {response.Body}");
     }
@@ -42,8 +48,14 @@ internal static class Expect
     {
         SkipIfEndpointMissing(response, intent);
         var actual = (int)response.StatusCode;
+        if (actual >= lo && actual < hiExclusive)
+        {
+            Pass(intent, $"status {Describe(response.StatusCode)} in {rangeLabel}");
+            return;
+        }
+
         Assert.True(
-            actual >= lo && actual < hiExclusive,
+            false,
             $"[{intent}] Incorrect status code received — expected {rangeLabel}, got " +
             $"{Describe(response.StatusCode)}. Body: {response.Body}");
     }
@@ -59,40 +71,89 @@ internal static class Expect
             $"[{intent}] Route not exposed on this integration (empty-body 404) — skipped as route divergence.");
 
     /// <summary>Asserts the response's Content-Type header.</summary>
-    public static void ContentType(ApiResponse response, string expected, string intent) =>
+    public static void ContentType(ApiResponse response, string expected, string intent)
+    {
+        if (expected == response.ContentType)
+        {
+            Pass(intent, $"content type '{expected}'");
+            return;
+        }
+
         Assert.True(
-            expected == response.ContentType,
+            false,
             $"[{intent}] Unexpected response content type — expected '{expected}', got " +
             $"'{response.ContentType ?? "(none)"}'. Body: {response.Body}");
+    }
 
     /// <summary>Asserts any comparable value equals its expectation, e.g. an array length or a JSON value kind.</summary>
-    public static void Equal<T>(T expected, T actual, string what, string intent) =>
+    public static void Equal<T>(T expected, T actual, string what, string intent)
+    {
+        if (Equals(expected, actual))
+        {
+            Pass(intent, $"{what} == '{expected}'");
+            return;
+        }
+
         Assert.True(
-            Equals(expected, actual),
+            false,
             $"[{intent}] Unexpected {what} — expected '{expected}', got '{actual}'.");
+    }
 
     /// <summary>Asserts a returned id string is present (non-blank).</summary>
-    public static void NonBlankId(string? id, string idKind, string intent) =>
+    public static void NonBlankId(string? id, string idKind, string intent)
+    {
+        if (!string.IsNullOrWhiteSpace(id))
+        {
+            Pass(intent, $"{idKind} present");
+            return;
+        }
+
         Assert.True(
-            !string.IsNullOrWhiteSpace(id),
+            false,
             $"[{intent}] Missing identifier in response — expected a non-blank {idKind}, got " +
             $"'{id}'.");
+    }
 
     /// <summary>Asserts the response body does NOT contain a forbidden internal-detail substring.</summary>
-    public static void NoLeak(ApiResponse response, string forbidden, string intent) =>
+    public static void NoLeak(ApiResponse response, string forbidden, string intent)
+    {
+        if (!response.Body.Contains(forbidden, StringComparison.OrdinalIgnoreCase))
+        {
+            Pass(intent, $"no '{forbidden}' in body");
+            return;
+        }
+
         Assert.False(
-            response.Body.Contains(forbidden, StringComparison.OrdinalIgnoreCase),
+            true,
             $"[{intent}] Internal detail leaked into error body — found '{forbidden}'. Body: {response.Body}");
+    }
 
     /// <summary>
     /// Asserts an AI payload-verification report passed (every rule satisfied). On failure the message lists the
     /// failed rules and the model's reasons. The AI judges response <b>contents</b>; status codes remain the job
     /// of <see cref="Status"/>.
     /// </summary>
-    public static void AiPassed(VerificationReport report, string intent) =>
+    public static void AiPassed(VerificationReport report, string intent)
+    {
+        if (report.Passed)
+        {
+            Pass(intent, $"AI payload rules satisfied ({report.Results.Count}/{report.Results.Count})");
+            return;
+        }
+
         Assert.True(
-            report.Passed,
+            false,
             $"[{intent}] - Test failed — {report.FailureSummary}");
+    }
+
+    /// <summary>
+    /// Emits a PASS line for a satisfied assertion to the current test's output — symmetric with the
+    /// intent-bearing failure messages above, so a passing test now records what it verified (surfaced in the
+    /// JUnit report's <c>&lt;system-out&gt;</c>). No-op when no output helper was captured (see
+    /// <see cref="TestOutput"/>).
+    /// </summary>
+    private static void Pass(string intent, string detail) =>
+        TestOutput.Current?.WriteLine($"[{intent}] PASS — {detail}");
 
     /// <summary>Renders a status code by name, e.g. "404 Not Found" instead of a bare "404".</summary>
     private static string Describe(HttpStatusCode code) => $"{(int)code} {Humanize(code.ToString())}";

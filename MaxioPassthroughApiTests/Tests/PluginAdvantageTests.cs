@@ -1,6 +1,7 @@
 using System.Net;
 using MaxioPassthroughApiTests.Ai;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace MaxioPassthroughApiTests.Tests;
 
@@ -24,8 +25,10 @@ namespace MaxioPassthroughApiTests.Tests;
 /// </para>
 /// </summary>
 [Trait(MaxioTraits.Category, MaxioTraits.CategoryPluginAdvantage)]
-public class PluginAdvantageTests
+public class PluginAdvantageTests : BlackBoxTest
 {
+    public PluginAdvantageTests(ITestOutputHelper output) : base(output) { }
+
     /// <summary>
     /// A missing subscription should yield a REST-correct <c>404 Not Found</c>. The Plugin's
     /// <c>ReadSubscriptionAsync</c> maps Maxio's 404 to <c>SubscriptionNotFoundException</c> → 404. The Direct

@@ -1,6 +1,7 @@
 using System.Net;
 using MaxioPassthroughApiTests.Ai;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace MaxioPassthroughApiTests.Tests;
 
@@ -18,8 +19,10 @@ namespace MaxioPassthroughApiTests.Tests;
 /// </summary>
 [Trait(MaxioTraits.Category, MaxioTraits.CategoryPluginAdvantage)]
 [Trait(MaxioTraits.Api, MaxioTraits.ReadSubscription)]
-public class StateDriftTests
+public class StateDriftTests : BlackBoxTest
 {
+    public StateDriftTests(ITestOutputHelper output) : base(output) { }
+
     [SkippableFact]
     public async Task Unknown_provider_state_maps_to_a_safe_default()
     {

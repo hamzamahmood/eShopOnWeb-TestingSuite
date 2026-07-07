@@ -1,13 +1,16 @@
 using System.Net;
 using MaxioPassthroughApiTests.Ai;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace MaxioPassthroughApiTests.Tests;
 
 [Trait(MaxioTraits.Category, MaxioTraits.CategoryEndpoint)]
 [Trait(MaxioTraits.Api, MaxioTraits.MigrateSubscription)]
-public class CommitPlanChangeTests
+public class CommitPlanChangeTests : BlackBoxTest
 {
+    public CommitPlanChangeTests(ITestOutputHelper output) : base(output) { }
+
     [SkippableFact]
     public async Task Active_subscription_migrates_to_a_different_known_product()
     {

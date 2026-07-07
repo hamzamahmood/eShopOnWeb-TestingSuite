@@ -1,6 +1,7 @@
 using System.Net;
 using MaxioPassthroughApiTests.Ai;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace MaxioPassthroughApiTests.Tests;
 
@@ -14,8 +15,10 @@ namespace MaxioPassthroughApiTests.Tests;
 /// </summary>
 [Trait(MaxioTraits.Category, MaxioTraits.CategoryPluginAdvantage)]
 [Trait(MaxioTraits.Api, MaxioTraits.LookupCustomer)]
-public class CustomerLookupTests
+public class CustomerLookupTests : BlackBoxTest
 {
+    public CustomerLookupTests(ITestOutputHelper output) : base(output) { }
+
     [SkippableFact]
     public async Task Known_reference_returns_the_customer_id()
     {
