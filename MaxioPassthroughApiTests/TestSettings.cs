@@ -191,7 +191,7 @@ public static class TestSettings
     /// API key for the OpenAI (or OpenAI-compatible) endpoint. Prefers <c>AI_API_KEY</c>, then falls back to the
     /// conventional <c>OPENAI_API_KEY</c>. Empty ⇒ AI comparison disabled.
     /// </summary>
-    public static string AiApiKey => Get("AI_API_KEY", Get("OPENAI_API_KEY", ""));
+    public static string AiApiKey => Get("AI_API_KEY", "");
 
     /// <summary>
     /// Chat model / deployment name to verify with (<c>AI_MODEL</c>). Defaults to <c>gpt-4o</c>: verified
