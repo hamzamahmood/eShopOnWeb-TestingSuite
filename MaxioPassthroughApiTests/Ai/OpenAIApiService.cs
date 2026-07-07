@@ -63,7 +63,7 @@ public sealed class OpenAIApiService
             $"[{intent}] AI payload verification is unavailable, so this test's response-content checks cannot " +
             "run. It is ON by default, so a missing verifier means no API key was resolved (set AI_API_KEY, or " +
             "OPENAI_API_KEY), or it was disabled via AI_COMPARISON_ENABLED=false. Provide a key (and optionally " +
-            "AI_MODEL — default gpt-4o) to run these tests.");
+            "AI_MODEL — default gpt-5.5) to run these tests.");
 
     /// <summary>
     /// Verifies <paramref name="payloadJson"/> against <paramref name="rules"/> and returns the model's
@@ -73,9 +73,9 @@ public sealed class OpenAIApiService
     public async Task<VerificationReport> VerifyAsync(
         string payloadJson, IReadOnlyList<string> rules, CancellationToken ct = default)
     {
+        // Note: no Temperature override — the GPT-5 family only supports the default (1); setting 0 → HTTP 400.
         var response = await _chat.GetResponseAsync<VerificationReport>(
             BuildPrompt(payloadJson, rules),
-            new ChatOptions { Temperature = 0f },
             useJsonSchemaResponseFormat: TestSettings.AiUseJsonSchema,
             cancellationToken: ct);
 

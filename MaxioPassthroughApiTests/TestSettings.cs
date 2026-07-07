@@ -194,10 +194,9 @@ public static class TestSettings
     public static string AiApiKey => Get("AI_API_KEY", "");
 
     /// <summary>
-    /// Chat model / deployment name to verify with (<c>AI_MODEL</c>). Defaults to <c>gpt-4o</c>: verified
-    /// run-to-run stable as the judge, whereas <c>gpt-4o-mini</c> flip-flops ~1 borderline verdict per run.
+    /// Chat model / deployment name to verify with (<c>AI_MODEL</c>). Defaults to <c>gpt-5.5</c>.
     /// </summary>
-    public static string AiModel => Get("AI_MODEL", "gpt-4o");
+    public static string AiModel => Get("AI_MODEL", "gpt-5.5");
 
     /// <summary>Optional OpenAI-compatible base URL override (<c>AI_ENDPOINT</c>). Empty ⇒ OpenAI cloud.</summary>
     public static string AiEndpoint => Get("AI_ENDPOINT", "");

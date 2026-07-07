@@ -71,7 +71,7 @@ behavioral tests, which don't call `Require`, run without a key.)
 |---|---|---|
 | `AI_COMPARISON_ENABLED` | `true` | Master switch for AI payload verification; with it `false` (or no key) the content tests **fail** rather than skip |
 | `AI_API_KEY` | *(falls back to `OPENAI_API_KEY`)* | API key for the OpenAI / OpenAI-compatible endpoint |
-| `AI_MODEL` | `gpt-4o` | Judge model — `gpt-4o` is run-to-run stable; `gpt-4o-mini` flips ~1 borderline verdict per run |
+| `AI_MODEL` | `gpt-5.5` | Judge model used to verify response payloads |
 | `AI_ENDPOINT` | *(OpenAI cloud)* | Optional OpenAI-compatible base-URL override (Azure / local / proxy) |
 | `AI_USE_JSON_SCHEMA` | `true` | Constrain output with a JSON schema; set `false` for endpoints lacking native schema support |
 
