@@ -3,7 +3,7 @@ name: maxio-client-verifier
 description: >-
   Generate a standalone ASP.NET Core Web API controller that exposes an existing
   MaxioBillingClient, run the black-box verification test suite against it, and
-  produce an honest pass/fail/skip report. Use this whenever you have completed a
+  hand back the raw JUnit XML results (unprocessed) for the caller to interpret. Use this whenever you have completed a
   Maxio Advanced Billing integration in an eShopOnWeb-style base and want to
   expose it as a microservice and verify it end-to-end. Trigger it whenever the
   user mentions the Maxio client verification tests, the
@@ -11,11 +11,11 @@ description: >-
   or exposing/verifying the MaxioBillingClient, or says things like "verify my
   maxio client" or "run the maxio client verifier" — even if they do not say the
   word "skill". Applies whether the controller still needs generating or one
-  already exists and only needs verifying. This skill stops at the report; any
-  fix-and-re-run loop is driven separately by the caller, not by this skill.
+  already exists and only needs verifying. This skill stops at the raw JUnit XML; reading
+  it and any fix-and-re-run loop are driven separately by the caller, not by this skill.
 ---
 
-# Maxio Client Verifier — Generate, Run, and Report
+# Maxio Client Verifier — Generate, Run, and Return Raw Results
 
 This skill takes a repo that already contains a working `MaxioBillingClient`
 (an implementation of the provider-agnostic billing seam — commonly
@@ -25,13 +25,14 @@ identify it by its role, not its name) and:
 1. **Phase 1** — generates a standalone Web API controller. **If a testable controller already exists, skip Phase 1** (see the
    precondition check below) and go straight to running the tests.
 2. **Phase 2** — runs the black-box verification test suite (from its prebuilt
-   DLL) against the running controller and produces a pass/fail/skip report.
+   DLL) against the running controller and hands back the raw JUnit XML results.
 
 Do the phases in order and **stop after Phase 2**. This skill's job ends with the
-report — it does **not** fix failures or re-run in a loop. If the caller wants an
-iterative fix-to-green loop, they will instruct that separately, using this skill
-as the run-and-report step inside their own loop. **Compile-only verification is
-never sufficient** — behavior must be confirmed live before the report.
+raw JUnit XML — it does **not** interpret those results, fix failures, or re-run in a
+loop. If the caller wants an iterative test loop, they will instruct that
+separately, using this skill as the run-and-hand-back step inside their own loop.
+**Compile-only verification is never sufficient** — behavior must be confirmed live by
+running the suite.
 
 ---
 
@@ -71,17 +72,17 @@ this is. Read the files below and treat them as ground truth.
 
 ## What the suite is checking (purpose)
 
-Understand what the suite is for, so your failure notes are diagnostic rather than blind.
-It is a black-box behavioural contract for the Maxio billing microservice: each test
-verifies that the integration honours the Maxio API contract for the operation under test
-— that its requests and responses conform to what the Maxio API expects and returns — and
-that the relevant Maxio business rules are upheld, and it also exercises API resilience
-under error conditions and transient upstream faults. The suite reports each test's intent
-alongside its result — for both passed and failed tests — so you can see what each test
-was checking without inferring it; the test names are also self-describing. Use the
-reported intent (and the name) to say *what correct behaviour was expected* in the report;
-the precise details (status codes, field names, envelopes) are confirmed against this
-repo's own Maxio API knowledge source, the route map, and the real client method.
+Understand what the suite is for, so you can confirm the run is meaningful before handing
+the XML back. It is a black-box behavioural contract for the Maxio billing microservice:
+each test verifies that the integration honours the Maxio API contract for the operation
+under test — that its requests and responses conform to what the Maxio API expects and
+returns — and that the relevant Maxio business rules are upheld, and it also exercises API
+resilience under error conditions and transient upstream faults. The suite records each
+test's intent alongside its result **inside the JUnit XML** — for both passed and failed
+tests (passed → the `[intent] PASS — …` lines in `<system-out>`; failed → the leading
+`[intent] — …` of the `<failure message>`) — and the test names are self-describing, so
+the caller can see what each test was checking without inferring it. This skill does not
+interpret that intent; it simply produces the XML that carries it.
 
 A few tests target variant-specific endpoints (e.g. a customer lookup only one variant
 exposes). If this repo has no method for such a route, that is a legitimate
@@ -103,11 +104,11 @@ the billing client over `api/maxio`) in a standalone Web API project named `Maxi
   overwrite, or fork it.
 - Do a quick sanity read to confirm it is wired to reach the mock (1c) — but do
   not rebuild it from scratch. If it builds and starts, proceed straight to
-  **Phase 2** (run the tests and report).
+  **Phase 2** (run the tests and hand back the raw JUnit XML).
 - Only fall back to generating (the steps below) if no such controller exists, or
   the existing one does not build / is clearly incomplete for the exposed method
   set. If it exists but has an obvious wiring gap (e.g. the base-URL redirect to
-  the mock), note it in the report rather than silently rebuilding — fixing it is
+  the mock), flag it to the caller rather than silently rebuilding — fixing it is
   the caller's decision, not this skill's.
 
 If no testable controller exists, generate one as follows.
@@ -225,7 +226,7 @@ corresponding table row.
 
 ---
 
-## Phase 2 — Run the verification test suite (from the DLL) and generate the report
+## Phase 2 — Run the verification test suite (from the DLL) and hand back the raw JUnit XML
 
 **Assumptions at this point:** the mock server is **already running** (started
 beforehand) at `http://localhost:8080`. Ensure the `MaxioBillingTestApi` project is also running on a fixed URL (e.g. `http://localhost:5199`), pointed at the mock. On Windows/PowerShell,
@@ -252,47 +253,24 @@ with the VSTest runner and the JUnit logger:
   the eShop `PublicApi`. **Leave `RECORD_USAGE_PATH_TEMPLATE` at its default — do not
   override it.**
 
-1. Build the set of routes THIS controller exposes (from 1a). For each test,
-   compute the route it targets from the suite's `TestSettings` defaults.
-2. **Skipped — RouteDivergence:** the target route is not among the exposed routes
-   (this repo has no `IBillingClient` method for it, or reaches the same goal via a
-   different route — e.g. a record-usage test whose `RECORD_USAGE_PATH_TEMPLATE`
-   does not match the route this repo generated). A missing/different route or
-   method is **never a failure.** For every skip, the report must show the route
-   and the exposed-route membership check that justifies it.
-3. **Passed / Failed:** the route is exposed → run the test and report its own
-   verdict honestly. A status/shape mismatch on an exposed route is a **Failure** —
-   do not relabel it a skip or an "expected" result.
-
-Do not assume a target pass rate or pre-label any test. Report actual results.
-
-**Build the report from the JUnit XML** (`maxio-results.xml`), not the console text.
-Each `<testcase>` carries its verdict (a `<failure>` child ⇒ Failed, otherwise Passed),
-the verbatim `<failure message="…">` text, and `MaxioApi` + `Category` `<property>`
-entries naming the Maxio operation and test group; the RouteDivergence skips are your
-static classification layered on top (a test on a non-exposed route is
-Skipped-RouteDivergence regardless of the runner's recorded verdict). **The report
-(markdown)** must contain: total Passed / Failed / Skipped-RouteDivergence counts; a
-per-test table (test → status); for each failure, the failed assertion (the verbatim
-JUnit `<failure>` message), actual vs. expected, **the test's intent** (as reported by the
-suite alongside the result, which tells the caller what correct behaviour the failure
-points to), and a one-line note on whether it looks like a **generation defect** (controller
-wired wrong) or a **behavioral divergence** of this integration on a shared route; for each
-skip, the route + the membership check; and
-a summary of which Maxio operations the existing MaxioBillingClient correctly exposes plus any genuine gaps.
-
-**Deliverable:** the report, plus a one-line statement of whether the controller
-correctly exposes `MaxioBillingClient` as a microservice. Then **stop** — do not
-attempt to fix failures or re-run. The failure notes above (defect vs. divergence)
-are exactly what the caller needs to drive any fix loop themselves.
+**Deliverable — the exact JUnit XML, unprocessed.** This skill does **not** parse,
+summarize, classify, or build a report from the results. It writes the JUnit XML to the
+absolute `LogFilePath` you passed above and hands **that path** back to the caller as the
+sole result, stating plainly that the file is the raw, unmodified logger output and that
+the caller must read and interpret it (verdicts, intent, route-divergence skips, and the
+`MaxioApi`/`Category` operation metadata all live inside the XML). For the caller's
+convenience, note where each test's **intent** sits in the XML: a **passed** test carries
+its `[intent] PASS — …` lines in `<system-out>`, and a **failed** test's `<failure message="…">`
+begins with `[intent] — …`. Do not compute counts, do not label tests, do not judge
+pass rate. Then **stop** — do not attempt to fix failures or re-run. Interpreting the XML
+and driving any fix loop is entirely the caller's job.
 
 ---
 
 ## What this skill deliberately does NOT do
 
+- It does **not** parse, summarize, classify, or build a report from the JUnit XML.
+  It hands the caller the exact, unprocessed XML (its absolute path) and nothing more —
+  reading verdicts, counts, intent, and route-divergence skips out of it is the caller's job.
 - It does **not** fix failing tests, edit `MaxioBillingClient`, or re-run the suite
-  in a loop. It runs once and reports honestly.
-- It does **not** relabel a real failure as a skip, force a Skipped-RouteDivergence
-  test to pass, or invent routes/methods the repo does not have. Skips stay skips;
-  failures stay failures. This keeps the report trustworthy as the input to
-  whatever fix process the caller runs next.
+  in a loop. It runs once and hands back the raw results.

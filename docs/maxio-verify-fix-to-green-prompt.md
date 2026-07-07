@@ -7,11 +7,12 @@ map all exist. Your job is not to build it. Your job is to prove it is correct a
 drive it to correct, using the black-box verification test suite as the sole judge.
 
 ## The engine: the maxio-client-verifier skill
-The `maxio-client-verifier` skill is your run-and-report engine. Invoking it will
+The `maxio-client-verifier` skill is your run engine. Invoking it will
 generate/confirm the `MaxioBillingTestApi` project containing the MaxioBillingController and run the verification suite
-once, producing an honest pass/fail/skip report. The skill deliberately stops at the
-report — it never fixes and never re-runs. You are the caller that drives the
-fix-to-green loop around it.
+once, producing the **raw JUnit XML** results and handing you its absolute path. The skill
+does **not** interpret those results — reading them is your job (see *How to read the JUnit
+XML* below). The skill deliberately stops at the raw XML — it never fixes and never
+re-runs. You are the caller that reads the results and drives the fix-to-green loop around it.
 
 ## The non-negotiable loop: repeat until ZERO failures
 This is a loop, not a single pass. You do not stop while the failure count is greater
@@ -71,7 +72,7 @@ to real behavior.
 
 ## Inputs
 - The repo containing the completed Maxio integration (this working directory).
-- The `maxio-client-verifier` skill (generate controller → run suite → report).
+- The `maxio-client-verifier` skill (generate controller → run suite → hand back raw JUnit XML).
 - The prebuilt verification test suite **DLL file** — path:
   `<<FILL IN THE TEST DLL FILE PATH HERE>>`. This is a single `.dll` file path, not a
   folder. Pass exactly this file to the skill and run only this file. Do not guess or
@@ -103,6 +104,36 @@ Note: a few tests target variant-specific endpoints (e.g. a customer lookup only
 variant exposes). If THIS repo has no method for such a route, that is a legitimate route
 divergence (a skip), not a failure — see Step 2.
 
+## How to read the JUnit XML
+The skill hands you the **absolute path to the raw JUnit XML** (from `JunitXml.TestLogger`),
+not a pre-built report. Read that file and derive everything yourself — the console text is
+not authoritative, the XML is.
+
+- **Run totals (sanity cross-check):** the root `<testsuite>` element carries `tests`,
+  `failures`, and `skipped` attributes. Use them only to confirm your per-test tally adds up.
+- **One `<testcase>` per test**, with `classname` (`…Tests.<Class>`) and `name`
+  (`<Method>`, plus `(argName: "…")` for a `[Theory]` case). Derive each verdict from its
+  children:
+  - has a `<failure …>` child ⇒ **Failed**;
+  - has a `<skipped …>` child ⇒ **Skipped** — this is the suite's own route-divergence
+    auto-skip (it marks the skip; you still validate it per Step 2);
+  - neither child ⇒ **Passed**.
+- **Where each test's intent is** (use it to state what correct behaviour was expected):
+  - **Passed** → the `<system-out>` holds one `[intent] PASS — <detail>` line per
+    assertion; the intent is the text inside the leading `[…]`.
+  - **Failed** → the `<failure message="…">` **begins with** `[intent] — <reason>`; the
+    intent is the leading bracketed text and the rest is the verbatim assertion result.
+  - **Skipped** → the skip reason (the `<skipped>` message) carries the same `[intent] …`
+    prefix.
+- **The failed `<failure message="…">` is the verbatim assertion text to quote** in your
+  report (actual vs. expected). For AI-payload content failures it is shaped
+  `[intent] — Unit test failed due to payload verification. Field differences: - <field>: missing|mismatched`
+  — the field(s) that diverged, nothing more. The `<failure>` element body is a stack
+  trace; you can ignore it for the report.
+- **Operation metadata:** each `<testcase>`'s `<properties>` carries `MaxioApi` (the Maxio
+  operation, `METHOD /path.json`) and `Category` (`endpoint` | `plugin-advantage` |
+  `safety-net`). Use these to name the operation a failure/skip belongs to.
+
 ## Procedure
 
 ### Step 1 — Baseline run (via the skill)
@@ -112,10 +143,11 @@ and wait for their approval.
 Invoke `maxio-client-verifier` end to end:
 - **Phase 1:** confirm/generate the `MaxioBillingTestApi` controller, wired to the mock.
 - **Phase 2:** run the suite against it (`dotnet vstest "<the DLL path above>"`, with
-  `PUBLICAPI_BASEURL` pointed at the running `MaxioBillingTestApi`) and produce the
-  pass/fail/skip report.
+  `PUBLICAPI_BASEURL` pointed at the running `MaxioBillingTestApi`) and produce the raw
+  JUnit XML.
 
-Capture that report verbatim as the baseline. Do not fix anything yet.
+Read the JUnit XML per *How to read the JUnit XML* and capture the baseline results
+(per-test verdict + intent + `MaxioApi`/`Category`) verbatim. Do not fix anything yet.
 
 ### Step 2 — Validate every skip before trusting it
 A skip is acceptable only if it is a genuine RouteDivergence: the test targets a route
@@ -142,8 +174,9 @@ Do not touch a payload, DTO, field name, or status code until you can state, in 
 sentence, what behaviour the test is checking and why it currently fails. For each
 failing test:
 
-- **Name its purpose first.** Take the test's intent as reported by the suite alongside
-  its result, and read its self-describing name, to state the specific behaviour it
+- **Name its purpose first.** Take the test's intent from the XML (the `[intent] — …`
+  prefix of its `<failure message>`; see *How to read the JUnit XML*), and read its
+  self-describing name, to state the specific behaviour it
   verifies (e.g. `Missing_subscription_returns_404_not_found` → "reads a missing
   subscription and expects a REST-correct 404"; `Blank_email_is_rejected_before_reaching_the_billing_provider`
   → "rejects a blank email before the provider is ever called"). Where a name repeats
