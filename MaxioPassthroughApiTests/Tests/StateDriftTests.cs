@@ -23,7 +23,7 @@ public class StateDriftTests
     [SkippableFact]
     public async Task Unknown_provider_state_maps_to_a_safe_default()
     {
-        const string intent = "Read a subscription whose provider state is unrecognized (Plugin advantage: safe-default mapping)";
+        const string intent = "Read a subscription whose provider state is unrecognized (safe-default mapping)";
         using var client = new ApiClient();
 
         var response = await client.GetAsync(TestSettings.SubscriptionPath(TestSettings.UnknownStateSubscriptionId));

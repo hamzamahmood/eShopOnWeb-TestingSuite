@@ -36,7 +36,7 @@ public class PluginAdvantageTests
     [SkippableFact]
     public async Task Missing_subscription_returns_404_not_found()
     {
-        const string intent = "Read a missing subscription (Plugin advantage: REST-correct 404 vs Direct's 422)";
+        const string intent = "Read a missing subscription (REST-correct 404 vs Direct's 422)";
         using var client = new ApiClient();
 
         var response = await client.GetAsync(TestSettings.SubscriptionPath(TestSettings.UnknownSubscriptionId));
@@ -57,7 +57,7 @@ public class PluginAdvantageTests
     [SkippableFact]
     public async Task Find_or_create_customer_recovers_from_a_concurrent_create_race()
     {
-        const string intent = "Recover find-or-create from a concurrent create race (Plugin advantage)";
+        const string intent = "Recover find-or-create from a concurrent create race";
         using var client = new ApiClient();
         var body = new
         {
@@ -93,7 +93,7 @@ public class PluginAdvantageTests
     public async Task Payment_failure_surfaces_a_typed_payment_verification_error(string productHandle)
     {
         var intent = $"Create a subscription with payment-failure handle '{productHandle}' " +
-                      "(Plugin advantage: typed payment-verification error)";
+                      "(typed payment-verification error)";
         using var client = new ApiClient();
         var body = new
         {
