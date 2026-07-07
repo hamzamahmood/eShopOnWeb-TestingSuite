@@ -60,19 +60,33 @@ this is. Read the files below and treat them as ground truth.
   parameters, and id types in THIS repo.
 - **The controller endpoints must expose the *exact behaviour* of the methods in
   `MaxioBillingClient`** — one controller endpoint per client method, surfacing
-  what each method actually does verbatim. Do not add an error-mapping layer,
-  reshape results, or otherwise diverge from the client's own behaviour; the
-  endpoint is a thin HTTP surface over the method.
+  what each method actually does verbatim.
 - `docs/maxio-billing-service-route-map.md` — the authoritative route table.
 - The compiled **verification test suite (a prebuilt DLL)**. Its exact filename is
   provided in the invoking prompt; do not assume a fixed name — use the one given. Its
   JUnit logger and dependency assemblies ship alongside it in the same folder.
 
 
-**Naming convention for the rest of this skill:** wherever the text below says
-`IBillingClient`, read it as *"this repo's provider-agnostic billing seam
-interface, whatever its actual name."* Resolve the real name once (from
-`MaxioBillingClient`'s class declaration) and apply it consistently thereafter.
+---
+
+## What the suite is checking (purpose)
+
+Understand what the suite is for, so your failure notes are diagnostic rather than blind.
+It is a black-box behavioural contract for the Maxio billing microservice: each test
+verifies that the integration honours the Maxio API contract for the operation under test
+— that its requests and responses conform to what the Maxio API expects and returns — and
+that the relevant Maxio business rules are upheld, and it also exercises API resilience
+under error conditions and transient upstream faults. The suite reports each test's intent
+alongside its result — for both passed and failed tests — so you can see what each test
+was checking without inferring it; the test names are also self-describing. Use the
+reported intent (and the name) to say *what correct behaviour was expected* in the report;
+the precise details (status codes, field names, envelopes) are confirmed against this
+repo's own Maxio API knowledge source, the route map, and the real client method.
+
+A few tests target variant-specific endpoints (e.g. a customer lookup only one variant
+exposes). If this repo has no method for such a route, that is a legitimate
+route-divergence skip, not a failure.
+
 
 ---
 
@@ -80,7 +94,7 @@ interface, whatever its actual name."* Resolve the real name once (from
 
 ### Precondition — is there already a testable controller?
 
-**Before generating anything, check whether all maxio endpoints have been exposed through the MaxioBillingController.**
+**Before generating anything, check whether all maxio endpoints have been properly exposed through the MaxioBillingController.** (which is the requirement of this phase)
 Look for a `MaxioBillingController` (or an equivalently-named controller that exposes
 the billing client over `api/maxio`) in a standalone Web API project named `MaxioBillingTestApi`. If one is already present and buildable:
 
@@ -100,7 +114,7 @@ If no testable controller exists, generate one as follows.
 
 Create a **new, standalone** ASP.NET Core Web API project named `MaxioBillingTestApi`
 (separate from the existing `PublicApi`) hosting a single `MaxioBillingController`
-that exposes `MaxioBillingClient`. Reference the existing `Infrastructure` and
+that exposes `MaxioBillingClient` through the `IBillingClient` interface. Reference the existing `Infrastructure` and
 `ApplicationCore` projects (and `BlazorShared` only if the client's own types
 require it) so you reuse the real client — **do not fork or reimplement it.**
 
@@ -220,7 +234,7 @@ first, or use the Bash tool.
 
 **Run the tests from the prebuilt DLL, emitting a JUnit XML report.** The test
 project's *source is not present in this environment* — only its compiled assembly
-(DLL) is available, and its exact filename is supplied in the invoking prompt. Do not
+(DLL) is available, and its exact filename is supplied in the invoking prompt. You are not allowed to decompile the tests DLL. Only use it as a black box test. Do not
 look for a test `.csproj` to `dotnet test`; instead run the compiled assembly directly
 with the VSTest runner and the JUnit logger:
 
@@ -237,10 +251,6 @@ with the VSTest runner and the JUnit logger:
   test" — despite the `PUBLICAPI_` prefix it must point at `MaxioBillingTestApi`, **not**
   the eShop `PublicApi`. **Leave `RECORD_USAGE_PATH_TEMPLATE` at its default — do not
   override it.**
-
-**Classify by static route mapping first, then by result.** Decide skip-vs-run
-*before* interpreting any status code (a routing 404 for a non-exposed route must
-never be mistaken for a business 404 "pass"):
 
 1. Build the set of routes THIS controller exposes (from 1a). For each test,
    compute the route it targets from the suite's `TestSettings` defaults.
@@ -264,10 +274,12 @@ static classification layered on top (a test on a non-exposed route is
 Skipped-RouteDivergence regardless of the runner's recorded verdict). **The report
 (markdown)** must contain: total Passed / Failed / Skipped-RouteDivergence counts; a
 per-test table (test → status); for each failure, the failed assertion (the verbatim
-JUnit `<failure>` message), actual vs. expected, and a one-line note on whether it looks
-like a **generation defect** (controller wired wrong) or a **behavioral divergence** of
-this integration on a shared route; for each skip, the route + the membership check; and
-a summary of which Maxio operations this repo correctly exposes plus any genuine gaps.
+JUnit `<failure>` message), actual vs. expected, **the test's intent** (as reported by the
+suite alongside the result, which tells the caller what correct behaviour the failure
+points to), and a one-line note on whether it looks like a **generation defect** (controller
+wired wrong) or a **behavioral divergence** of this integration on a shared route; for each
+skip, the route + the membership check; and
+a summary of which Maxio operations the existing MaxioBillingClient correctly exposes plus any genuine gaps.
 
 **Deliverable:** the report, plus a one-line statement of whether the controller
 correctly exposes `MaxioBillingClient` as a microservice. Then **stop** — do not
