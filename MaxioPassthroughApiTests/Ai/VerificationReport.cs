@@ -16,12 +16,16 @@ public sealed class VerificationReport
     public List<RuleResult> Results { get; set; } = new();
 
     /// <summary>
-    /// Human-readable summary of just the failed rules, for the assertion failure message. Excluded from the
-    /// JSON schema/serialization so the model is never asked to fill it.
+    /// Field-level summary of the failed rules for the assertion failure message — one bulleted
+    /// <c>&lt;field&gt;: missing|mismatched</c> line per failure, with no rule text, model reasoning, or
+    /// payload values (the model is instructed to put only that into each <see cref="RuleResult.Reason"/>, so
+    /// the black-box report never leaks context). Excluded from the JSON schema/serialization so the model is
+    /// never asked to fill it.
     /// </summary>
     [JsonIgnore]
     public string FailureSummary =>
-        string.Join("; ", Results.Where(r => !r.Passed).Select(r => $"'{r.Rule}' — {r.Reason}"));
+        "Field differences:" + string.Concat(
+            Results.Where(r => !r.Passed).Select(r => $"\n - {r.Reason}"));
 }
 
 /// <summary>The model's verdict on a single rule.</summary>

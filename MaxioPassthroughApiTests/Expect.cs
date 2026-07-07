@@ -117,9 +117,10 @@ internal static class Expect
     }
 
     /// <summary>
-    /// Asserts an AI payload-verification report passed (every rule satisfied). On failure the message lists the
-    /// failed rules and the model's reasons. The AI judges response <b>contents</b>; status codes remain the job
-    /// of <see cref="Status"/>.
+    /// Asserts an AI payload-verification report passed (every rule satisfied). On failure the message lists
+    /// only the differing fields (<c>&lt;field&gt;: missing|mismatched</c>) — no rule text, model reasoning, or
+    /// payload values, keeping the report black-box. The AI judges response <b>contents</b>; status codes
+    /// remain the job of <see cref="Status"/>.
     /// </summary>
     public static void AiPassed(VerificationReport report, string intent)
     {
@@ -129,7 +130,7 @@ internal static class Expect
             return;
         }
 
-        Assert.Fail($"[{intent}] — Test failed — {report.FailureSummary}");
+        Assert.Fail($"[{intent}] — Unit test failed due to payload verification. {report.FailureSummary}");
     }
 
     /// <summary>

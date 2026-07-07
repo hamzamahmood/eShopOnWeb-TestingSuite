@@ -95,10 +95,14 @@ public sealed class OpenAIApiService
         actually require (e.g. "a non-blank id" only needs a present, non-empty id value — not a proof of global
         uniqueness).
 
-        CRITICAL: the `passed` boolean MUST agree with your own reasoning — if your reason concludes the rule is
-        satisfied, set passed=true. Fill `reason` only for FAILED rules (a short, concrete note on what is missing
-        or wrong); leave it empty for passed rules. Echo the rule's text (without its leading number) into `rule`.
-        Return exactly one result per rule, in order. Set the top-level `passed` to true only if every rule passed.
+        Return exactly one result per rule, in order. For a FAILED rule, set `reason` to EXACTLY
+        "<field>: missing" or "<field>: mismatched", where <field> is the SHORT name of the single response
+        field/concept the rule is about (a few words, e.g. "subscription id", "subscription state", "plan
+        price"); use "missing" when that field is absent from the payload, and "mismatched" when it is present
+        but its value does not satisfy the rule. Do NOT put the rule text, any payload values, or any
+        explanation in `reason` — only the field name and the "missing"/"mismatched" keyword. For a PASSED rule
+        leave `reason` empty. Leave `rule` empty for every result. Set the top-level `passed` to true only if
+        every rule passed.
 
         PAYLOAD:
         {payload}
