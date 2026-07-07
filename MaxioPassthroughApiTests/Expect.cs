@@ -129,7 +129,7 @@ internal static class Expect
             return;
         }
 
-        Assert.Fail($"[{intent}] - Test failed — {report.FailureSummary}");
+        Assert.Fail($"[{intent}] — Test failed — {report.FailureSummary}");
     }
 
     /// <summary>
