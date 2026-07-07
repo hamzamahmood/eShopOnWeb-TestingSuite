@@ -92,7 +92,7 @@ internal static class Expect
     public static void AiPassed(VerificationReport report, string intent) =>
         Assert.True(
             report.Passed,
-            $"[{intent}] AI payload verification failed — {report.FailureSummary}");
+            $"[{intent}] - Test failed — {report.FailureSummary}");
 
     /// <summary>Renders a status code by name, e.g. "404 Not Found" instead of a bare "404".</summary>
     private static string Describe(HttpStatusCode code) => $"{(int)code} {Humanize(code.ToString())}";
