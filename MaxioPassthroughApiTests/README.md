@@ -94,21 +94,27 @@ behavioral tests, which don't call `Require`, run without a key.)
 | `CancelSubscriptionTests` | Cancel subscription | success; already canceled → error |
 | `RecordUsageTests` | Record usage | success; unknown subscription → error |
 
-## Plugin-advantage tests (3) — `PluginAdvantageTests`
+## `PluginAdvantageTests` (2 advantage facts + 1 parity `[Theory]`)
 
 Unlike the shared suite (which asserts only the common subset so it stays green on either integration),
-these assert the **superior** behavior of the Plugin (SDK) integration. They are designed to **pass
-against Plugin and FAIL against Direct** — the failure pins the exact behavior Direct lacks. Run the
-suite against Plugin for an all-green result; running it against Direct shows exactly these 3 red.
+the two **advantage** facts here assert the **superior** behavior of the Plugin (SDK) integration: they are
+designed to **pass against Plugin and FAIL against Direct** — the failure pins the exact behavior Direct
+lacks. Running the suite against Direct shows exactly those 2 red.
 
 | Test | Plugin (passes) | Direct (fails) |
 |---|---|---|
 | `Missing_subscription_returns_404_not_found` | Maps Maxio 404 → `SubscriptionNotFoundException` → **404** | No not-found special case → generic `BillingProviderException` → **422** |
 | `Find_or_create_customer_recovers_from_a_concurrent_create_race` | Catches the create conflict and re-reads → **200** with the existing id | No recovery → the conflict surfaces as **422** |
-| `Payment_failure_surfaces_a_typed_payment_verification_error` | Classifies card/payment errors as `PaymentVerificationRequiredException`; body carries "Additional payment information is required…" | Returns Maxio's raw provider messages only — the typed phrase is absent (both statuses are 422) |
+
+The third test, `Payment_failure_surfaces_a_typed_payment_verification_error` (a `[Theory]` over the
+`card-required`, `threeds-required`, `card-declined` handles), is a **parity** check rather than an
+advantage: both integrations return **422** and both surface a payment/card failure — the Plugin as its
+typed `PaymentVerificationRequiredException` ("Additional payment information is required…"), Direct as
+Maxio's raw provider message ("The credit card was declined…"). Its AI rule asserts only that *some*
+payment/card failure is communicated (any wording), so it **passes on both**.
 
 Two mock behaviors back these (see `../MaxioMockServer`): a `race_`-prefixed customer reference
-(`RACE_REFERENCE_PREFIX`) and the `card-required` product handle (`PAYMENT_REQUIRED_PRODUCT_HANDLE`).
+(`RACE_REFERENCE_PREFIX`) and the payment-failure product handles (`PAYMENT_REQUIRED_PRODUCT_HANDLES`).
 The missing-subscription case needs no mock support.
 
 ## Prerequisites to run end-to-end
@@ -186,8 +192,7 @@ Every test carries two xUnit `[Trait]`s (defined once in `MaxioTraits.cs`) so an
 an agent — can tell which Maxio API operation and which category a test belongs to without opening the
 test source. This is metadata only: test bodies still call nothing but the PublicApi over HTTP.
 
-- **`Category`** — `endpoint` (the 11 shared-suite files), `plugin-advantage`, or `safety-net`, mirroring
-  the grouping in `../docs/test-cases-by-integration-2026-07-03.md`.
+- **`Category`** — `endpoint` (the 11 shared-suite files), `plugin-advantage`, or `safety-net`.
 - **`MaxioApi`** — the underlying Maxio operation signature, verbatim `METHOD /path` from
   `../openAPI/openapi.yaml` (e.g. `POST /subscriptions/{subscription_id}/hold.json`). Tests backed by more
   than one Maxio call (e.g. find-or-create, which does a lookup then a create) carry multiple `MaxioApi`
