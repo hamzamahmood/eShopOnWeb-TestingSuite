@@ -1,13 +1,16 @@
 using System.Net;
-using System.Text.Json;
+using MaxioPassthroughApiTests.Ai;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace MaxioPassthroughApiTests.Tests;
 
 [Trait(MaxioTraits.Category, MaxioTraits.CategoryEndpoint)]
 [Trait(MaxioTraits.Api, MaxioTraits.ListCustomerSubs)]
-public class SubscriptionTests
+public class SubscriptionTests : BlackBoxTest
 {
+    public SubscriptionTests(ITestOutputHelper output) : base(output) { }
+
     [SkippableFact]
     public async Task Known_customer_returns_the_subscriptions_array_with_common_fields()
     {
@@ -19,22 +22,14 @@ public class SubscriptionTests
         Expect.Status(response, HttpStatusCode.OK, intent);
         Expect.ContentType(response, "application/json", intent);
 
-        using var doc = JsonDocument.Parse(response.Body);
-        var root = doc.RootElement;
-
-        // Flattened DTO shape: a bare JSON array of subscription objects (no Maxio "subscription" envelope).
-        Expect.Equal(JsonValueKind.Array, root.ValueKind, "response shape", intent);
-        Expect.Equal(1, root.GetArrayLength(), "subscription array length", intent);
-
-        var subscription = root[0];
-        Expect.Field(subscription, "productHandle", "gold", intent);
-
-        // State casing differs by integration (Direct "active" vs Plugin "Active"); StatesEqual is separator-
-        // and case-insensitive.
-        Expect.State(subscription, "active", intent);
-
-        // The next-assessment timestamp is present and non-null on both shapes.
-        Expect.Equal(JsonValueKind.String, subscription.GetProperty("nextAssessmentAt").ValueKind, "'nextAssessmentAt' field kind", intent);
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The response is a list containing exactly 1 subscription.",
+            $"That subscription is for the product/plan with handle '{TestSettings.KnownProductHandle}'.",
+            "That subscription's lifecycle state is active.",
+            "That subscription has a non-empty next-assessment / next-billing timestamp."
+        ]);
+        Expect.AiPassed(report, intent);
     }
 
     [SkippableFact]

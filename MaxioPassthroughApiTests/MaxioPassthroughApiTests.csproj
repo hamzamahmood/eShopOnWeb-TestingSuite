@@ -18,6 +18,10 @@
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="Xunit.SkippableFact" Version="1.5.23" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <!-- AI-based payload verification (content-comparison tests only; env-gated, off by default).
+         The OpenAI integration package is preview-only; both are pinned on the 10.2.0 line. -->
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.2.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.2.0-preview.1.26063.2" />
   </ItemGroup>
 
 </Project>

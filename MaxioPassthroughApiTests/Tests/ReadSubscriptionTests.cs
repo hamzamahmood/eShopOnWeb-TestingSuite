@@ -1,13 +1,16 @@
 using System.Net;
-using System.Text.Json;
+using MaxioPassthroughApiTests.Ai;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace MaxioPassthroughApiTests.Tests;
 
 [Trait(MaxioTraits.Category, MaxioTraits.CategoryEndpoint)]
 [Trait(MaxioTraits.Api, MaxioTraits.ReadSubscription)]
-public class ReadSubscriptionTests
+public class ReadSubscriptionTests : BlackBoxTest
 {
+    public ReadSubscriptionTests(ITestOutputHelper output) : base(output) { }
+
     [SkippableFact]
     public async Task Known_subscription_returns_its_common_fields()
     {
@@ -17,12 +20,14 @@ public class ReadSubscriptionTests
         var response = await client.GetAsync(TestSettings.SubscriptionPath(TestSettings.KnownActiveSubscriptionId));
 
         Expect.Status(response, HttpStatusCode.OK, intent);
-        using var doc = JsonDocument.Parse(response.Body);
-        var root = doc.RootElement;
 
-        Expect.Field(root, "productHandle", TestSettings.KnownProductHandle, intent);
-        Expect.State(root, "active", intent);
-        Expect.NonBlankId(TestJson.GetSubscriptionId(root), "subscription id", intent);
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            $"The subscription is for the product/plan with handle '{TestSettings.KnownProductHandle}'.",
+            "The subscription's lifecycle state is active.",
+            "The response contains a non-blank unique subscription identifier."
+        ]);
+        Expect.AiPassed(report, intent);
     }
 
     [SkippableFact]

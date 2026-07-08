@@ -1,5 +1,6 @@
 using System.Net;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace MaxioPassthroughApiTests.Tests;
 
@@ -18,8 +19,10 @@ namespace MaxioPassthroughApiTests.Tests;
 [Trait(MaxioTraits.Api, MaxioTraits.CreateSubscription)]
 [Trait(MaxioTraits.Api, MaxioTraits.CancelSubscription)]
 [Trait(MaxioTraits.Api, MaxioTraits.MigrateSubscription)]
-public class ErrorHygieneTests
+public class ErrorHygieneTests : BlackBoxTest
 {
+    public ErrorHygieneTests(ITestOutputHelper output) : base(output) { }
+
     // Substrings that would betray an internal detail leaking into a response body.
     private static readonly string[] ForbiddenSubstrings =
     {

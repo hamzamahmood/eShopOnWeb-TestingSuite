@@ -1,6 +1,7 @@
 using System.Net;
-using System.Text.Json;
+using MaxioPassthroughApiTests.Ai;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace MaxioPassthroughApiTests.Tests;
 
@@ -14,8 +15,10 @@ namespace MaxioPassthroughApiTests.Tests;
 /// </summary>
 [Trait(MaxioTraits.Category, MaxioTraits.CategoryPluginAdvantage)]
 [Trait(MaxioTraits.Api, MaxioTraits.LookupCustomer)]
-public class CustomerLookupTests
+public class CustomerLookupTests : BlackBoxTest
 {
+    public CustomerLookupTests(ITestOutputHelper output) : base(output) { }
+
     [SkippableFact]
     public async Task Known_reference_returns_the_customer_id()
     {
@@ -25,8 +28,12 @@ public class CustomerLookupTests
         var response = await client.GetAsync(TestSettings.CustomerLookupPath(TestSettings.KnownCustomerReference));
 
         Expect.Status(response, HttpStatusCode.OK, intent);
-        using var doc = JsonDocument.Parse(response.Body);
-        Expect.Equal(TestSettings.KnownCustomerId, TestJson.GetCustomerId(doc.RootElement), "customer id", intent);
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            $"The response identifies the customer whose id is {TestSettings.KnownCustomerId}."
+        ]);
+        Expect.AiPassed(report, intent);
     }
 
     [SkippableFact]

@@ -15,7 +15,8 @@ if (Test-Path $buildDir) {
     New-Item -ItemType Directory -Path $buildDir | Out-Null
 }
 
-dotnet build $csproj -c Release -o $buildDir
+# Suppress pdb generation — the build output ships DLLs only, no debug symbols.
+dotnet build $csproj -c Release -o $buildDir /p:DebugType=none /p:DebugSymbols=false
 if ($LASTEXITCODE -ne 0) {
     throw "dotnet build failed with exit code $LASTEXITCODE"
 }

@@ -1,13 +1,16 @@
 using System.Net;
-using System.Text.Json;
+using MaxioPassthroughApiTests.Ai;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace MaxioPassthroughApiTests.Tests;
 
 [Trait(MaxioTraits.Category, MaxioTraits.CategoryEndpoint)]
 [Trait(MaxioTraits.Api, MaxioTraits.ReactivateSub)]
-public class ReactivateSubscriptionTests
+public class ReactivateSubscriptionTests : BlackBoxTest
 {
+    public ReactivateSubscriptionTests(ITestOutputHelper output) : base(output) { }
+
     [SkippableFact]
     public async Task Canceled_subscription_is_reactivated()
     {
@@ -17,8 +20,12 @@ public class ReactivateSubscriptionTests
         var response = await client.PutAsync(TestSettings.ReactivateSubscriptionPath(TestSettings.KnownCanceledSubscriptionId));
 
         Expect.Status(response, HttpStatusCode.OK, intent);
-        using var doc = JsonDocument.Parse(response.Body);
-        Expect.State(doc.RootElement, "active", intent);
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The subscription's lifecycle state is active."
+        ]);
+        Expect.AiPassed(report, intent);
     }
 
     [SkippableFact]

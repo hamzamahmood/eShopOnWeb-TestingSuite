@@ -1,13 +1,16 @@
 using System.Net;
-using System.Text.Json;
+using MaxioPassthroughApiTests.Ai;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace MaxioPassthroughApiTests.Tests;
 
 [Trait(MaxioTraits.Category, MaxioTraits.CategoryEndpoint)]
 [Trait(MaxioTraits.Api, MaxioTraits.CreateSubscription)]
-public class CreateSubscriptionTests
+public class CreateSubscriptionTests : BlackBoxTest
 {
+    public CreateSubscriptionTests(ITestOutputHelper output) : base(output) { }
+
     [SkippableFact]
     public async Task Known_customer_and_product_creates_a_subscription()
     {
@@ -26,11 +29,13 @@ public class CreateSubscriptionTests
 
         Expect.Status(response, HttpStatusCode.Created, intent);
 
-        using var doc = JsonDocument.Parse(response.Body);
-        var root = doc.RootElement;
-        Expect.Field(root, "productHandle", TestSettings.KnownProductHandle, intent);
-        Expect.State(root, "active", intent);
-        Expect.NonBlankId(TestJson.GetSubscriptionId(root), "subscription id", intent);
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            $"The created subscription is for the product/plan with handle '{TestSettings.KnownProductHandle}'.",
+            "The subscription's lifecycle state is active.",
+            "The response contains a non-blank unique subscription identifier."
+        ]);
+        Expect.AiPassed(report, intent);
     }
 
     [SkippableFact]

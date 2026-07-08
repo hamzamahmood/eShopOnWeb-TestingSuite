@@ -1,6 +1,7 @@
 using System.Net;
-using System.Text.Json;
+using MaxioPassthroughApiTests.Ai;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace MaxioPassthroughApiTests.Tests;
 
@@ -18,18 +19,26 @@ namespace MaxioPassthroughApiTests.Tests;
 /// </summary>
 [Trait(MaxioTraits.Category, MaxioTraits.CategoryPluginAdvantage)]
 [Trait(MaxioTraits.Api, MaxioTraits.ReadSubscription)]
-public class StateDriftTests
+public class StateDriftTests : BlackBoxTest
 {
+    public StateDriftTests(ITestOutputHelper output) : base(output) { }
+
     [SkippableFact]
     public async Task Unknown_provider_state_maps_to_a_safe_default()
     {
-        const string intent = "Read a subscription whose provider state is unrecognized (Plugin advantage: safe-default mapping)";
+        const string intent = "Read a subscription whose provider state is unrecognized (safe-default mapping)";
         using var client = new ApiClient();
 
         var response = await client.GetAsync(TestSettings.SubscriptionPath(TestSettings.UnknownStateSubscriptionId));
 
         Expect.Status(response, HttpStatusCode.OK, intent);
-        using var doc = JsonDocument.Parse(response.Body);
-        Expect.State(doc.RootElement, "other", intent);
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The subscription's state value is exactly the string \"other\" (compare case-insensitively). " +
+            "Judge only whether the value equals \"other\"; do not consider whether \"other\" is a healthy or " +
+            "recognized lifecycle state."
+        ]);
+        Expect.AiPassed(report, intent);
     }
 }

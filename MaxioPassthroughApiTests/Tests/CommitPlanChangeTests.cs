@@ -1,13 +1,16 @@
 using System.Net;
-using System.Text.Json;
+using MaxioPassthroughApiTests.Ai;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace MaxioPassthroughApiTests.Tests;
 
 [Trait(MaxioTraits.Category, MaxioTraits.CategoryEndpoint)]
 [Trait(MaxioTraits.Api, MaxioTraits.MigrateSubscription)]
-public class CommitPlanChangeTests
+public class CommitPlanChangeTests : BlackBoxTest
 {
+    public CommitPlanChangeTests(ITestOutputHelper output) : base(output) { }
+
     [SkippableFact]
     public async Task Active_subscription_migrates_to_a_different_known_product()
     {
@@ -18,8 +21,12 @@ public class CommitPlanChangeTests
         var response = await client.PostAsync(TestSettings.MigrationsPath(TestSettings.KnownActiveSubscriptionId), body);
 
         Expect.Status(response, HttpStatusCode.OK, intent);
-        using var doc = JsonDocument.Parse(response.Body);
-        Expect.Field(doc.RootElement, "productHandle", TestSettings.AlternateProductHandle, intent);
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            $"The subscription is now on the product/plan with handle '{TestSettings.AlternateProductHandle}'."
+        ]);
+        Expect.AiPassed(report, intent);
     }
 
     [SkippableFact]

@@ -10,7 +10,7 @@ public static class TestSettings
 {
     /// <summary>Base URL of the running eShopOnWeb PublicApi under test.</summary>
     public static string BaseUrl =>
-        (Environment.GetEnvironmentVariable("PUBLICAPI_BASEURL") ?? "https://localhost:5099").TrimEnd('/');
+        (Environment.GetEnvironmentVariable("PUBLICAPI_BASEURL") ?? "http://localhost:5000").TrimEnd('/');
 
     /// <summary>
     /// Path of the <c>MaxioBillingController</c> list-plans endpoint — identical route on both integrations
@@ -175,6 +175,38 @@ public static class TestSettings
     public static IReadOnlyList<string> PaymentRequiredProductHandles =>
         Get("PAYMENT_REQUIRED_PRODUCT_HANDLES", "card-required,threeds-required,card-declined")
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    // --- AI payload verification (content-comparison tests only) -------------------------------------------
+    // Off by default so key-less / CI runs skip the AI-backed content tests instead of failing. See Ai/.
+
+    /// <summary>
+    /// Master switch for AI payload verification (<c>AI_COMPARISON_ENABLED</c>, default <b>on</b>). Override to
+    /// <c>false</c> to force the content-comparison tests to skip. (With no API key configured the tests skip
+    /// regardless — see <see cref="AiApiKey"/> — so key-less/CI runs are unaffected.)
+    /// </summary>
+    public static bool AiComparisonEnabled =>
+        !bool.TryParse(Get("AI_COMPARISON_ENABLED", "true"), out var b) || b;
+
+    /// <summary>
+    /// API key for the OpenAI (or OpenAI-compatible) endpoint. Prefers <c>AI_API_KEY</c>, then falls back to the
+    /// conventional <c>OPENAI_API_KEY</c>. Empty ⇒ AI comparison disabled.
+    /// </summary>
+    public static string AiApiKey => Get("AI_API_KEY", "");
+
+    /// <summary>
+    /// Chat model / deployment name to verify with (<c>AI_MODEL</c>). Defaults to <c>gpt-5.5</c>.
+    /// </summary>
+    public static string AiModel => Get("AI_MODEL", "gpt-5.5");
+
+    /// <summary>Optional OpenAI-compatible base URL override (<c>AI_ENDPOINT</c>). Empty ⇒ OpenAI cloud.</summary>
+    public static string AiEndpoint => Get("AI_ENDPOINT", "");
+
+    /// <summary>
+    /// Whether to constrain the response with a native JSON schema (<c>AI_USE_JSON_SCHEMA</c>, default true).
+    /// Set false for OpenAI-compatible endpoints that don't support schema-based structured output.
+    /// </summary>
+    public static bool AiUseJsonSchema =>
+        !bool.TryParse(Get("AI_USE_JSON_SCHEMA", "true"), out var b) || b;
 
     private static string Get(string key, string fallback)
     {

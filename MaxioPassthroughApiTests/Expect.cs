@@ -1,5 +1,5 @@
 using System.Net;
-using System.Text.Json;
+using MaxioPassthroughApiTests.Ai;
 using Xunit;
 
 namespace MaxioPassthroughApiTests;
@@ -31,21 +31,14 @@ internal static class Expect
     public static void Status(ApiResponse response, HttpStatusCode expected, string intent)
     {
         SkipIfEndpointMissing(response, intent);
-        Assert.True(
-            response.StatusCode == expected,
-            $"[{intent}] Incorrect status code received — expected {Describe(expected)}, got " +
-            $"{Describe(response.StatusCode)}. Body: {response.Body}");
-    }
+        if (response.StatusCode == expected)
+        {
+            Pass(intent, $"status {Describe(expected)}");
+            return;
+        }
 
-    /// <summary>Asserts the status code is one of several acceptable codes (skips on an endpoint-missing 404).</summary>
-    public static void StatusOneOf(ApiResponse response, string intent, params HttpStatusCode[] expected)
-    {
-        SkipIfEndpointMissing(response, intent);
-        Assert.True(
-            Array.IndexOf(expected, response.StatusCode) >= 0,
-            $"[{intent}] Incorrect status code received — expected one of " +
-            $"[{string.Join(", ", expected.Select(Describe))}], got {Describe(response.StatusCode)}. " +
-            $"Body: {response.Body}");
+        Assert.Fail($"[{intent}] Incorrect status code received — expected {Describe(expected)}, got " +
+            $"{Describe(response.StatusCode)}. Body: {response.Body}");
     }
 
     /// <summary>Asserts the status code falls in [lo, hiExclusive) — e.g. any 4xx client error (skips on an endpoint-missing 404).</summary>
@@ -53,9 +46,13 @@ internal static class Expect
     {
         SkipIfEndpointMissing(response, intent);
         var actual = (int)response.StatusCode;
-        Assert.True(
-            actual >= lo && actual < hiExclusive,
-            $"[{intent}] Incorrect status code received — expected {rangeLabel}, got " +
+        if (actual >= lo && actual < hiExclusive)
+        {
+            Pass(intent, $"status {Describe(response.StatusCode)} in {rangeLabel}");
+            return;
+        }
+
+        Assert.Fail($"[{intent}] Incorrect status code received — expected {rangeLabel}, got " +
             $"{Describe(response.StatusCode)}. Body: {response.Body}");
     }
 
@@ -72,74 +69,81 @@ internal static class Expect
     /// <summary>Asserts the response's Content-Type header.</summary>
     public static void ContentType(ApiResponse response, string expected, string intent)
     {
-        Assert.True(
-            expected == response.ContentType,
-            $"[{intent}] Unexpected response content type — expected '{expected}', got " +
+        if (expected == response.ContentType)
+        {
+            Pass(intent, $"content type '{expected}'");
+            return;
+        }
+
+        Assert.Fail($"[{intent}] Unexpected response content type — expected '{expected}', got " +
             $"'{response.ContentType ?? "(none)"}'. Body: {response.Body}");
     }
-
-    /// <summary>
-    /// Asserts a subscription's "state" field, tolerant of the two integrations' casing/separator differences
-    /// (Direct's raw "on_hold" vs Plugin's enum-rendered "OnHold" — see <see cref="TestJson.StatesEqual"/>).
-    /// </summary>
-    public static void State(JsonElement root, string expectedState, string intent)
-    {
-        var actual = root.GetProperty("state").GetString() ?? string.Empty;
-        Assert.True(
-            TestJson.StatesEqual(expectedState, actual),
-            $"[{intent}] Unexpected subscription state — expected '{expectedState}', got '{actual}'.");
-    }
-
-    /// <summary>Asserts a string-valued response field equals the expected value.</summary>
-    public static void Field(JsonElement root, string property, string expected, string intent) =>
-        Equal(expected, root.GetProperty(property).GetString(), $"'{property}' field", intent);
 
     /// <summary>Asserts any comparable value equals its expectation, e.g. an array length or a JSON value kind.</summary>
     public static void Equal<T>(T expected, T actual, string what, string intent)
     {
-        Assert.True(
-            Equals(expected, actual),
-            $"[{intent}] Unexpected {what} — expected '{expected}', got '{actual}'.");
-    }
+        if (Equals(expected, actual))
+        {
+            Pass(intent, $"{what} == '{expected}'");
+            return;
+        }
 
-    /// <summary>Asserts a collection contains an expected item, e.g. a plan handle in the returned list.</summary>
-    public static void Contains<T>(T expected, IEnumerable<T> collection, string what, string intent)
-    {
-        var list = collection.ToList();
-        Assert.True(
-            list.Contains(expected),
-            $"[{intent}] Missing expected {what} — expected to find '{expected}' among " +
-            $"[{string.Join(", ", list)}].");
+        Assert.Fail($"[{intent}] Unexpected {what} — expected '{expected}', got '{actual}'.");
     }
 
     /// <summary>Asserts a returned id string is present (non-blank).</summary>
     public static void NonBlankId(string? id, string idKind, string intent)
     {
-        Assert.True(
-            !string.IsNullOrWhiteSpace(id),
-            $"[{intent}] Missing identifier in response — expected a non-blank {idKind}, got " +
-            $"'{id ?? "(null)"}'.");
-    }
+        if (!string.IsNullOrWhiteSpace(id))
+        {
+            Pass(intent, $"{idKind} present");
+            return;
+        }
 
-    /// <summary>Asserts the raw response body contains an expected marker substring.</summary>
-    public static void BodyContains(ApiResponse response, string needle, string intent)
-    {
-        Assert.True(
-            response.Body.Contains(needle, StringComparison.Ordinal),
-            $"[{intent}] Expected marker text absent from response body — expected to find '{needle}'. " +
-            $"Body: {response.Body}");
+        Assert.Fail($"[{intent}] Missing identifier in response — expected a non-blank {idKind}, got " +
+            $"'{id}'.");
     }
 
     /// <summary>Asserts the response body does NOT contain a forbidden internal-detail substring.</summary>
     public static void NoLeak(ApiResponse response, string forbidden, string intent)
     {
-        Assert.False(
-            response.Body.Contains(forbidden, StringComparison.OrdinalIgnoreCase),
-            $"[{intent}] Internal detail leaked into error body — found '{forbidden}'. Body: {response.Body}");
+        if (!response.Body.Contains(forbidden, StringComparison.OrdinalIgnoreCase))
+        {
+            Pass(intent, $"no '{forbidden}' in body");
+            return;
+        }
+
+        Assert.Fail($"[{intent}] Internal detail leaked into error body — found '{forbidden}'. Body: {response.Body}");
     }
 
+    /// <summary>
+    /// Asserts an AI payload-verification report passed (every rule satisfied). On failure the message lists
+    /// only the differing fields (<c>&lt;field&gt;: missing|mismatched</c>) — no rule text, model reasoning, or
+    /// payload values, keeping the report black-box. The AI judges response <b>contents</b>; status codes
+    /// remain the job of <see cref="Status"/>.
+    /// </summary>
+    public static void AiPassed(VerificationReport report, string intent)
+    {
+        if (report.Passed)
+        {
+            Pass(intent, $"AI payload rules satisfied ({report.Results.Count}/{report.Results.Count})");
+            return;
+        }
+
+        Assert.Fail($"[{intent}] — Unit test failed due to payload verification. {report.FailureSummary}");
+    }
+
+    /// <summary>
+    /// Emits a PASS line for a satisfied assertion to the current test's output — symmetric with the
+    /// intent-bearing failure messages above, so a passing test now records what it verified (surfaced in the
+    /// JUnit report's <c>&lt;system-out&gt;</c>). No-op when no output helper was captured (see
+    /// <see cref="TestOutput"/>).
+    /// </summary>
+    private static void Pass(string intent, string detail) =>
+        TestOutput.Current?.WriteLine($"[{intent}] PASS — {detail}");
+
     /// <summary>Renders a status code by name, e.g. "404 Not Found" instead of a bare "404".</summary>
-    public static string Describe(HttpStatusCode code) => $"{(int)code} {Humanize(code.ToString())}";
+    private static string Describe(HttpStatusCode code) => $"{(int)code} {Humanize(code.ToString())}";
 
     private static string Humanize(string enumName)
     {
