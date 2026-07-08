@@ -216,7 +216,8 @@ Tiny ASP.NET Core **Minimal API** (`Program.cs`, no controllers) that stands in 
   - Customer reference **`cust_12345`** → id **98765**. Fresh reference on `POST /customers.json` → fixed id
     98766; known reference → 422 duplicate.
   - Subscriptions **15100121** (active), **15100210** (on_hold), **15100299** (canceled), and **15100377**
-    (state **`assessing`** — a plausible-but-unknown provider state; read-only, backs `StateDriftTests`).
+    (state **`assessing`** — a plausible-but-unknown provider state; read-only). The `StateDriftTests` fact
+    that exercised **15100377** was **removed**, so that fixture is currently unused by any test.
   - Metered component **641814** / handle **`api-calls`** (in family 527890).
 - **Stateless mutations:** lifecycle/mutating routes parse a canned template and return a **patched copy**
   (`MockStore.WithState`/`WithProduct`) — the stored template is never mutated. Deterministic, order-independent.
@@ -233,12 +234,13 @@ Tiny ASP.NET Core **Minimal API** (`Program.cs`, no controllers) that stands in 
   - `race_*` customer reference → concurrent-create race: lookup 404 on attempt 1, `POST /customers.json`
     422 "already taken", subsequent lookup 200. Backs `PluginAdvantageTests` (Plugin recovers, Direct doesn't).
   - **Payment-failure product handles** (`paymentFailureHandles` map on `POST /subscriptions.json`, checked
-    before the known-product-handle check) → 422 with card/payment messages (Plugin → typed
-    `PaymentVerificationRequiredException`, Direct → generic). Three handles, each message carrying ≥1 Plugin
-    keyword: `card-required`, `threeds-required`, `card-declined`. Backs the `PluginAdvantageTests` payment
-    `[Theory]`.
+    before the known-product-handle check) → 422 with card/payment messages. Three handles: `card-required`,
+    `threeds-required`, `card-declined`. Back the `PluginAdvantageTests` payment `[Theory]`, now a **parity**
+    check — its AI rule accepts any payment/card-failure wording, so both integrations pass (Plugin surfaces
+    its typed `PaymentVerificationRequiredException` phrase, Direct the raw Maxio message).
   - **`assessing`** subscription state (id 15100377, read route) → Plugin `MapState` returns `Other`, Direct
-    forwards the raw string. Backs `StateDriftTests`.
+    forwards the raw string. Previously backed `StateDriftTests`, which has been **removed** — this mock
+    behavior is now unused by any test.
   - `retry_*`/`ratelimit_*` lookup references → 503/429 then success. **NOT a Direct-vs-Plugin differentiator**
     — both integrations retry idempotent GETs (Direct via Polly, Plugin via the SDK's `RetryOptions`), so both
     recover. Backs `RetrySafetyTests` (safety-net: passes on both).
@@ -249,22 +251,26 @@ Tiny ASP.NET Core **Minimal API** (`Program.cs`, no controllers) that stands in 
 
 Standalone **xUnit** black-box HTTP suite (no project references, not in either solution). It runs against
 whichever PublicApi is up (point `PUBLICAPI_BASEURL` at it). The suite has since been **tightened toward
-Plugin expectations** — most facts are still green on both, but create-success (201), read-unknown (404), plus
-the `PluginAdvantageTests` and the newer advantage tests, now assert **Plugin-specific** behavior and **fail on
-Direct** by design. The only mechanical Direct/Plugin knob is `RECORD_USAGE_PATH_TEMPLATE` (route shape).
+Plugin expectations** — most facts are still green on both, but create-success (201), read-unknown (404) and
+the two remaining `PluginAdvantageTests` cases (missing-subscription 404, race recovery) assert
+**Plugin-specific** behavior and **fail on Direct** by design. (The payment `[Theory]` was relaxed to a parity
+check and the `assessing` `StateDriftTests` fact was removed.) Body assertions are **AI-judged**: each test
+checks the HTTP status in C#, then sends the response body + plain-English rule strings to an OpenAI verifier
+(`Ai/OpenAIApiService`, needs `AI_API_KEY`/`OPENAI_API_KEY`). The only mechanical Direct/Plugin knob is
+`RECORD_USAGE_PATH_TEMPLATE` (route shape).
 
-**Verified live (2026-07-06), both integrations against the mock:** Plugin **39/39 pass** (fully green).
-Direct **29/39 pass**, **8 by-design failures**: `CreateSubscriptionTests.Known_customer_and_product_creates_a_subscription`
+**Verified live (2026-07-08), both integrations against the mock:** Plugin **38/38 pass** (fully green).
+Direct **32/38 pass**, **4 by-design failures**: `CreateSubscriptionTests.Known_customer_and_product_creates_a_subscription`
 (201 vs Direct's 200), `ReadSubscriptionTests.Unknown_subscription_yields_an_error_status` (404 vs Direct's
-422), and the 6 `PluginAdvantageTests`/`StateDriftTests` advantage cases. Plus **2 skipped** (`CustomerLookupTests`,
-both facts — route-divergence auto-skip, no route on Direct). The safety-net additions (`ErrorHygieneTests`,
-`RetrySafetyTests`, `ResilientRetryRecoveryTests`) pass on **both**.
+422), and the 2 `PluginAdvantageTests` advantage cases (missing-subscription 404, race recovery). Plus **2
+skipped** (`CustomerLookupTests`, both facts — route-divergence auto-skip, no route on Direct). The payment
+`[Theory]` now passes on **both** (parity check), and `StateDriftTests` was removed. The safety-net files
+(`ErrorHygieneTests`, `RetrySafetyTests`, `ResilientRetryRecoveryTests`) pass on **both**.
 
 `RecordUsageTests.Unknown_subscription_yields_an_error_status` and
 `ReactivateSubscriptionTests.Active_subscription_cannot_be_reactivated` were live-verified (both integrations)
-to return **422**, not the previously asserted 404 / hedged `{422, 502}` — see
-`docs/maxio-error-code-divergence-mock-vs-tests.md`. Both are now pinned to 422 and pass on **both**
-integrations; they are no longer part of any by-design-failure set.
+to return **422**, not the previously asserted 404 / hedged `{422, 502}`. Both are now pinned to 422 and pass
+on **both** integrations; they are no longer part of any by-design-failure set.
 > On Git Bash, do **not** pass `RECORD_USAGE_PATH_TEMPLATE=/api/...` via the `VAR=val` prefix — MSYS rewrites
 > the leading-slash value into a Windows path and the test builds a `file://` URI. Use PowerShell `$env:` (or
 > `MSYS_NO_PATHCONV=1`) for the Direct run.
@@ -281,10 +287,11 @@ integrations; they are no longer part of any by-design-failure set.
   message if the PublicApi is unreachable. **DELETE builds an explicit request and awaits inside `using`** — an
   earlier bug disposed the request before the send completed and threw spurious `HttpRequestException` on every
   DELETE-with-body; keep it `async`/awaited.
-- **`TestJson.cs`** — tolerant readers that bridge the two integrations' differing shapes: `GetSubscriptionId`,
-  `GetUsageId`, `GetCustomerId`, and **`StatesEqual`** (strips non-letters + case-insensitive, so Direct's
-  `on_hold` matches Plugin's `OnHold`). Use `StatesEqual` for any multi-word state assertion.
-- **`Tests/` — 17 files, 39 test cases.** Three groups:
+- **`TestJson.cs`** — now only classifies 404s (`IsApiNotFound` genuine-JSON-body 404 vs `IsEndpointMissing`
+  bare-404, which drives the route-divergence auto-skip). The former tolerant JSON readers (`GetSubscriptionId`,
+  `StatesEqual`, …) were **removed** — payload field/id/state comparison is now done by the AI verifier
+  (`Ai/OpenAIApiService`), which matches on meaning across the two integrations' differing shapes.
+- **`Tests/` — 16 files, 38 test cases.** Three groups:
   - **Endpoint suite (11 files, 23 facts)** — one file per endpoint, each with a success case (exact status +
     common flattened fields) and a failure case. The dual **status-set** assertions were **tightened to single
     statuses** after Plugin's middleware moved `BillingProviderException`→422: provider-error failure cases now
@@ -300,21 +307,20 @@ integrations; they are no longer part of any by-design-failure set.
     not-found exception the way `ReadSubscriptionAsync` does, so it isn't part of the Plugin-only set either;
     it's green on **both**. (The per-file XML doc comments that documented the old dual-integration design were
     removed with this change.)
-  - **`PluginAdvantageTests` (2 facts + 1 `[Theory]` of 3 = 5 cases)** — assert the **Plugin's superior
-    behavior**, so they **pass on Plugin and FAIL on Direct by design** (the failure pins what Direct lacks):
-    (1) missing subscription → **404** on Plugin vs 422 on Direct; (2) find-or-create **recovers from a
-    concurrent-create race** (200) on Plugin vs 422 on Direct; (3) a payment `[Theory]` — every payment-failure
-    handle surfaces a **typed** `PaymentVerificationRequiredException` body ("Additional payment information is
-    required…") on Plugin — absent on Direct (all 422). Backed by the mock's `race_*` reference and the
+  - **`PluginAdvantageTests` (2 advantage facts + 1 parity `[Theory]` of 3 = 5 cases)** — the two facts assert
+    the **Plugin's superior behavior**, so they **pass on Plugin and FAIL on Direct by design** (the failure
+    pins what Direct lacks): (1) missing subscription → **404** on Plugin vs 422 on Direct; (2) find-or-create
+    **recovers from a concurrent-create race** (200) on Plugin vs 422 on Direct. (3) The payment `[Theory]` is
+    now a **parity** check — its AI rule asserts only that a payment/card failure is surfaced (any wording),
+    which both integrations satisfy (Plugin's typed `PaymentVerificationRequiredException` phrase, Direct's raw
+    Maxio message), so it **passes on both** (both return 422). Backed by the mock's `race_*` reference and the
     `paymentFailureHandles` map (see MaxioMockServer). Settings: `RACE_REFERENCE_PREFIX` (`race_`),
     `PAYMENT_REQUIRED_PRODUCT_HANDLE` (`card-required`, back-compat), `PAYMENT_REQUIRED_PRODUCT_HANDLES`
     (`card-required,threeds-required,card-declined`).
-  - **Newer advantage + safety-net files (5 files):**
+  - **Newer advantage + safety-net files (4 files):**
     - `CustomerLookupTests` (advantage, 2 facts) — `GET customers/lookup?reference=` known-ref → 200 + id;
       unknown-ref → 404 (`CustomerLookupPath` builder; Plugin-only endpoint). Both facts are **Skipped on
       Direct** (route-divergence auto-skip — no route there — not a fail), and pass on Plugin.
-    - `StateDriftTests` (advantage, 1 fact) — unknown provider state `assessing` (id 15100377) → Plugin maps to
-      `Other` (**fails on Direct**, raw `assessing`). Setting: `UNKNOWN_STATE_SUBSCRIPTION_ID` (`15100377`).
     - `ErrorHygieneTests` (safety-net, `[Theory]` of 5) — every failure body is clean JSON with no
       internals leaked (forbidden-substring sweep). Passes on **both**.
     - `RetrySafetyTests` (safety-net, 2 facts) — 429/transient-503 on the find-or-create lookup GET recovers
