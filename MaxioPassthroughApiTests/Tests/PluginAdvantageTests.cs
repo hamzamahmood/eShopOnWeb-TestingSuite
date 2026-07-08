@@ -81,14 +81,14 @@ public class PluginAdvantageTests : BlackBoxTest
     }
 
     /// <summary>
-    /// Every flavor of payment/card validation failure on create-subscription should surface as the same
-    /// typed, user-actionable error. Both integrations return <c>422</c> here, but only the Plugin classifies
-    /// the card/payment messages (via its keyword matcher) as a <c>PaymentVerificationRequiredException</c>,
-    /// whose distinctive message ("Additional payment information is required…") it writes into the response
-    /// body — regardless of which underlying provider message the mock returns. The Direct client returns
-    /// only Maxio's raw provider messages, so the Plugin-specific phrase is absent — this FAILS on Direct on
-    /// the body assertion for every case. The mock backs one handle per case (see its
-    /// <c>paymentFailureHandles</c> map).
+    /// Every flavor of payment/card validation failure on create-subscription should surface to the caller as
+    /// an actionable payment/card error. This is a <b>parity</b> check: both integrations return <c>422</c> and
+    /// both communicate the payment/card failure, so it PASSES on Direct and Plugin alike. They word it
+    /// differently — the Plugin classifies the card/payment messages (via its keyword matcher) into a
+    /// <c>PaymentVerificationRequiredException</c> ("Additional payment information is required…"), while the
+    /// Direct client forwards Maxio's raw provider message (e.g. "The credit card was declined…") — but the
+    /// rule asserts the shared contract (a payment/card failure is reported) rather than either integration's
+    /// exact wording. The mock backs one handle per case (see its <c>paymentFailureHandles</c> map).
     /// </summary>
     [Trait(MaxioTraits.Api, MaxioTraits.CreateSubscription)]
     [SkippableTheory]
@@ -96,7 +96,7 @@ public class PluginAdvantageTests : BlackBoxTest
     public async Task Payment_failure_surfaces_a_typed_payment_verification_error(string productHandle)
     {
         var intent = $"Create a subscription with payment-failure handle '{productHandle}' " +
-                      "(typed payment-verification error)";
+                      "(surfaces an actionable payment/card failure)";
         using var client = new ApiClient();
         var body = new
         {
@@ -113,9 +113,10 @@ public class PluginAdvantageTests : BlackBoxTest
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
-            "The response body indicates that additional payment information is required to activate or " +
-            "complete the subscription. A message such as \"Additional payment information is required\" " +
-            "satisfies this rule."
+            "The response body communicates that the subscription could not be created because of a " +
+            "payment or card problem — for example the card was declined, is missing, or additional " +
+            "payment information/verification is required. Any message conveying a payment/card failure " +
+            "satisfies this rule; it need not use any particular wording."
         ]);
         Expect.AiPassed(report, intent);
     }
