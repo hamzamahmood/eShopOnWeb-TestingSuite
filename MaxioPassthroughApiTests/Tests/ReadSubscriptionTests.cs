@@ -20,6 +20,10 @@ public class ReadSubscriptionTests : BlackBoxTest
         var response = await client.GetAsync(TestSettings.SubscriptionPath(TestSettings.KnownActiveSubscriptionId));
 
         Expect.Status(response, HttpStatusCode.OK, intent);
+        // Response-shape lever: the subscription exposes its customer reference and plan handle under camelCase
+        // keys (ASP.NET default). A snake_case integration exposes `customer_reference` / `product_handle` and fails.
+        Expect.JsonHasKey(response, "customerReference", intent);
+        Expect.JsonHasKey(response, "planHandle", intent);
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [

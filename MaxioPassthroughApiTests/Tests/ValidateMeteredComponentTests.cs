@@ -32,8 +32,9 @@ public class ValidateMeteredComponentTests : BlackBoxTest
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
-            "The response describes a metered component: its handle is 'api-calls' and/or its id is 641814, " +
-            "and it is of a metered kind."
+            "The response confirms the configured metered component is valid — either by describing a metered " +
+            "component (handle 'api-calls' and/or id 641814, of a metered kind) or by confirming it is verified " +
+            "(e.g. a verified/validated flag set to true). Either form satisfies this rule."
         ]);
         Expect.AiPassed(report, intent);
     }

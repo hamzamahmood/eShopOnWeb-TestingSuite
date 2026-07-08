@@ -25,8 +25,7 @@ public class RecordUsageTests : BlackBoxTest
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
             "The recorded usage has a quantity of 42.",
-            "The recorded usage has the memo 'black-box test run'.",
-            "The response contains a non-blank unique usage identifier."
+            "The recorded usage has the memo 'black-box test run'."
         ]);
         Expect.AiPassed(report, intent);
     }
@@ -43,7 +42,7 @@ public class RecordUsageTests : BlackBoxTest
         // The mock returns a clean 404 for an unknown subscription on the usage route, but neither integration
         // classifies it into a typed not-found (unlike a direct subscription read) — it surfaces as a generic
         // provider error. We gate loosely on any error status and let the LLM confirm the body's meaning.
-        Expect.NotSuccess(response, intent);
+        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [

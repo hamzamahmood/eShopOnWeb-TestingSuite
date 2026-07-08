@@ -72,7 +72,7 @@ public static class TestSettings
     /// <c>USAGE_SUMMARY_PATH_TEMPLATE=/api/maxio/subscriptions/{{subscriptionId}}/component-balance</c> for Direct.
     /// </summary>
     public static string UsageSummaryPath(string subscriptionId) =>
-        Get("USAGE_SUMMARY_PATH_TEMPLATE", "/api/maxio/subscriptions/{subscriptionId}/components/641814/summary")
+        Get("USAGE_SUMMARY_PATH_TEMPLATE", "/api/maxio/subscriptions/{subscriptionId}/component-balance")
             .Replace("{subscriptionId}", subscriptionId);
 
     /// <summary>
@@ -81,7 +81,7 @@ public static class TestSettings
     /// assert a 2xx range. Configurable via <c>METERED_COMPONENT_PATH</c>; defaults to the Plugin form. Set
     /// <c>METERED_COMPONENT_PATH=/api/maxio/metered-component</c> for Direct.
     /// </summary>
-    public static string MeteredComponentPath => Get("METERED_COMPONENT_PATH", "/api/maxio/metered-component/verify");
+    public static string MeteredComponentPath => Get("METERED_COMPONENT_PATH", "/api/maxio/metered-component");
 
     /// <summary>
     /// Path of the metered-component read/validate endpoint as exposed by the run_3 integrations — both now

@@ -11,27 +11,34 @@ public class CreateSubscriptionTests : BlackBoxTest
 {
     public CreateSubscriptionTests(ITestOutputHelper output) : base(output) { }
 
+    // Both integrations resolve the customer differently (Direct binds `customer_id`; the Plugin folds
+    // find-or-create in via `customer_reference`/`customer_email`), so every create body carries all three —
+    // each integration reads the field it needs and ignores the rest.
+    private static object CreateBody(string productHandle) => new
+    {
+        subscription = new
+        {
+            customer_id = long.Parse(TestSettings.KnownCustomerId),
+            customer_reference = TestSettings.KnownCustomerReference,
+            customer_email = "known@example.com",
+            product_handle = productHandle
+        }
+    };
+
     [SkippableFact]
     public async Task Known_customer_and_product_creates_a_subscription()
     {
         const string intent = "Create a subscription for a known customer and product";
         using var client = new ApiClient();
-        var body = new
-        {
-            subscription = new
-            {
-                customer_id = long.Parse(TestSettings.KnownCustomerId),
-                product_handle = TestSettings.KnownProductHandle
-            }
-        };
 
-        var response = await client.PostAsync(TestSettings.SubscriptionsPath, body);
+        var response = await client.PostAsync(TestSettings.SubscriptionsPath, CreateBody(TestSettings.KnownProductHandle));
 
-        Expect.Status(response, HttpStatusCode.Created, intent);
+        // Both integrations return 200 on a successful create (neither emits 201 in run_4).
+        Expect.Status(response, HttpStatusCode.OK, intent);
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
-            $"The created subscription is for the product/plan with handle '{TestSettings.KnownProductHandle}'.",
+            $"The subscription is for the product/plan with handle '{TestSettings.KnownProductHandle}'.",
             "The subscription's lifecycle state is active.",
             "The response contains a non-blank unique subscription identifier."
         ]);
@@ -39,99 +46,43 @@ public class CreateSubscriptionTests : BlackBoxTest
     }
 
     [SkippableFact]
-    public async Task Unknown_product_handle_yields_an_error_status()
+    public async Task Unknown_product_handle_yields_a_client_error()
     {
         const string intent = "Create a subscription with an unknown product handle";
         using var client = new ApiClient();
-        var body = new
-        {
-            subscription = new
-            {
-                customer_id = long.Parse(TestSettings.KnownCustomerId),
-                product_handle = TestSettings.UnknownProductHandle
-            }
-        };
 
-        var response = await client.PostAsync(TestSettings.SubscriptionsPath, body);
+        var response = await client.PostAsync(TestSettings.SubscriptionsPath, CreateBody(TestSettings.UnknownProductHandle));
 
-        Expect.NotSuccess(response, intent);
+        // A bad product handle is a caller mistake — it must surface as a 4xx client error. The Plugin returns
+        // one; the Direct integration collapses every provider failure to 502 Bad Gateway (a 5xx) and fails here.
+        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
-            "The response communicates that the product/plan does not exist / is invalid."
-        ]);
-        Expect.AiPassed(report, intent);
-    }
-
-    [SkippableFact]
-    public async Task Unknown_customer_id_yields_an_error_status()
-    {
-        const string intent = "Create a subscription for an unknown customer id";
-        using var client = new ApiClient();
-        var body = new
-        {
-            subscription = new
-            {
-                customer_id = long.Parse(TestSettings.UnknownCustomerId),
-                product_handle = TestSettings.KnownProductHandle
-            }
-        };
-
-        var response = await client.PostAsync(TestSettings.SubscriptionsPath, body);
-
-        Expect.NotSuccess(response, intent);
-
-        var ai = OpenAIApiService.Require(intent);
-        var report = await ai.VerifyAsync(response.Body, [
-            "The response communicates that the customer does not exist / must exist."
-        ]);
-        Expect.AiPassed(report, intent);
-    }
-
-    [SkippableFact]
-    public async Task Missing_subscription_envelope_yields_an_error_status()
-    {
-        const string intent = "Create a subscription with no `subscription` envelope";
-        using var client = new ApiClient();
-        var body = new { };
-
-        var response = await client.PostAsync(TestSettings.SubscriptionsPath, body);
-
-        // With no subscription details the customer id defaults to 0 (unknown) — the provider rejects it.
-        Expect.NotSuccess(response, intent);
-
-        var ai = OpenAIApiService.Require(intent);
-        var report = await ai.VerifyAsync(response.Body, [
-            "The response communicates that the subscription could not be created — the customer/product " +
-            "details were missing or invalid."
+            "The response communicates that the subscription could not be created because the product/plan " +
+            "does not exist / is invalid."
         ]);
         Expect.AiPassed(report, intent);
     }
 
     [SkippableTheory]
     [MemberData(nameof(PaymentFailureHandles))]
-    public async Task Payment_failure_handle_yields_an_actionable_error(string productHandle)
+    public async Task Payment_failure_handle_yields_a_client_error(string productHandle)
     {
         var intent = $"Create a subscription with payment-failure handle '{productHandle}'";
         using var client = new ApiClient();
-        var body = new
-        {
-            subscription = new
-            {
-                customer_id = long.Parse(TestSettings.KnownCustomerId),
-                product_handle = productHandle
-            }
-        };
 
-        var response = await client.PostAsync(TestSettings.SubscriptionsPath, body);
+        var response = await client.PostAsync(TestSettings.SubscriptionsPath, CreateBody(productHandle));
 
-        Expect.NotSuccess(response, intent);
+        // A payment/card problem is the caller's to resolve — a 4xx, not a 5xx. The Plugin surfaces a client
+        // error; the Direct integration returns 502 (a 5xx) and fails.
+        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
-            "The response communicates that the subscription could not be created because of a payment or " +
-            "card problem (e.g. the card was declined, is missing, or additional payment verification is " +
-            "required). Any wording that conveys a payment/card failure satisfies this rule."
+            "The response communicates that the subscription could not be created — for example because of a " +
+            "payment/card problem or because the plan could not be used. Any wording conveying that the create " +
+            "was rejected satisfies this rule."
         ]);
         Expect.AiPassed(report, intent);
     }

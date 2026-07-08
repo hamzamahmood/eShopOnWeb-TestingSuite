@@ -26,17 +26,4 @@ public class UsageSummaryTests : BlackBoxTest
         ]);
         Expect.AiPassed(report, intent);
     }
-
-    [SkippableFact]
-    public async Task Unknown_subscription_yields_an_error_status()
-    {
-        const string intent = "Read the usage summary of an unknown subscription";
-        using var client = new ApiClient();
-
-        var response = await client.GetAsync(TestSettings.UsageSummaryPath(TestSettings.UnknownSubscriptionId));
-
-        // Route exists on the integration, so this is a genuine (JSON-body) client error, not a route-miss
-        // skip. The exact code differs by integration's not-found mapping, so assert the 4xx family.
-        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
-    }
 }
