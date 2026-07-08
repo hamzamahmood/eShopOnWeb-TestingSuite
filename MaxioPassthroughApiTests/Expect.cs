@@ -57,6 +57,29 @@ internal static class Expect
     }
 
     /// <summary>
+    /// Asserts the response is NOT a 2xx success — i.e. any error status — skipping on an endpoint-missing
+    /// 404 (route not exposed on this integration). Used for failure cases whose exact status legitimately
+    /// differs between integrations (Direct maps 404/422/502; Plugin collapses to 422/404/400): the status
+    /// gate stays loose while the returned error <b>body</b> is judged for correctness by the LLM verifier
+    /// (see <see cref="AiPassed"/>). Because the endpoint-missing skip fires first, an integration whose route
+    /// binds the id as <c>int</c> and route-misses a non-numeric id (bare 404) is Skipped, while one that
+    /// returns a bodied client error asserts normally.
+    /// </summary>
+    public static void NotSuccess(ApiResponse response, string intent)
+    {
+        SkipIfEndpointMissing(response, intent);
+        var code = (int)response.StatusCode;
+        if (code < 200 || code >= 300)
+        {
+            Pass(intent, $"error status {Describe(response.StatusCode)}");
+            return;
+        }
+
+        Assert.Fail($"[{intent}] Expected an error (non-2xx) status, got {Describe(response.StatusCode)}. " +
+            $"Body: {response.Body}");
+    }
+
+    /// <summary>
     /// Skips the test when the response is an endpoint-missing 404 (route not exposed on this integration),
     /// so route divergence is reported as Skipped rather than a misleading pass/fail. A genuine API 404
     /// (with the app's JSON error body) is left for the caller's normal status assertion.

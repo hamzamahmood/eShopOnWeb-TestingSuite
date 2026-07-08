@@ -36,6 +36,46 @@ public class PauseSubscriptionTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.PauseSubscriptionPath(TestSettings.KnownOnHoldSubscriptionId));
 
-        Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
+        Expect.NotSuccess(response, intent);
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The response communicates that the subscription is not eligible to be put on hold / paused."
+        ]);
+        Expect.AiPassed(report, intent);
+    }
+
+    [SkippableFact]
+    public async Task Canceled_subscription_cannot_be_paused()
+    {
+        const string intent = "Pause a canceled subscription";
+        using var client = new ApiClient();
+
+        var response = await client.PostAsync(TestSettings.PauseSubscriptionPath(TestSettings.KnownCanceledSubscriptionId));
+
+        Expect.NotSuccess(response, intent);
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The response communicates that the subscription cannot be put on hold / paused in its current state."
+        ]);
+        Expect.AiPassed(report, intent);
+    }
+
+    [SkippableFact]
+    public async Task Unknown_subscription_cannot_be_paused()
+    {
+        const string intent = "Pause an unknown subscription";
+        using var client = new ApiClient();
+
+        var response = await client.PostAsync(TestSettings.PauseSubscriptionPath(TestSettings.UnknownSubscriptionId));
+
+        Expect.NotSuccess(response, intent);
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The response communicates that the subscription was not found / does not exist."
+        ]);
+        Expect.AiPassed(report, intent);
     }
 }

@@ -84,6 +84,14 @@ public static class TestSettings
     public static string MeteredComponentPath => Get("METERED_COMPONENT_PATH", "/api/maxio/metered-component/verify");
 
     /// <summary>
+    /// Path of the metered-component read/validate endpoint as exposed by the run_3 integrations — both now
+    /// serve <c>GET /api/maxio/metered-component</c> returning 200 + data (the older Plugin
+    /// <c>/verify</c> → 204 form, still covered by <see cref="MeteredComponentPath"/>, no longer exists).
+    /// Configurable via <c>METERED_COMPONENT_READ_PATH</c>.
+    /// </summary>
+    public static string MeteredComponentReadPath => Get("METERED_COMPONENT_READ_PATH", "/api/maxio/metered-component");
+
+    /// <summary>
     /// Builds the cancel-at-end-of-period path. Route AND HTTP method diverge: the Plugin reuses
     /// <c>DELETE subscriptions/{id}</c> with a <c>timing:"EndOfPeriod"</c> body; the Direct integration has a
     /// dedicated <c>POST subscriptions/{id}/delayed_cancel</c>. Configure both via

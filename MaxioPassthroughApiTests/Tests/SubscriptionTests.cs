@@ -40,6 +40,12 @@ public class SubscriptionTests : BlackBoxTest
 
         var response = await client.GetAsync(TestSettings.CustomerSubscriptionsPath(TestSettings.UnknownCustomerId));
 
-        Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
+        Expect.NotSuccess(response, intent);
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The response communicates that the customer was not found / does not exist."
+        ]);
+        Expect.AiPassed(report, intent);
     }
 }

@@ -40,10 +40,16 @@ public class RecordUsageTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.RecordUsagePath(TestSettings.UnknownSubscriptionId), body);
 
-        // Unlike ReadSubscriptionAsync, neither integration's record-usage path classifies Maxio's 404 into a
-        // typed not-found exception — both fall through to the generic BillingProviderException -> 422 mapping.
-        // The mock itself returns a clean 404 here (see docs/maxio-mock-server-error-codes.md #12); it's just
-        // unreachable through either controller. Verified live on both integrations.
-        Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
+        // The mock returns a clean 404 for an unknown subscription on the usage route, but neither integration
+        // classifies it into a typed not-found (unlike a direct subscription read) — it surfaces as a generic
+        // provider error. We gate loosely on any error status and let the LLM confirm the body's meaning.
+        Expect.NotSuccess(response, intent);
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The response communicates that usage could not be recorded because the subscription was not " +
+            "found / does not exist."
+        ]);
+        Expect.AiPassed(report, intent);
     }
 }

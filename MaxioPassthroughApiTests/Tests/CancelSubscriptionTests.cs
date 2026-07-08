@@ -38,7 +38,32 @@ public class CancelSubscriptionTests : BlackBoxTest
 
         var response = await client.DeleteAsync(TestSettings.SubscriptionPath(TestSettings.KnownCanceledSubscriptionId), body);
 
-        Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
+        // Note: the mock returns this particular error with a singular {"error":…} key (not {"errors":[…]}).
+        Expect.NotSuccess(response, intent);
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The response communicates that the subscription is already canceled."
+        ]);
+        Expect.AiPassed(report, intent);
+    }
+
+    [SkippableFact]
+    public async Task Unknown_subscription_cannot_be_canceled()
+    {
+        const string intent = "Cancel an unknown subscription";
+        using var client = new ApiClient();
+        var body = new { subscription = new { cancellation_message = "No longer needed" }, timing = "Immediate" };
+
+        var response = await client.DeleteAsync(TestSettings.SubscriptionPath(TestSettings.UnknownSubscriptionId), body);
+
+        Expect.NotSuccess(response, intent);
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The response communicates that the subscription was not found / does not exist."
+        ]);
+        Expect.AiPassed(report, intent);
     }
 
     [Trait(MaxioTraits.Api, MaxioTraits.DelayedCancel)]

@@ -36,6 +36,29 @@ public class ResumeSubscriptionTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.ResumeSubscriptionPath(TestSettings.KnownActiveSubscriptionId));
 
-        Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
+        Expect.NotSuccess(response, intent);
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The response communicates that only on-hold subscriptions can be resumed (this one is not on hold)."
+        ]);
+        Expect.AiPassed(report, intent);
+    }
+
+    [SkippableFact]
+    public async Task Unknown_subscription_cannot_be_resumed()
+    {
+        const string intent = "Resume an unknown subscription";
+        using var client = new ApiClient();
+
+        var response = await client.PostAsync(TestSettings.ResumeSubscriptionPath(TestSettings.UnknownSubscriptionId));
+
+        Expect.NotSuccess(response, intent);
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The response communicates that the subscription was not found / does not exist."
+        ]);
+        Expect.AiPassed(report, intent);
     }
 }

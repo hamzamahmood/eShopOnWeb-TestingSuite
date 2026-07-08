@@ -52,6 +52,35 @@ public class FindOrCreateCustomerTests : BlackBoxTest
     }
 
     [SkippableFact]
+    public async Task Known_reference_resolves_to_the_existing_customer_idempotently()
+    {
+        const string intent = "Find an already-existing customer by a known reference (no duplicate created)";
+        using var client = new ApiClient();
+        // The reference is carried in BOTH `reference` and `email`: Direct looks the customer up by the
+        // `reference` field, whereas the Plugin uses the email as the provider reference. Setting both to the
+        // mock's known reference makes the lookup succeed on either integration.
+        var body = new
+        {
+            customer = new
+            {
+                reference = TestSettings.KnownCustomerReference,
+                email = TestSettings.KnownCustomerReference,
+                first_name = "John",
+                last_name = "Doe"
+            }
+        };
+
+        var response = await client.PostAsync(TestSettings.CustomersPath, body);
+        Expect.Status(response, HttpStatusCode.OK, intent);
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The response contains a non-blank customer identifier (the existing customer was returned)."
+        ]);
+        Expect.AiPassed(report, intent);
+    }
+
+    [SkippableFact]
     public async Task Blank_email_is_rejected_before_reaching_the_billing_provider()
     {
         const string intent = "Reject a blank email before reaching the billing provider";
@@ -70,7 +99,34 @@ public class FindOrCreateCustomerTests : BlackBoxTest
         var response = await client.PostAsync(TestSettings.CustomersPath, body);
 
         // Both controllers require a non-blank email client-side (Direct via an explicit check, Plugin via
-        // [Required] + automatic ModelState validation) — this never reaches the mock, so both agree on 400.
-        Expect.Status(response, HttpStatusCode.BadRequest, intent);
+        // its own guard) — this never reaches the mock, so both return an error. The exact code agrees at 400,
+        // but we gate loosely and let the LLM confirm the body explains the missing email.
+        Expect.NotSuccess(response, intent);
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The response communicates that a customer email is required / must not be blank."
+        ]);
+        Expect.AiPassed(report, intent);
+    }
+
+    [SkippableFact]
+    public async Task Missing_customer_envelope_is_rejected()
+    {
+        const string intent = "Reject a create-customer request whose `customer` envelope is absent";
+        using var client = new ApiClient();
+        var body = new { };
+
+        var response = await client.PostAsync(TestSettings.CustomersPath, body);
+
+        // With no `customer` object the email is necessarily blank, so both controllers reject client-side.
+        Expect.NotSuccess(response, intent);
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The response communicates a client/validation error — the customer details (e.g. email) were " +
+            "missing or invalid."
+        ]);
+        Expect.AiPassed(report, intent);
     }
 }

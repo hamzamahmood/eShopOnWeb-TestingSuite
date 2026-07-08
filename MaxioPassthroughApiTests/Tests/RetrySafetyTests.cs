@@ -29,12 +29,16 @@ public class RetrySafetyTests : BlackBoxTest
     {
         const string intent = "Recover from a 429 rate limit on the find-or-create lookup";
         using var client = new ApiClient();
+        // The special reference token must reach the mock's customer-lookup regardless of integration: Direct
+        // looks up by the `reference` field, the Plugin by the `email`. Carry the token in BOTH so the
+        // ratelimit_/retry_ behavior fires on either.
+        var reference = TestSettings.NewRateLimitReference();
         var body = new
         {
             customer = new
             {
-                reference = TestSettings.NewRateLimitReference(),
-                email = "ratelimit.recovered@example.com",
+                reference,
+                email = $"{reference}@example.com",
                 first_name = "Rate",
                 last_name = "Limited"
             }
@@ -52,12 +56,14 @@ public class RetrySafetyTests : BlackBoxTest
     {
         const string intent = "Recover from a transient 503 on the find-or-create lookup";
         using var client = new ApiClient();
+        // Token carried in both fields (see the rate-limit test above): Direct looks up by reference, Plugin by email.
+        var reference = TestSettings.NewTransient5xxReference();
         var body = new
         {
             customer = new
             {
-                reference = TestSettings.NewTransient5xxReference(),
-                email = "transient.recovered@example.com",
+                reference,
+                email = $"{reference}@example.com",
                 first_name = "Transient",
                 last_name = "Recovered"
             }

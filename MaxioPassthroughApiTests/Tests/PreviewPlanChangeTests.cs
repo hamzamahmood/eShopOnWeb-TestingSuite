@@ -39,6 +39,49 @@ public class PreviewPlanChangeTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.MigrationsPreviewPath(TestSettings.KnownActiveSubscriptionId), body);
 
-        Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
+        Expect.NotSuccess(response, intent);
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The response communicates that the target product/plan does not exist / is invalid."
+        ]);
+        Expect.AiPassed(report, intent);
+    }
+
+    [SkippableFact]
+    public async Task Non_active_subscription_preview_yields_an_error_status()
+    {
+        const string intent = "Preview a plan change on a non-active (canceled) subscription";
+        using var client = new ApiClient();
+        var body = new { migration = new { product_handle = TestSettings.AlternateProductHandle }, timing = "Immediate" };
+
+        var response = await client.PostAsync(TestSettings.MigrationsPreviewPath(TestSettings.KnownCanceledSubscriptionId), body);
+
+        Expect.NotSuccess(response, intent);
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The response communicates that the subscription is not eligible for a plan-change preview " +
+            "because it is not active."
+        ]);
+        Expect.AiPassed(report, intent);
+    }
+
+    [SkippableFact]
+    public async Task Unknown_subscription_preview_yields_an_error_status()
+    {
+        const string intent = "Preview a plan change on an unknown subscription";
+        using var client = new ApiClient();
+        var body = new { migration = new { product_handle = TestSettings.AlternateProductHandle }, timing = "Immediate" };
+
+        var response = await client.PostAsync(TestSettings.MigrationsPreviewPath(TestSettings.UnknownSubscriptionId), body);
+
+        Expect.NotSuccess(response, intent);
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The response communicates that the subscription was not found / does not exist."
+        ]);
+        Expect.AiPassed(report, intent);
     }
 }

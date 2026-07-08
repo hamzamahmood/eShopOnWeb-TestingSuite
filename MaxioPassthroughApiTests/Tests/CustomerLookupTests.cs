@@ -6,14 +6,13 @@ using Xunit.Abstractions;
 namespace MaxioPassthroughApiTests.Tests;
 
 /// <summary>
-/// The read-only customer-lookup endpoint (<c>GET /api/maxio/customers/lookup?reference=…</c>) is a
-/// <b>Plugin-only</b> capability: with the SDK it costs a handful of lines, so the Plugin exposes it, but the
-/// Direct integration never built it. These tests assert the Plugin's behavior and are designed to PASS on
-/// Plugin and FAIL on Direct — specifically the known-reference case, which 404s on Direct because the route
-/// is absent. (The unknown-reference case happens to be 404 on Direct too, but only coincidentally — every
-/// path under a missing route is a 404 there.)
+/// The read-only customer-lookup endpoint (<c>GET /api/maxio/customers/lookup?reference=…</c>) is exposed by
+/// the <b>Direct</b> integration only; the Plugin integration never routes it. On the Plugin the route is
+/// absent, so the request hits the fallback and returns an empty-body 404 — which the suite's route-divergence
+/// auto-skip (<see cref="Expect"/>) reports as Skipped, not a failure. On the Direct integration both cases
+/// exercise the real endpoint.
 /// </summary>
-[Trait(MaxioTraits.Category, MaxioTraits.CategoryPluginAdvantage)]
+[Trait(MaxioTraits.Category, MaxioTraits.CategoryEndpoint)]
 [Trait(MaxioTraits.Api, MaxioTraits.LookupCustomer)]
 public class CustomerLookupTests : BlackBoxTest
 {
@@ -22,7 +21,7 @@ public class CustomerLookupTests : BlackBoxTest
     [SkippableFact]
     public async Task Known_reference_returns_the_customer_id()
     {
-        const string intent = "Look up a customer by a known reference (Plugin-only endpoint)";
+        const string intent = "Look up a customer by a known reference (Direct-only endpoint)";
         using var client = new ApiClient();
 
         var response = await client.GetAsync(TestSettings.CustomerLookupPath(TestSettings.KnownCustomerReference));
@@ -37,13 +36,20 @@ public class CustomerLookupTests : BlackBoxTest
     }
 
     [SkippableFact]
-    public async Task Unknown_reference_yields_404_not_found()
+    public async Task Unknown_reference_yields_a_not_found_error()
     {
-        const string intent = "Look up a customer by an unknown reference (Plugin-only endpoint)";
+        const string intent = "Look up a customer by an unknown reference (Direct-only endpoint)";
         using var client = new ApiClient();
 
         var response = await client.GetAsync(TestSettings.CustomerLookupPath(TestSettings.UnknownCustomerReference));
 
-        Expect.Status(response, HttpStatusCode.NotFound, intent);
+        // A bodied not-found (the route exists on Direct); auto-skips on Plugin (route absent -> empty 404).
+        Expect.NotSuccess(response, intent);
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The response communicates that no customer was found for the given reference."
+        ]);
+        Expect.AiPassed(report, intent);
     }
 }

@@ -6,16 +6,15 @@ using Xunit.Abstractions;
 namespace MaxioPassthroughApiTests.Tests;
 
 /// <summary>
-/// Tests that demonstrate where the <b>Plugin</b> (APIMatic-generated SDK) integration is more robust than
-/// the <b>Direct</b> (hand-rolled HTTP) integration for the same <c>MaxioBillingController</c> endpoints.
+/// Scenarios that historically distinguished the <b>Plugin</b> (APIMatic-generated SDK) integration from the
+/// <b>Direct</b> (hand-rolled HTTP) integration on the same <c>MaxioBillingController</c> endpoints:
+/// REST-correct not-found status, concurrent-create-race recovery, and payment-failure surfacing.
 ///
 /// <para>
-/// UNLIKE the rest of this suite — which asserts only the common subset of behavior so it stays green against
-/// either integration — every test here asserts the <i>superior</i> outcome. That means each test is designed
-/// to <b>PASS when <c>PUBLICAPI_BASEURL</c> points at the Plugin PublicApi and FAIL when it points at the
-/// Direct one</b>. The failure is the point: it pins the exact behavior the Direct integration lacks. Each
-/// test's comment records what Direct does instead (verified against both <c>MaxioBillingClient</c>s and their
-/// <c>ExceptionMiddleware</c>s).
+/// In the <c>run_3</c> integrations these behaviors have <b>converged</b> — the Direct controller now maps a
+/// direct read of a missing subscription to a 404 and recovers find-or-create from a concurrent-create race
+/// itself — so all three cases now PASS on both integrations. They are retained as parity checks that pin the
+/// (now-shared) contract; the LLM verifies the payment case's body meaning across the two apps' differing wording.
 /// </para>
 ///
 /// <para>
@@ -30,16 +29,16 @@ public class PluginAdvantageTests : BlackBoxTest
     public PluginAdvantageTests(ITestOutputHelper output) : base(output) { }
 
     /// <summary>
-    /// A missing subscription should yield a REST-correct <c>404 Not Found</c>. The Plugin's
-    /// <c>ReadSubscriptionAsync</c> maps Maxio's 404 to <c>SubscriptionNotFoundException</c> → 404. The Direct
-    /// client has no not-found special case: any 4xx from Maxio becomes a generic <c>BillingProviderException</c>
-    /// which its <c>ExceptionMiddleware</c> maps to <c>422 Unprocessable Entity</c> — so this FAILS on Direct.
+    /// A direct read of a missing subscription yields a REST-correct <c>404 Not Found</c>. In run_3 both
+    /// integrations honor this: the Plugin maps Maxio's 404 to a null → controller <c>NotFound</c>, and the
+    /// Direct controller's <c>restNotFound</c> path returns 404 for a missing direct read. (Historically the
+    /// Direct integration returned 422 here.)
     /// </summary>
     [Trait(MaxioTraits.Api, MaxioTraits.ReadSubscription)]
     [SkippableFact]
     public async Task Missing_subscription_returns_404_not_found()
     {
-        const string intent = "Read a missing subscription (REST-correct 404 vs Direct's 422)";
+        const string intent = "Read a missing subscription (REST-correct 404)";
         using var client = new ApiClient();
 
         var response = await client.GetAsync(TestSettings.SubscriptionPath(TestSettings.UnknownSubscriptionId));
@@ -50,10 +49,10 @@ public class PluginAdvantageTests : BlackBoxTest
     /// <summary>
     /// Find-or-create must remain idempotent even when a customer with the same reference is created
     /// concurrently between the initial lookup and the create. The mock reproduces the race for a
-    /// <c>race_</c> reference (lookup 404 → create 422 "already taken" → re-lookup 200). The Plugin's
-    /// <c>FindOrCreateCustomerAsync</c> catches the create conflict and re-reads, returning the existing id
-    /// (<c>200 OK</c>). The Direct client's <c>EnsureCustomerAsync</c> has no such recovery — the create
-    /// conflict surfaces as an error status — so this FAILS on Direct.
+    /// <c>race_</c> reference (lookup 404 → create 422 "already taken" → re-lookup 200). In run_3 both
+    /// controllers recover: they catch the create conflict and re-read, returning the existing customer
+    /// (<c>200 OK</c>). The token is carried in BOTH <c>reference</c> and <c>email</c> because the Direct
+    /// controller looks the customer up by <c>reference</c> while the Plugin uses the <c>email</c>.
     /// </summary>
     [Trait(MaxioTraits.Api, MaxioTraits.LookupCustomer)]
     [Trait(MaxioTraits.Api, MaxioTraits.CreateCustomer)]
@@ -62,12 +61,13 @@ public class PluginAdvantageTests : BlackBoxTest
     {
         const string intent = "Recover find-or-create from a concurrent create race";
         using var client = new ApiClient();
+        var reference = TestSettings.NewRaceReference();
         var body = new
         {
             customer = new
             {
-                reference = TestSettings.NewRaceReference(),
-                email = "race.recovered@example.com",
+                reference,
+                email = $"{reference}@example.com",
                 first_name = "Race",
                 last_name = "Recovered"
             }

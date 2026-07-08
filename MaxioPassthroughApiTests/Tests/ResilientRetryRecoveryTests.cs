@@ -30,12 +30,15 @@ public class ResilientRetryRecoveryTests : BlackBoxTest
         for (var i = 0; i < CallCount; i++)
         {
             var intent = $"Recover from a connection break on find-or-create call {i + 1}/{CallCount}";
+            // Token carried in both `reference` and `email` so the mock's connbreak_ branch fires whether the
+            // integration looks the customer up by reference (Direct) or by email (Plugin).
+            var reference = TestSettings.NewConnectionInterruptReference();
             var body = new
             {
                 customer = new
                 {
-                    reference = TestSettings.NewConnectionInterruptReference(),
-                    email = $"connbreak.recovered.{i}@example.com",
+                    reference,
+                    email = $"{reference}@example.com",
                     first_name = "Conn",
                     last_name = "Break"
                 }

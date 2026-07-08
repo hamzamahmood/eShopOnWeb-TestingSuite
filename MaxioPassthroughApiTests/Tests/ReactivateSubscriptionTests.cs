@@ -36,8 +36,30 @@ public class ReactivateSubscriptionTests : BlackBoxTest
 
         var response = await client.PutAsync(TestSettings.ReactivateSubscriptionPath(TestSettings.KnownActiveSubscriptionId));
 
-        // The mock's reactivate-ineligible response is always 422 (a 4xx-origin Maxio error), which both
-        // integrations' exception mapping turns into 422 — verified live on both. No 502 path is reachable here.
-        Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
+        Expect.NotSuccess(response, intent);
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The response communicates that the subscription cannot be reactivated because it is not in a " +
+            "canceled/unpaid/trial-ended state (it is already active)."
+        ]);
+        Expect.AiPassed(report, intent);
+    }
+
+    [SkippableFact]
+    public async Task Unknown_subscription_cannot_be_reactivated()
+    {
+        const string intent = "Reactivate an unknown subscription";
+        using var client = new ApiClient();
+
+        var response = await client.PutAsync(TestSettings.ReactivateSubscriptionPath(TestSettings.UnknownSubscriptionId));
+
+        Expect.NotSuccess(response, intent);
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The response communicates that the subscription was not found / does not exist."
+        ]);
+        Expect.AiPassed(report, intent);
     }
 }

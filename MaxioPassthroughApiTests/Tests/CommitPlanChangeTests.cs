@@ -38,7 +38,13 @@ public class CommitPlanChangeTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.MigrationsPath(TestSettings.KnownActiveSubscriptionId), body);
 
-        Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
+        Expect.NotSuccess(response, intent);
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The response communicates that the target product/plan does not exist / is invalid."
+        ]);
+        Expect.AiPassed(report, intent);
     }
 
     [SkippableFact]
@@ -50,7 +56,32 @@ public class CommitPlanChangeTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.MigrationsPath(TestSettings.KnownCanceledSubscriptionId), body);
 
-        Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
+        Expect.NotSuccess(response, intent);
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The response communicates that the plan change was rejected because the subscription is not " +
+            "active (e.g. it is canceled)."
+        ]);
+        Expect.AiPassed(report, intent);
+    }
+
+    [SkippableFact]
+    public async Task Unknown_subscription_cannot_be_migrated()
+    {
+        const string intent = "Migrate an unknown subscription";
+        using var client = new ApiClient();
+        var body = new { migration = new { product_handle = TestSettings.AlternateProductHandle }, timing = "Immediate" };
+
+        var response = await client.PostAsync(TestSettings.MigrationsPath(TestSettings.UnknownSubscriptionId), body);
+
+        Expect.NotSuccess(response, intent);
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The response communicates that the subscription was not found / does not exist."
+        ]);
+        Expect.AiPassed(report, intent);
     }
 
     [Trait(MaxioTraits.Api, MaxioTraits.UpdateSubscription)]
