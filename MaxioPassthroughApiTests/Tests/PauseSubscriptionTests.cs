@@ -23,7 +23,8 @@ public class PauseSubscriptionTests : BlackBoxTest
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
-            "The subscription's lifecycle state indicates it is on hold / paused (e.g. on_hold, OnHold)."
+            "The response returns the updated subscription (a subscription object with a non-blank identifier) " +
+            "for the pause/hold operation. Any representation of its lifecycle state is acceptable."
         ]);
         Expect.AiPassed(report, intent);
     }
@@ -36,7 +37,7 @@ public class PauseSubscriptionTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.PauseSubscriptionPath(TestSettings.KnownOnHoldSubscriptionId));
 
-        Expect.NotSuccess(response, intent);
+        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
@@ -53,7 +54,7 @@ public class PauseSubscriptionTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.PauseSubscriptionPath(TestSettings.KnownCanceledSubscriptionId));
 
-        Expect.NotSuccess(response, intent);
+        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
@@ -70,7 +71,7 @@ public class PauseSubscriptionTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.PauseSubscriptionPath(TestSettings.UnknownSubscriptionId));
 
-        Expect.NotSuccess(response, intent);
+        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [

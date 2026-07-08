@@ -39,7 +39,7 @@ public class PreviewPlanChangeTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.MigrationsPreviewPath(TestSettings.KnownActiveSubscriptionId), body);
 
-        Expect.NotSuccess(response, intent);
+        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
@@ -57,7 +57,7 @@ public class PreviewPlanChangeTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.MigrationsPreviewPath(TestSettings.KnownCanceledSubscriptionId), body);
 
-        Expect.NotSuccess(response, intent);
+        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
@@ -76,7 +76,7 @@ public class PreviewPlanChangeTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.MigrationsPreviewPath(TestSettings.UnknownSubscriptionId), body);
 
-        Expect.NotSuccess(response, intent);
+        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [

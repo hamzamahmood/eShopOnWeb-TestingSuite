@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using MaxioPassthroughApiTests.Ai;
 using Xunit;
 
@@ -125,6 +126,86 @@ internal static class Expect
 
         Assert.Fail($"[{intent}] Missing identifier in response — expected a non-blank {idKind}, got " +
             $"'{id}'.");
+    }
+
+    /// <summary>
+    /// Asserts the JSON response body exposes a property named <paramref name="camelCaseKey"/> somewhere in its
+    /// tree (top-level object, or any element of a JSON array / nested object). This is a <b>mechanical</b>
+    /// response-shape check — no AI, no network — used to pin the API's JSON naming convention: an integration
+    /// that serializes with ASP.NET's default <c>camelCase</c> exposes e.g. <c>priceInCents</c>, while one that
+    /// opts into <c>snake_case</c> exposes <c>price_in_cents</c> instead and fails this assertion. The pass/fail
+    /// delta therefore holds without any AI key configured.
+    /// </summary>
+    public static void JsonHasKey(ApiResponse response, string camelCaseKey, string intent)
+    {
+        JsonDocument doc;
+        try
+        {
+            doc = JsonDocument.Parse(response.Body);
+        }
+        catch (JsonException)
+        {
+            Assert.Fail($"[{intent}] Expected a JSON body exposing '{camelCaseKey}', but the body was not valid " +
+                $"JSON. Body: {response.Body}");
+            return;
+        }
+
+        using (doc)
+        {
+            if (ContainsProperty(doc.RootElement, camelCaseKey))
+            {
+                Pass(intent, $"response exposes camelCase key '{camelCaseKey}'");
+                return;
+            }
+        }
+
+        Assert.Fail($"[{intent}] Response does not expose the expected camelCase property '{camelCaseKey}' " +
+            $"(a snake_case integration exposes the '{ToSnakeCase(camelCaseKey)}' variant instead). Body: {response.Body}");
+    }
+
+    private static bool ContainsProperty(JsonElement element, string name)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                foreach (var property in element.EnumerateObject())
+                {
+                    if (property.NameEquals(name) || ContainsProperty(property.Value, name))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            case JsonValueKind.Array:
+                foreach (var item in element.EnumerateArray())
+                {
+                    if (ContainsProperty(item, name))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            default:
+                return false;
+        }
+    }
+
+    private static string ToSnakeCase(string camel)
+    {
+        var chars = new List<char>(camel.Length + 4);
+        foreach (var c in camel)
+        {
+            if (char.IsUpper(c) && chars.Count > 0)
+            {
+                chars.Add('_');
+            }
+
+            chars.Add(char.ToLowerInvariant(c));
+        }
+
+        return new string(chars.ToArray());
     }
 
     /// <summary>Asserts the response body does NOT contain a forbidden internal-detail substring.</summary>

@@ -174,6 +174,26 @@ public sealed class MockStore
         return root.ToJsonString();
     }
 
+    /// <summary>
+    /// Returns the single <c>{"product": {...}}</c> envelope from <see cref="ProductsJson"/> whose
+    /// <c>product.handle</c> matches <paramref name="handle"/>, or <c>null</c> when no product has that handle.
+    /// Backs <c>GET /products/handle/{handle}.json</c> (the Plugin SDK's <c>ReadProductByHandle</c> wire route),
+    /// so plan-handle resolution works the same way a single-product read would against the real Maxio API.
+    /// </summary>
+    public string? ProductByHandleJson(string handle)
+    {
+        var products = JsonNode.Parse(ProductsJson)!.AsArray();
+        foreach (var element in products)
+        {
+            if (element?["product"]?["handle"]?.GetValue<string>() == handle)
+            {
+                return element!.ToJsonString();
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>Builds the <c>{"usage": {...}}</c> envelope for a successful <c>createUsage</c> call.</summary>
     public static string NewUsageJson(long usageId, int subscriptionId, decimal quantity, string? memo) =>
         new JsonObject

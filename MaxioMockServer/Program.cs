@@ -57,6 +57,20 @@ app.MapGet("/product_families/{product_family_id}/products.json",
             ? Results.Text(mocks.ProductsJson, "application/json")
             : ProductFamilyNotFound());
 
+// 1b. Read a single product by handle -----------------------------------------
+//    GET /products/handle/{handle}.json
+//    The Plugin SDK's ReadProductByHandle wire route — used by MaxioBillingClient.GetPlanByHandleAsync to
+//    resolve a plan handle before subscribe/preview/migrate. Returns the matching product envelope, or a
+//    spec-shaped 404 for an unknown handle (which the Plugin surfaces as a "plan did not resolve" client error).
+app.MapGet("/products/handle/{handle}.json",
+    (string handle, MockStore mocks) =>
+    {
+        var product = mocks.ProductByHandleJson(handle);
+        return product is not null
+            ? Results.Text(product, "application/json")
+            : Errors(StatusCodes.Status404NotFound, "Product not found.");
+    });
+
 // 2. Look up customer by reference --------------------------------------------
 //    GET /customers/lookup.json?reference=...
 app.MapGet("/customers/lookup.json",
@@ -341,6 +355,16 @@ app.MapPost("/subscriptions/{subscription_id:int}/components/{component_id}/usag
 app.MapGet("/product_families/{product_family_id}/components/{component_id}.json",
     (string product_family_id, string component_id, MockStore mocks) =>
         mocks.KnownProductFamilyIds.Contains(product_family_id) && mocks.KnownComponentTokens.Contains(component_id)
+            ? Results.Text(mocks.ComponentJson, "application/json")
+            : Errors(StatusCodes.Status404NotFound, "Component not found."));
+
+// 13b. Read a component site-wide (by id) ------------------------------------------------
+//    GET /components/{component_id}.json
+//    The Direct client's GetMeteredComponentAsync reads the configured metered component via the site-wide
+//    component route (not the family-scoped one at #13). Returns the same canned metered component, or 404.
+app.MapGet("/components/{component_id}.json",
+    (string component_id, MockStore mocks) =>
+        mocks.KnownComponentTokens.Contains(component_id)
             ? Results.Text(mocks.ComponentJson, "application/json")
             : Errors(StatusCodes.Status404NotFound, "Component not found."));
 
