@@ -40,4 +40,15 @@ public class ReadSubscriptionTests : BlackBoxTest
 
         Expect.Status(response, HttpStatusCode.NotFound, intent);
     }
+
+    [SkippableFact]
+    public async Task Non_numeric_subscription_id_is_rejected_with_400()
+    {
+        const string intent = "Reject a non-numeric subscription id with a 400 client error";
+        using var client = new ApiClient();
+
+        var response = await client.GetAsync(TestSettings.SubscriptionPath(TestSettings.NonNumericSubscriptionId));
+
+        Expect.Status(response, HttpStatusCode.BadRequest, intent);
+    }
 }

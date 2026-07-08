@@ -62,6 +62,59 @@ public static class TestSettings
         Get("RECORD_USAGE_PATH_TEMPLATE", "/api/maxio/subscriptions/{subscriptionId}/components/1/usages")
             .Replace("{subscriptionId}", subscriptionId);
 
+    /// <summary>Builds the preview-plan-change path (identical route shape on both integrations).</summary>
+    public static string MigrationsPreviewPath(string subscriptionId) => $"{MigrationsPath(subscriptionId)}/preview";
+
+    /// <summary>
+    /// Builds the usage-summary / component-balance path. Routes genuinely differ between integrations, so —
+    /// like <see cref="RecordUsagePath"/> — this is configurable via <c>USAGE_SUMMARY_PATH_TEMPLATE</c> (must
+    /// contain a literal <c>{subscriptionId}</c> placeholder). Defaults to the Plugin form; set
+    /// <c>USAGE_SUMMARY_PATH_TEMPLATE=/api/maxio/subscriptions/{{subscriptionId}}/component-balance</c> for Direct.
+    /// </summary>
+    public static string UsageSummaryPath(string subscriptionId) =>
+        Get("USAGE_SUMMARY_PATH_TEMPLATE", "/api/maxio/subscriptions/{subscriptionId}/components/641814/summary")
+            .Replace("{subscriptionId}", subscriptionId);
+
+    /// <summary>
+    /// Path of the metered-component verify/read endpoint. Route AND success status diverge (Plugin
+    /// <c>metered-component/verify</c> → 204 no body; Direct <c>metered-component</c> → 200 + data), so tests
+    /// assert a 2xx range. Configurable via <c>METERED_COMPONENT_PATH</c>; defaults to the Plugin form. Set
+    /// <c>METERED_COMPONENT_PATH=/api/maxio/metered-component</c> for Direct.
+    /// </summary>
+    public static string MeteredComponentPath => Get("METERED_COMPONENT_PATH", "/api/maxio/metered-component/verify");
+
+    /// <summary>
+    /// Builds the cancel-at-end-of-period path. Route AND HTTP method diverge: the Plugin reuses
+    /// <c>DELETE subscriptions/{id}</c> with a <c>timing:"EndOfPeriod"</c> body; the Direct integration has a
+    /// dedicated <c>POST subscriptions/{id}/delayed_cancel</c>. Configure both via
+    /// <c>END_OF_PERIOD_CANCEL_PATH_TEMPLATE</c> (with a <c>{subscriptionId}</c> placeholder) and
+    /// <c>END_OF_PERIOD_CANCEL_METHOD</c>. Defaults to the Plugin form; for Direct set
+    /// <c>END_OF_PERIOD_CANCEL_PATH_TEMPLATE=/api/maxio/subscriptions/{{subscriptionId}}/delayed_cancel</c> and
+    /// <c>END_OF_PERIOD_CANCEL_METHOD=POST</c>.
+    /// </summary>
+    public static string EndOfPeriodCancelPath(string subscriptionId) =>
+        Get("END_OF_PERIOD_CANCEL_PATH_TEMPLATE", "/api/maxio/subscriptions/{subscriptionId}")
+            .Replace("{subscriptionId}", subscriptionId);
+
+    /// <summary>HTTP method for the cancel-at-end-of-period endpoint (<c>DELETE</c> Plugin / <c>POST</c> Direct).</summary>
+    public static string EndOfPeriodCancelMethod => Get("END_OF_PERIOD_CANCEL_METHOD", "DELETE");
+
+    /// <summary>
+    /// Builds the schedule-plan-change-at-renewal path. Route AND HTTP method diverge: the Plugin reuses
+    /// <c>POST subscriptions/{id}/migrations</c> with a <c>timing:"AtRenewal"</c> body; the Direct integration
+    /// has a dedicated <c>PUT subscriptions/{id}</c>. Configure both via
+    /// <c>SCHEDULE_AT_RENEWAL_PATH_TEMPLATE</c> (with a <c>{subscriptionId}</c> placeholder) and
+    /// <c>SCHEDULE_AT_RENEWAL_METHOD</c>. Defaults to the Plugin form; for Direct set
+    /// <c>SCHEDULE_AT_RENEWAL_PATH_TEMPLATE=/api/maxio/subscriptions/{{subscriptionId}}</c> and
+    /// <c>SCHEDULE_AT_RENEWAL_METHOD=PUT</c>.
+    /// </summary>
+    public static string ScheduleAtRenewalPath(string subscriptionId) =>
+        Get("SCHEDULE_AT_RENEWAL_PATH_TEMPLATE", "/api/maxio/subscriptions/{subscriptionId}/migrations")
+            .Replace("{subscriptionId}", subscriptionId);
+
+    /// <summary>HTTP method for the schedule-at-renewal endpoint (<c>POST</c> Plugin / <c>PUT</c> Direct).</summary>
+    public static string ScheduleAtRenewalMethod => Get("SCHEDULE_AT_RENEWAL_METHOD", "POST");
+
     /// <summary>A customer reference the mock knows (→ customer id 98765).</summary>
     public static string KnownCustomerReference => Get("KNOWN_CUSTOMER_REFERENCE", "cust_12345");
 
@@ -92,6 +145,13 @@ public static class TestSettings
 
     /// <summary>A well-formed but unknown numeric subscription id (distinct from <see cref="UnknownCustomerId"/> for clarity).</summary>
     public static string UnknownSubscriptionId => Get("UNKNOWN_SUBSCRIPTION_ID", "88888888");
+
+    /// <summary>
+    /// A non-numeric subscription id. A REST-correct API rejects it with a 400 client error; an integration
+    /// whose route constrains the id to an integer instead route-misses (empty-body 404), which the suite
+    /// treats as route divergence and skips.
+    /// </summary>
+    public static string NonNumericSubscriptionId => Get("NON_NUMERIC_SUBSCRIPTION_ID", "abc");
 
     /// <summary>
     /// A canned subscription whose provider <c>state</c> is a plausible-but-unknown value (<c>"assessing"</c>)

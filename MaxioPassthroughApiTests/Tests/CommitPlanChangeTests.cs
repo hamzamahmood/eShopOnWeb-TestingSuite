@@ -52,4 +52,29 @@ public class CommitPlanChangeTests : BlackBoxTest
 
         Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
     }
+
+    [Trait(MaxioTraits.Api, MaxioTraits.UpdateSubscription)]
+    [SkippableFact]
+    public async Task Active_subscription_plan_change_is_scheduled_at_renewal()
+    {
+        const string intent = "Schedule a plan change to take effect at the next renewal";
+        using var client = new ApiClient();
+        // Both wrapper shapes are supplied so one body serves both routes (each reads its own wrapper, ignores
+        // the other): the Plugin's migrations route reads `migration`; the Direct PUT reads `subscription`.
+        var body = new
+        {
+            migration = new { product_handle = TestSettings.AlternateProductHandle },
+            subscription = new { product_handle = TestSettings.AlternateProductHandle },
+            timing = "AtRenewal"
+        };
+        var path = TestSettings.ScheduleAtRenewalPath(TestSettings.KnownActiveSubscriptionId);
+
+        // Route and HTTP method diverge by integration (Plugin: POST migrations + timing; Direct: PUT subscription).
+        var response = TestSettings.ScheduleAtRenewalMethod.Equals("PUT", StringComparison.OrdinalIgnoreCase)
+            ? await client.PutAsync(path, body)
+            : await client.PostAsync(path, body);
+
+        Expect.Status(response, HttpStatusCode.OK, intent);
+    }
 }
+

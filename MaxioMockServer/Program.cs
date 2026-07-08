@@ -344,6 +344,100 @@ app.MapGet("/product_families/{product_family_id}/components/{component_id}.json
             ? Results.Text(mocks.ComponentJson, "application/json")
             : Errors(StatusCodes.Status404NotFound, "Component not found."));
 
+// 14. Preview a plan-change (proration quote) -------------------------------------------
+//    POST /subscriptions/{subscription_id}/migrations/preview.json
+//    Same eligibility as the migrations route (active 15100121 + known target handle); returns a canned
+//    proration preview instead of applying the change. Not matched by StrictValidationMiddleware's migrations
+//    regex (which ends in /migrations.json), so the extra plugin-only `timing` field passes through untouched.
+app.MapPost("/subscriptions/{subscription_id:int}/migrations/preview.json",
+    (int subscription_id, MigrationEnvelope body, MockStore mocks) =>
+    {
+        if (!mocks.SubscriptionsById.TryGetValue(subscription_id, out _))
+        {
+            return SubscriptionNotFound();
+        }
+
+        if (subscription_id != 15100121)
+        {
+            return Errors(StatusCodes.Status422UnprocessableEntity, "Subscription must be active");
+        }
+
+        var productHandle = body.Migration?.ProductHandle;
+        if (string.IsNullOrWhiteSpace(productHandle) || !mocks.KnownProductHandles.Contains(productHandle))
+        {
+            return Errors(StatusCodes.Status422UnprocessableEntity, "Invalid Product");
+        }
+
+        return Results.Text(MockStore.MigrationPreviewJson(), "application/json");
+    });
+
+// 15. Read a subscription-scoped component balance --------------------------------------
+//    GET /subscriptions/{subscription_id}/components/{component_id}.json
+//    Backs the usage-summary (Plugin) / component-balance (Direct) endpoints. component_id is accepted but
+//    not validated (Direct sends handle:api-calls, Plugin sends the numeric id); only the subscription must
+//    be known.
+app.MapGet("/subscriptions/{subscription_id:int}/components/{component_id}.json",
+    (int subscription_id, string component_id, MockStore mocks) =>
+        mocks.SubscriptionsById.ContainsKey(subscription_id)
+            ? Results.Text(MockStore.SubscriptionComponentJson(subscription_id, 42), "application/json")
+            : SubscriptionNotFound());
+
+// 16. Look up a component by handle -----------------------------------------------------
+//    GET /components/lookup.json?handle=...
+//    The site-wide component lookup behind the Plugin's metered-component/verify endpoint (FindComponent).
+//    Reuses the canned metered component (kind=metered_component, family 527890) so the Plugin's config guard
+//    passes.
+app.MapGet("/components/lookup.json",
+    (HttpContext ctx, MockStore mocks) =>
+    {
+        var handle = ctx.Request.Query["handle"].ToString();
+        return !string.IsNullOrWhiteSpace(handle) && mocks.KnownComponentTokens.Contains($"handle:{handle}")
+            ? Results.Text(mocks.ComponentJson, "application/json")
+            : Errors(StatusCodes.Status404NotFound, "Component not found.");
+    });
+
+// 17. Schedule a cancellation at end of period -----------------------------------------
+//    POST /subscriptions/{subscription_id}/delayed_cancel.json
+//    The Direct client's end-of-period cancel (the Plugin instead reuses DELETE with cancel_at_end_of_period).
+//    Returns Maxio's { "message": ... } envelope; the client re-reads the subscription afterward.
+app.MapPost("/subscriptions/{subscription_id:int}/delayed_cancel.json",
+    (int subscription_id, MockStore mocks) =>
+    {
+        if (!mocks.SubscriptionsById.ContainsKey(subscription_id))
+        {
+            return SubscriptionNotFound();
+        }
+
+        if (subscription_id == 15100299)
+        {
+            return Errors(StatusCodes.Status422UnprocessableEntity, "The subscription is already canceled");
+        }
+
+        return Results.Text(MockStore.DelayedCancelJson(), "application/json");
+    });
+
+// 18. Update a subscription (schedule a delayed product change) -------------------------
+//    PUT /subscriptions/{subscription_id}.json
+//    The Direct client's schedule-change-at-renewal (the Plugin reaches the same Maxio call via its
+//    migrations + timing:AtRenewal route). Only the target product handle is validated. Not matched by
+//    StrictValidationMiddleware (its subscription matcher is DELETE on this path), so PUT passes through.
+app.MapPut("/subscriptions/{subscription_id:int}.json",
+    (int subscription_id, SubscriptionEnvelope body, MockStore mocks) =>
+    {
+        if (!mocks.SubscriptionsById.TryGetValue(subscription_id, out var json))
+        {
+            return SubscriptionNotFound();
+        }
+
+        var productHandle = body.Subscription?.ProductHandle;
+        if (string.IsNullOrWhiteSpace(productHandle) || !mocks.KnownProductHandles.Contains(productHandle))
+        {
+            return Errors(StatusCodes.Status422UnprocessableEntity, "Invalid Product");
+        }
+
+        return Results.Text(mocks.WithProduct(json, productHandle), "application/json");
+    });
+
 // Anything else -> 404 with an errors body. Use an explicit catch-all pattern
 // ("{**path}") rather than the parameterless MapFallback, whose default
 // "{*path:nonfile}" constraint would skip file-like paths such as

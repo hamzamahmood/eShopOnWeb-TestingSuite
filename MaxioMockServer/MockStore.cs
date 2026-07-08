@@ -191,6 +191,61 @@ public sealed class MockStore
             }
         }.ToJsonString();
 
+    /// <summary>
+    /// Builds the <c>{"migration": {...}}</c> proration-preview envelope for a successful
+    /// <c>previewSubscriptionProductMigration</c> call (POST /subscriptions/{id}/migrations/preview.json).
+    /// Both integrations read these <c>*_in_cents</c> fields; the Direct client surfaces them as-is while the
+    /// Plugin collapses them into a single <c>proratedAmount</c>.
+    /// </summary>
+    public static string MigrationPreviewJson() =>
+        new JsonObject
+        {
+            ["migration"] = new JsonObject
+            {
+                ["prorated_adjustment_in_cents"] = 1000,
+                ["charge_in_cents"] = 1000,
+                ["payment_due_in_cents"] = 1000,
+                ["credit_applied_in_cents"] = 0
+            }
+        }.ToJsonString();
+
+    /// <summary>
+    /// Builds the <c>{"component": {...}}</c> envelope for a successful <c>readSubscriptionComponent</c> call
+    /// (GET /subscriptions/{id}/components/{component_id}.json) — the subscription-scoped component balance
+    /// behind the usage-summary / component-balance endpoints. The Direct client reads only
+    /// <c>unit_balance</c>; the Plugin also reads <c>component_handle</c>.
+    /// </summary>
+    public static string SubscriptionComponentJson(int subscriptionId, int unitBalance) =>
+        new JsonObject
+        {
+            ["component"] = new JsonObject
+            {
+                ["component_id"] = 641814,
+                ["subscription_id"] = subscriptionId,
+                ["name"] = "API Calls",
+                ["kind"] = "metered_component",
+                ["unit_name"] = "call",
+                ["unit_balance"] = unitBalance,
+                ["component_handle"] = "api-calls",
+                ["enabled"] = true,
+                ["price_point_id"] = 555001,
+                ["created_at"] = "2026-07-01T10:30:00-04:00",
+                ["updated_at"] = "2026-07-01T10:30:00-04:00",
+                ["archived_at"] = null
+            }
+        }.ToJsonString();
+
+    /// <summary>
+    /// Builds the <c>{"message": "..."}</c> envelope Maxio returns from <c>initiateDelayedCancellation</c>
+    /// (POST /subscriptions/{id}/delayed_cancel.json). The Direct client discards this body and re-reads the
+    /// subscription, so only HTTP 200 matters here.
+    /// </summary>
+    public static string DelayedCancelJson() =>
+        new JsonObject
+        {
+            ["message"] = "This subscription will be canceled at the end of the current period."
+        }.ToJsonString();
+
     /// <summary>Builds the <c>{"customer": {...}}</c> envelope for a successful <c>createCustomer</c> call (a not-yet-known reference).</summary>
     public static string NewCustomerJson(int customerId, string reference, string? email, string? firstName, string? lastName) =>
         new JsonObject
