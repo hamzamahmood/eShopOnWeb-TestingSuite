@@ -38,7 +38,7 @@ public class CommitPlanChangeTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.MigrationsPath(TestSettings.KnownActiveSubscriptionId), body);
 
-        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
+        Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
@@ -56,7 +56,7 @@ public class CommitPlanChangeTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.MigrationsPath(TestSettings.KnownCanceledSubscriptionId), body);
 
-        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
+        Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
@@ -75,7 +75,7 @@ public class CommitPlanChangeTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.MigrationsPath(TestSettings.UnknownSubscriptionId), body);
 
-        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
+        Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [

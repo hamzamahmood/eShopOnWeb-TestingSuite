@@ -39,7 +39,8 @@ public class CancelSubscriptionTests : BlackBoxTest
         var response = await client.DeleteAsync(TestSettings.SubscriptionPath(TestSettings.KnownCanceledSubscriptionId), body);
 
         // Note: the mock returns this particular error with a singular {"error":…} key (not {"errors":[…]}).
-        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
+        // DELETE /subscriptions/{id}.json declares 404 and 422; an already-canceled subscription is the 422 case.
+        Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
@@ -59,7 +60,8 @@ public class CancelSubscriptionTests : BlackBoxTest
 
         var response = await client.DeleteAsync(TestSettings.SubscriptionPath(TestSettings.UnknownSubscriptionId), body);
 
-        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
+        // DELETE /subscriptions/{id}.json declares 404 and 422; an unknown subscription is the 404 case.
+        Expect.Status(response, HttpStatusCode.NotFound, intent);
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
