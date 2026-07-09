@@ -1,47 +1,114 @@
 # MaxioBillingController Comparison: Direct vs Plugin
 
-Comparing:
-- `eShopOnWeb-Direct\src\PublicApi\MaxioBilling\MaxioBillingController.cs`
-- `eShopOnWeb-Plugin\src\PublicApi\MaxioBilling\MaxioBillingController.cs`
+Comparing the two standalone `MaxioBillingTestApi` hosts (the `api/maxio` surface no longer lives in
+`PublicApi` — that controller/folder was removed from both repos):
+- `eShopOnWeb-Direct\src\MaxioBillingTestApi\Controllers\MaxioBillingController.cs`
+- `eShopOnWeb-Plugin\MaxioBillingTestApi\Controllers\MaxioBillingController.cs`
 
-> For a flat Maxio-endpoint-template → exposed-controller-route mapping (both integrations), see
+> For a flat Maxio-endpoint-template → exposed-controller-route mapping, see
+> [`maxio-billing-service-route-map.md`](./maxio-billing-service-route-map.md) and
 > [`maxio-endpoint-path-mapping.md`](./maxio-endpoint-path-mapping.md).
 
 ## Summary
 
-Both expose `IBillingClient` as one HTTP endpoint per client method under `/api/maxio`, replacing the old raw-passthrough controller. Neither returns Maxio's raw response body anymore — both return flattened, provider-agnostic DTOs, and errors are remapped by the shared `ExceptionMiddleware` instead of being passed through with Maxio's exact status/body. Most endpoints line up route-for-route, but several diverge in route, request contract, or how many underlying Maxio calls they make — those divergences are the useful signal for anyone comparing the two integrations or extending the `MaxioPassthroughApiTests` suite.
+Each integration exposes its real `MaxioBillingClient` (via the provider-agnostic `IBillingClient` seam) as
+one HTTP endpoint per client method under `/api/maxio`, from a dedicated standalone Web API host with no
+database. The controller binds the request, forwards to its one client method, returns the client's typed
+result untouched on success, and maps failures to an HTTP status **inline in each action's catch** (there is
+no shared `ExceptionMiddleware` in these hosts). Both hosts serve the same ~15 routes and both return
+**`200 OK`** on create-subscription. The interesting divergences are in **error-status mapping**, the
+**`IBillingClient` method surface**, and two genuinely different routes (usage read, metered verify shape).
 
 ## Endpoints that are equivalent (same route + same underlying Maxio operation)
 
-| # | Operation | Direct route | Plugin route | Underlying Maxio call | Input |
-|---|---|---|---|---|---|
-| 1 | List plans | `GET /api/maxio/product-families/{productFamilyId}/products` | `GET /api/maxio/product-families/{productFamilyId}/products` | `GET /product_families/{id}/products.json` (`listProductsForProductFamily`) | Path id + all query params accepted but **inert on both** — always uses the server-configured family |
-| 2 | Find-or-create customer | `POST /api/maxio/customers` | `POST /api/maxio/customers` | `GET /customers/lookup.json` → `POST /customers.json` if absent (`readCustomerByReference` + `createCustomer`) | `customer.reference`, `email` forwarded on both. Direct requires reference/email/first_name/last_name all non-blank; Plugin requires only reference/email (blank names default to "eShopOnWeb"/"Customer") |
-| 3 | List customer subscriptions | `GET /api/maxio/customers/{customerId:int}/subscriptions` | `GET /api/maxio/customers/{customerId}/subscriptions` | `GET /customers/{customer_id}/subscriptions.json` (`listCustomerSubscriptions`) | `customerId` path param only |
-| 4 | Read subscription | `GET /api/maxio/subscriptions/{subscriptionId:int}` | `GET /api/maxio/subscriptions/{subscriptionId}` | `GET /subscriptions/{subscription_id}.json` (`readSubscription`) | `subscriptionId` path only; `include` query inert on both |
-| 5 | Pause subscription | `POST /api/maxio/subscriptions/{subscriptionId:int}/hold` | `POST /api/maxio/subscriptions/{subscriptionId}/hold` | `POST /subscriptions/{id}/hold.json` (`pauseSubscription`) | `subscriptionId` path only; body entirely inert on both |
-| 6 | Resume subscription | `POST /api/maxio/subscriptions/{subscriptionId:int}/resume` | `POST /api/maxio/subscriptions/{subscriptionId}/resume` | `POST /subscriptions/{id}/resume.json` (`resumeSubscription`) | `subscriptionId` path only; resumption-charge query inert on both |
-| 7 | Reactivate subscription | `PUT /api/maxio/subscriptions/{subscriptionId:int}/reactivate` | `PUT /api/maxio/subscriptions/{subscriptionId}/reactivate` | `PUT /subscriptions/{id}/reactivate.json` (`reactivateSubscription`) | `subscriptionId` path only; body entirely inert on both |
-| 8 | Create subscription | `POST /api/maxio/subscriptions` | `POST /api/maxio/subscriptions` | `POST /subscriptions.json` (`createSubscription`) | `subscription.customer_id` + `product_handle` forwarded by both. **Caveat:** Direct also optionally forwards a `chargify_token` payment method; Plugin declares `payment_profile_attributes`/`credit_card_attributes` inert and never forwards one |
-| 9 | Commit plan change (immediate) | `POST /api/maxio/subscriptions/{subscriptionId:int}/migrations` | `POST /api/maxio/subscriptions/{subscriptionId}/migrations` with `timing:"Immediate"` | `POST /subscriptions/{id}/migrations.json`, `preserve_period=true` (`migrateSubscriptionProduct`) | `subscriptionId` path + `migration.product_handle` body on both. Plugin additionally requires a `timing` control field — must be `"Immediate"` to match Direct's behavior |
-| 10 | Cancel subscription (immediate) | `DELETE /api/maxio/subscriptions/{subscriptionId:int}` | `DELETE /api/maxio/subscriptions/{subscriptionId}` with `timing:"Immediate"` | `DELETE /subscriptions/{id}.json` (`cancelSubscription`) | `subscriptionId` path + `subscription.cancellation_message` body on both. Plugin additionally requires `timing:"Immediate"` to match |
-| 11 | Record usage | `POST /api/maxio/subscriptions/{subscriptionIdOrReference:int}/usages` | `POST /api/maxio/subscriptions/{subscriptionId}/components/{componentId}/usages` | `POST /subscriptions/{id}/components/{component_id}/usages.json` (`createUsage`) | `subscriptionId` path + `usage.quantity` (required) + `usage.memo` body on both. Plugin's `componentId` path segment is inert (always server-configured). **Caveat:** Direct also calls `readComponent` first to verify configuration before every usage call — Plugin does not |
+| # | Operation | Route (both, under `api/maxio`) | Underlying Maxio call | Notes |
+|---|---|---|---|---|
+| 1 | List plans | `GET product-families/{productFamilyId}/products` | `GET /product_families/{id}/products.json` | Path id inert — client uses the server-configured family |
+| 2 | Find-or-create customer | `POST customers` | `GET /customers/lookup.json` → `POST /customers.json` | `customer.reference`, `email` forwarded on both |
+| 3 | Customer lookup (read-only) | `GET customers/lookup?reference=` | `GET /customers/lookup.json` | Present on **both** now (Direct: `FindCustomerIdByReferenceAsync`; Plugin: `FindCustomerIdAsync`); returns id or 404 |
+| 4 | List customer subscriptions | `GET customers/{customerId}/subscriptions` | `GET /customers/{id}/subscriptions.json` | |
+| 5 | Read subscription | `GET subscriptions/{subscriptionId}` | `GET /subscriptions/{id}.json` | |
+| 6 | Preview plan change | `POST subscriptions/{id}/migrations/preview` | `POST /subscriptions/{id}/migrations/preview.json` | Both call it immediately (Direct `PlanChangeTiming.Immediate`; Plugin `applyNow:true`) |
+| 7 | Commit plan change (immediate) | `POST subscriptions/{id}/migrations` | `POST /subscriptions/{id}/migrations.json` (`preserve_period=true`) | |
+| 8 | Pause | `POST subscriptions/{id}/hold` | `POST /subscriptions/{id}/hold.json` | Direct `ApplyLifecycleActionAsync(Pause)`; Plugin `PauseAsync` |
+| 9 | Resume | `POST subscriptions/{id}/resume` | `POST /subscriptions/{id}/resume.json` | |
+| 10 | Reactivate | `PUT subscriptions/{id}/reactivate` | `PUT /subscriptions/{id}/reactivate.json` | |
+| 11 | Create subscription | `POST subscriptions` | `POST /subscriptions.json` | **200 on both** (former Plugin 201 is gone) |
+| 12 | Cancel (immediate) | `DELETE subscriptions/{id}` | `DELETE /subscriptions/{id}.json` | Direct `ApplyLifecycleActionAsync(Cancel)`; Plugin `CancelAsync(endOfPeriod:false)` |
+| 13 | Record usage | `POST subscriptions/{id}/components/{componentId}/usages` | `POST /subscriptions/{id}/components/{comp}/usages.json` | `{componentId}` inert on both — always server-configured |
+| 14 | Metered-component verify | `GET metered-component/verify` | (see divergence) | Same route, different behavior/shape |
+
+**Route-constraint divergence:** Plugin binds `{id:int}` (a non-numeric id route-misses → empty-body 404 →
+suite auto-skips). Direct uses an `int` action parameter with no route constraint → ASP.NET model-binding
+returns **400** on a non-numeric id.
 
 ## Look-alikes that are NOT equivalent
 
 | Operation | Direct | Plugin | Why they diverge |
 |---|---|---|---|
-| Metered component read | `GET metered-component` → `readComponent` (family-scoped, returns full component data) | `GET metered-component/verify` → `FindComponent`/`GET /components/lookup.json?handle=` (site-wide lookup, then manually checks kind + family), returns `204` with no body | Different Maxio operation entirely, different response shape |
-| Usage balance / summary | `GET .../component-balance` — **one** call (`readSubscriptionComponent`), returns a bare int balance | `GET .../components/{id}/summary` — **two** calls (`readSubscriptionComponent` **and** `readSubscription`, composited) | Plugin does strictly more work / different Maxio call count |
-| Preview plan change | `POST .../migrations/preview` — always calls `previewSubscriptionProductMigration` | Same route, but `timing:"AtRenewal"` **never calls Maxio** (locally computed quote of 0); only `timing:"Immediate"` matches Direct | Behavior forks on the `timing` field |
-| Schedule plan change at renewal | Dedicated `PUT /subscriptions/{id}` (`updateSubscription`, `product_change_delayed=true`) | Only reachable via `POST .../migrations` with `timing:"AtRenewal"` | Different route/verb for the same eventual Maxio call |
-| Schedule cancel at end of period | Dedicated `POST .../delayed_cancel` (`initiateDelayedCancellation`) | Only reachable via `DELETE /subscriptions/{id}` with `timing:"EndOfPeriod"` | Different route/verb for the same eventual Maxio call |
-| Customer lookup only | No standalone equivalent (lookup only happens inside the composite `POST customers`) | `GET customers/lookup?reference=` (`readCustomerByReference`, read-only) | Plugin-only endpoint |
+| Metered-component verify | `GET metered-component/verify` → `GetMeteredComponentAsync` returns the full `BillingComponent` (**200 + data**) | `GET metered-component/verify` → `EnsureMeteredComponentAsync` (a `void` validation) → **200 with empty body** | Same route, but Direct returns component data while Plugin only asserts config and returns nothing |
+| Usage read | `GET subscriptions/{id}/component-balance` → `GetUsageTotalAsync` → a **bare int** | `GET subscriptions/{id}/components/{componentId}/summary` → `GetPeriodToDateUsageAsync` (period-to-date total) | Different route + shape |
 
-## Error handling
+## Error handling — the headline difference
 
-Both propagate `BillingProviderException` / domain exceptions to the shared `ExceptionMiddleware` (see each repo's `PublicApi/Middleware/ExceptionMiddleware.cs`). A `BillingProviderException` now maps to **422 (Unprocessable Entity) on both** integrations — Direct maps a 4xx-origin `BillingProviderException` to 422 (a 5xx origin still becomes 502), and Plugin maps every `MeteredComponentMisconfiguredException`/`BillingProviderException` to 422 as well (Plugin no longer returns 502 for these). The two middlewares still differ on other exceptions: Direct maps `MeteredComponentMisconfiguredException`→500 and `InvalidSubscriptionStateException`→422; Plugin maps `SubscriptionNotFoundException`→404, `Duplicate`/`IllegalSubscriptionTransition`/`StalePreview`→409, and `PaymentVerificationRequired`→422. Neither controller passes Maxio's raw error body/status through anymore, unlike the old passthrough controller.
+Each host maps failures **inline per action** (no `ExceptionMiddleware`). The two policies differ sharply.
+
+**Direct** — the client throws a single `BillingProviderException` carrying the origin Maxio `int? StatusCode`
+(and inner exception for transport/parse). The controller maps it **richly, preserving the status**:
+
+| Condition | HTTP | Category |
+|---|---|---|
+| `StatusCode == 400` | 400 | `invalid-request` |
+| `401` / `403` | 502 | `provider-authorization-failed` |
+| `404` | **404** | `{resource}-not-found` |
+| `422` | **422** | `billing-rule-violation` |
+| `429` | 429 | `provider-rate-limited` |
+| any other status | 502 | `provider-error` |
+| `StatusCode == null`, inner `HttpRequestException` | 503 | `provider-unavailable` |
+| `StatusCode == null`, inner `TaskCanceledException` (timeout) | 504 | `provider-timeout` |
+| `StatusCode == null`, inner `JsonException` | 502 | `provider-error` |
+| `StatusCode == null`, other | 404 | `{resource}-not-found` |
+
+**Plugin** — flat central `MapError`, ignoring the underlying Maxio status:
+
+| Exception | HTTP | Category |
+|---|---|---|
+| `BillingConfigurationException` | 422 | `billing_configuration` |
+| `BillingProviderException` | **502** | `billing_provider_error` |
+| `OperationCanceledException` | 499 | `request_canceled` |
+| anything else | 500 | `unexpected_error` |
+
+**Consequence for the black-box suite:** failure cases expect a **4xx** (business error) or a clean 5xx (for
+injected upstream faults). Direct's status-preserving mapping satisfies the 4xx cases; Plugin's flat 502 fails
+them. The one 4xx Plugin gets right is not-found on **read** ops — both clients return `null` on a Maxio 404
+for `GetSubscription`/customer-lookup, so those controllers return **404** — but every other Plugin op on an
+unknown id becomes `BillingProviderException`→502.
+
+## `IBillingClient` method surface (differs; same domain types)
+
+Both interfaces live at `src/ApplicationCore/Interfaces/IBillingClient.cs` and return the same
+`ApplicationCore/Entities/SubscriptionAggregate` types (`SubscriptionPlan`, `CustomerSubscription`, etc.), but
+the method set differs:
+
+- **Direct:** `ApplyLifecycleActionAsync(id, SubscriptionLifecycleAction, reason)` for
+  pause/resume/cancel/reactivate; `PlanChangeTiming` enum on `PreviewPlanChangeAsync`/`ChangePlanAsync`;
+  `FindCustomerIdByReferenceAsync`, `GetSubscriptionsForCustomerAsync`, `CreateSubscriptionAsync`,
+  `GetMeteredComponentAsync`, `GetUsageTotalAsync`.
+- **Plugin:** separate `PauseAsync`/`ResumeAsync`/`CancelAsync(id, endOfPeriod, reason)`/`ReactivateAsync`; an
+  `applyNow` bool on `PreviewPlanChangeAsync`/`ChangePlanAsync`; `FindCustomerIdAsync`,
+  `ListCustomerSubscriptionsAsync`, `SubscribeAsync`, `EnsureMeteredComponentAsync`,
+  `GetPeriodToDateUsageAsync`, and an extra `FindPlanAsync`.
+
+## Exceptions
+
+- **Direct:** `BillingProviderException` (the only billing exception, carries `int? StatusCode`),
+  `DuplicateException`, plus basket exceptions. **No `BillingConfigurationException`.**
+- **Plugin:** adds `BillingConfigurationException`. Both dropped the older typed set
+  (`SubscriptionNotFoundException`, `PaymentVerificationRequiredException`, etc.).
 
 ## Response shapes
 
-Both return flattened DTOs, not Maxio's raw envelopes, but the two DTO sets differ per integration (e.g. plan price is `priceInCents` on Direct vs `price` in dollars on Plugin; subscription `state` is lowercase `"active"` on Direct vs `"Active"` on Plugin). See `IBillingClient` / `BillingModels.cs` (Direct) and `Models/Subscriptions/*.cs` (Plugin) for the exact shapes.
+Both return flattened domain DTOs, not Maxio's raw envelopes; the two DTO sets differ (casing, dollars vs
+cents, raw vs mapped `state`). The `MaxioPassthroughApiTests` suite compares response **bodies** with an AI
+verifier that matches by meaning, so field/shape drift doesn't break tests — only the HTTP status is asserted
+deterministically.

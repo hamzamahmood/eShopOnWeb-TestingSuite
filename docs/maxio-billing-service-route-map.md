@@ -1,11 +1,14 @@
 # Maxio Endpoint → Controller Route Map (for `MaxioBillingController` generation)
 
 Deterministic map for exposing the underlying Maxio billing service as HTTP routes. The service is the
-`MaxioBillingClient` concrete class (Maxio/MaxioBillingClient.cs) implementing the provider-agnostic billing seam
-`IBillingClient` (@src/ApplicationCore/Interfaces/IBillingClient.cs). Both files are guaranteed present as
-inputs to controller generation. Each row pairs the **upstream Maxio Advanced Billing endpoint** that a
-service method calls with the **`MaxioBillingController` route** that must be generated to front it, so
-outside callers can invoke that service method over HTTP.
+`MaxioBillingClient` concrete class (`src/Infrastructure/Services/MaxioBillingClient.cs` — flattened, no
+`Maxio/` subfolder) implementing the provider-agnostic billing seam `IBillingClient`
+(`src/ApplicationCore/Interfaces/IBillingClient.cs`). Both files are guaranteed present as inputs to
+controller generation. The generated `MaxioBillingController` lives in the standalone **`MaxioBillingTestApi`**
+host (Direct: `src/MaxioBillingTestApi/`; Plugin: repo-root `MaxioBillingTestApi/`), not in `PublicApi`. Each
+row pairs the **upstream Maxio Advanced Billing endpoint** that a service method calls with the
+**`MaxioBillingController` route** that must be generated to front it, so outside callers can invoke that
+service method over HTTP.
 
 An AI agent generating or regenerating `MaxioBillingController` should treat this table as the source of
 truth for routing: for every Maxio endpoint a service method depends on, wire up the controller endpoint
