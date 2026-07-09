@@ -1,99 +1,47 @@
-using System.ComponentModel.DataAnnotations;
-using System.Text.Json.Serialization;
-using System.Threading;
+using System;
+using System.Security.Claims;
 using System.Threading.Tasks;
-using Ardalis.ApiEndpoints;
-using BlazorShared.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.eShopWeb.ApplicationCore.Entities.SubscriptionAggregate;
+using Microsoft.eShopWeb.ApplicationCore.Exceptions;
 using Microsoft.eShopWeb.ApplicationCore.Interfaces;
-using Swashbuckle.AspNetCore.Annotations;
+using MinimalApi.Endpoint;
 
 namespace Microsoft.eShopWeb.PublicApi.SubscriptionEndpoints;
 
-[JsonConverter(typeof(JsonStringEnumConverter))]
-public enum LifecycleAction
+/// <summary>
+/// Applies a lifecycle transition — pause / resume / cancel / cancel-at-period-end / reactivate (UC4).
+/// One surface, all four actions.
+/// </summary>
+public class LifecycleEndpoint : IEndpoint<IResult, LifecycleRequest, ISubscriptionService>
 {
-    Pause,
-    Resume,
-    Cancel,
-    Reactivate
-}
-
-public class LifecycleRequest : BaseRequest
-{
-    /// <summary>Bound manually from the route in HandleAsync - see RecordUsageEndpoint's HandleAsync for why.</summary>
-    public int SubscriptionId { get; set; }
-
-    [Required]
-    public LifecycleAction Action { get; set; }
-
-    /// <summary>Only meaningful when Action is Cancel.</summary>
-    public CancelTiming CancelTiming { get; set; } = CancelTiming.Immediate;
-
-    [StringLength(500)]
-    public string? Reason { get; set; }
-}
-
-public class LifecycleResponse : BaseResponse
-{
-    public LifecycleResponse(System.Guid correlationId) : base(correlationId) { }
-    public LifecycleResponse() { }
-
-    public SubscriptionDto Subscription { get; set; } = new();
-}
-
-/// <summary>UC4: one management surface for pause / resume / cancel (immediate or end-of-period) / reactivate.</summary>
-public class LifecycleEndpoint : EndpointBaseAsync
-    .WithRequest<LifecycleRequest>
-    .WithActionResult<LifecycleResponse>
-{
-    private readonly ISubscriptionService _subscriptionService;
-
-    public LifecycleEndpoint(ISubscriptionService subscriptionService)
+    public void AddRoute(IEndpointRouteBuilder app)
     {
-        _subscriptionService = subscriptionService;
+        app.MapPost("api/subscriptions/{subscriptionId}/lifecycle",
+            [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)] async
+            (int subscriptionId, LifecycleRequest request, ClaimsPrincipal user, ISubscriptionService subscriptionService) =>
+            {
+                request.SubscriptionId = subscriptionId;
+                return await HandleAsync(request, subscriptionService);
+            })
+            .Produces<LifecycleResponse>()
+            .WithTags("SubscriptionEndpoints");
     }
 
-    [HttpPost("api/subscriptions/{subscriptionId}/lifecycle")]
-    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
-    [SwaggerOperation(
-        Summary = "Apply a lifecycle transition",
-        Description = "Pause, resume, cancel (immediate or end-of-period), or reactivate a subscription.",
-        OperationId = "subscriptions.lifecycle",
-        Tags = new[] { "SubscriptionEndpoints" })]
-    public override async Task<ActionResult<LifecycleResponse>> HandleAsync(LifecycleRequest request, CancellationToken cancellationToken = default)
+    public async Task<IResult> HandleAsync(LifecycleRequest request, ISubscriptionService subscriptionService)
     {
-        request.SubscriptionId = int.Parse(RouteData.Values["subscriptionId"]!.ToString()!);
-
-        if (!ModelState.IsValid)
+        if (!Enum.TryParse<SubscriptionLifecycleAction>(request.Action, ignoreCase: true, out var action))
         {
-            return BadRequest(ModelState);
+            throw new BillingProviderException(
+                $"Unknown lifecycle action '{request.Action}'. Valid actions: Pause, Resume, Cancel, CancelAtEndOfPeriod, Reactivate.");
         }
 
-        var actorBuyerId = User.Identity?.Name;
-        if (string.IsNullOrEmpty(actorBuyerId))
-        {
-            return Unauthorized();
-        }
-
-        var isAdmin = User.IsInRole(Constants.Roles.ADMINISTRATORS);
-
-        var summary = request.Action switch
-        {
-            LifecycleAction.Pause => await _subscriptionService.PauseAsync(actorBuyerId, isAdmin, request.SubscriptionId, cancellationToken),
-            LifecycleAction.Resume => await _subscriptionService.ResumeAsync(actorBuyerId, isAdmin, request.SubscriptionId, cancellationToken),
-            LifecycleAction.Cancel => await _subscriptionService.CancelAsync(actorBuyerId, isAdmin, request.SubscriptionId, request.CancelTiming, request.Reason, cancellationToken),
-            LifecycleAction.Reactivate => await _subscriptionService.ReactivateAsync(actorBuyerId, isAdmin, request.SubscriptionId, cancellationToken),
-            _ => throw new System.ArgumentOutOfRangeException(nameof(request.Action), request.Action, "Unsupported lifecycle action.")
-        };
-
-        var response = new LifecycleResponse(request.CorrelationId())
-        {
-            Subscription = SubscriptionDto.FromSummary(summary)
-        };
-
-        return Ok(response);
+        var updated = await subscriptionService.ChangeLifecycleAsync(request.SubscriptionId, action, request.Reason);
+        var response = new LifecycleResponse(request.CorrelationId()) { Subscription = updated.ToDto() };
+        return Results.Ok(response);
     }
 }

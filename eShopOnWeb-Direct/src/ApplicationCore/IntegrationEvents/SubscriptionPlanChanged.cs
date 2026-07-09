@@ -1,25 +1,26 @@
 using MediatR;
-using Microsoft.eShopWeb.ApplicationCore.Interfaces;
+using Microsoft.eShopWeb.ApplicationCore.Entities.SubscriptionAggregate;
 
 namespace Microsoft.eShopWeb.ApplicationCore.IntegrationEvents;
 
-/// <summary>Published in-process, best-effort, after a plan-change (UC3) has been committed.</summary>
+/// <summary>
+/// In-process notification published after a subscription's plan is changed (UC3 step 5).
+/// Best-effort delivery (§2.5).
+/// </summary>
 public class SubscriptionPlanChanged : INotification
 {
-    public SubscriptionPlanChanged(string buyerId, int subscriptionId, int providerSubscriptionId, string oldProductHandle, string newProductHandle, PlanChangeTiming timing)
+    public SubscriptionPlanChanged(int subscriptionId, string oldProductHandle, string newProductHandle, PlanChangeTiming timing, CustomerSubscription subscription)
     {
-        BuyerId = buyerId;
         SubscriptionId = subscriptionId;
-        ProviderSubscriptionId = providerSubscriptionId;
         OldProductHandle = oldProductHandle;
         NewProductHandle = newProductHandle;
         Timing = timing;
+        Subscription = subscription;
     }
 
-    public string BuyerId { get; }
     public int SubscriptionId { get; }
-    public int ProviderSubscriptionId { get; }
     public string OldProductHandle { get; }
     public string NewProductHandle { get; }
     public PlanChangeTiming Timing { get; }
+    public CustomerSubscription Subscription { get; }
 }

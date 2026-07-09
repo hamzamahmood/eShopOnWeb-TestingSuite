@@ -1,86 +1,50 @@
-using System.ComponentModel.DataAnnotations;
-using System.Threading;
+using System.Security.Claims;
 using System.Threading.Tasks;
-using Ardalis.ApiEndpoints;
-using BlazorShared.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.eShopWeb.ApplicationCore.Entities.SubscriptionAggregate;
 using Microsoft.eShopWeb.ApplicationCore.Interfaces;
-using Swashbuckle.AspNetCore.Annotations;
+using MinimalApi.Endpoint;
 
 namespace Microsoft.eShopWeb.PublicApi.SubscriptionEndpoints;
 
-public class PlanChangeRequest : BaseRequest
+/// <summary>
+/// Commits a plan change with the chosen timing (UC3 step 4). The confirmed preview amounts on the
+/// request are re-validated by the service, which rejects a stale preview.
+/// </summary>
+public class PlanChangeEndpoint : IEndpoint<IResult, PlanChangeRequest, ISubscriptionService>
 {
-    /// <summary>Bound manually from the route in HandleAsync - see RecordUsageEndpoint's HandleAsync for why.</summary>
-    public int SubscriptionId { get; set; }
-
-    [Required]
-    public string TargetProductHandle { get; set; } = string.Empty;
-
-    [Required]
-    public PlanChangeTiming Timing { get; set; }
-
-    /// <summary>The prorated_adjustment_in_cents shown to the customer by the preview call. When set and Timing is Now, a mismatch against a freshly-computed preview rejects the commit as a stale preview (AC-07b).</summary>
-    public int? ExpectedProratedAdjustmentInCents { get; set; }
-}
-
-public class PlanChangeResponse : BaseResponse
-{
-    public PlanChangeResponse(System.Guid correlationId) : base(correlationId) { }
-    public PlanChangeResponse() { }
-
-    public SubscriptionDto Subscription { get; set; } = new();
-    public string OldProductHandle { get; set; } = string.Empty;
-    public string NewProductHandle { get; set; } = string.Empty;
-    public int? ProratedAdjustmentInCents { get; set; }
-}
-
-/// <summary>UC3 step 3-4: commit a previously-previewed plan change.</summary>
-public class PlanChangeEndpoint : EndpointBaseAsync
-    .WithRequest<PlanChangeRequest>
-    .WithActionResult<PlanChangeResponse>
-{
-    private readonly ISubscriptionService _subscriptionService;
-
-    public PlanChangeEndpoint(ISubscriptionService subscriptionService)
+    public void AddRoute(IEndpointRouteBuilder app)
     {
-        _subscriptionService = subscriptionService;
+        app.MapPost("api/subscriptions/{subscriptionId}/plan-change",
+            [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)] async
+            (int subscriptionId, PlanChangeRequest request, ClaimsPrincipal user, ISubscriptionService subscriptionService) =>
+            {
+                request.SubscriptionId = subscriptionId;
+                return await HandleAsync(request, subscriptionService);
+            })
+            .Produces<PlanChangeResponse>()
+            .WithTags("SubscriptionEndpoints");
     }
 
-    [HttpPost("api/subscriptions/{subscriptionId}/plan-change")]
-    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
-    [SwaggerOperation(
-        Summary = "Commit a plan change",
-        OperationId = "subscriptions.commitPlanChange",
-        Tags = new[] { "SubscriptionEndpoints" })]
-    public override async Task<ActionResult<PlanChangeResponse>> HandleAsync(PlanChangeRequest request, CancellationToken cancellationToken = default)
+    public async Task<IResult> HandleAsync(PlanChangeRequest request, ISubscriptionService subscriptionService)
     {
-        request.SubscriptionId = int.Parse(RouteData.Values["subscriptionId"]!.ToString()!);
-
-        if (!ModelState.IsValid)
+        var timing = PreviewPlanChangeEndpoint.ParseTiming(request.Timing);
+        var confirmedPreview = new ProrationPreview
         {
-            return BadRequest(ModelState);
-        }
-
-        var actorBuyerId = User.Identity?.Name;
-        if (string.IsNullOrEmpty(actorBuyerId))
-        {
-            return Unauthorized();
-        }
-
-        var isAdmin = User.IsInRole(Constants.Roles.ADMINISTRATORS);
-        var result = await _subscriptionService.CommitPlanChangeAsync(actorBuyerId, isAdmin, request.SubscriptionId, request.TargetProductHandle, request.Timing, request.ExpectedProratedAdjustmentInCents, cancellationToken);
-
-        var response = new PlanChangeResponse(request.CorrelationId())
-        {
-            Subscription = SubscriptionDto.FromSummary(result.Subscription),
-            OldProductHandle = result.OldProductHandle,
-            NewProductHandle = result.NewProductHandle,
-            ProratedAdjustmentInCents = result.Proration?.ProratedAdjustmentInCents
+            TargetProductHandle = request.TargetProductHandle,
+            Timing = timing,
+            ProratedAdjustmentInCents = request.ProratedAdjustmentInCents,
+            ChargeInCents = request.ChargeInCents,
+            PaymentDueInCents = request.PaymentDueInCents,
+            CreditAppliedInCents = request.CreditAppliedInCents
         };
 
-        return Ok(response);
+        var updated = await subscriptionService.ChangePlanAsync(request.SubscriptionId, request.TargetProductHandle, timing, confirmedPreview);
+        var response = new PlanChangeResponse(request.CorrelationId()) { Subscription = updated.ToDto() };
+        return Results.Ok(response);
     }
 }

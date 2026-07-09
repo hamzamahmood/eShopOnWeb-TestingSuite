@@ -1,9 +1,8 @@
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using MediatR;
 using Microsoft.eShopWeb.ApplicationCore.Entities.SubscriptionAggregate;
-using Microsoft.eShopWeb.ApplicationCore.Exceptions;
+using Microsoft.eShopWeb.ApplicationCore.IntegrationEvents;
 using Microsoft.eShopWeb.ApplicationCore.Interfaces;
 using Microsoft.eShopWeb.ApplicationCore.Services;
 using NSubstitute;
@@ -13,69 +12,46 @@ namespace Microsoft.eShopWeb.UnitTests.ApplicationCore.Services.SubscriptionServ
 
 public class SubscribeAsync
 {
-    private const string BuyerId = "buyer@example.com";
-    private readonly IRepository<Subscription> _subscriptionRepo = Substitute.For<IRepository<Subscription>>();
-    private readonly IRepository<UsageRecord> _usageRepo = Substitute.For<IRepository<UsageRecord>>();
+    private const string UserRef = "demouser@microsoft.com";
+    private const string Plan = "eshop-pro";
     private readonly IBillingClient _billingClient = Substitute.For<IBillingClient>();
     private readonly IPublisher _publisher = Substitute.For<IPublisher>();
     private readonly IAppLogger<SubscriptionService> _logger = Substitute.For<IAppLogger<SubscriptionService>>();
 
-    private SubscriptionService BuildService() => new(_subscriptionRepo, _usageRepo, _billingClient, _publisher, _logger);
-
-    private static readonly BillingPlan ProPlan = new("eshop-pro", 7111477, "Pro Plan", 29900, 1, "month", false);
+    private SubscriptionService CreateService() => new(_billingClient, _publisher, _logger);
 
     [Fact]
-    public async Task EnsuresCustomerOnceThenCreatesSubscriptionAndPersistsIt()
+    public async Task EnsuresCustomerThenCreatesSubscriptionAndPublishes()
     {
-        _billingClient.ListPlansAsync(Arg.Any<CancellationToken>()).Returns(new List<BillingPlan> { ProPlan });
-        _billingClient.EnsureCustomerAsync(BuyerId, BuyerId, "Ada", "Lovelace", Arg.Any<CancellationToken>()).Returns(555);
-        var created = new BillingSubscription(9001, 555, "eshop-pro", "active", 0, null, null, null, null, null);
-        _billingClient.CreateSubscriptionAsync(555, "eshop-pro", null, Arg.Any<CancellationToken>()).Returns(created);
+        _billingClient.EnsureCustomerAsync(UserRef, UserRef, Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(42);
+        _billingClient.GetSubscriptionsForCustomerAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new CustomerSubscription[0]);
+        var created = new CustomerSubscription { Id = 7, State = SubscriptionState.Active, ProductHandle = Plan };
+        _billingClient.CreateSubscriptionAsync(42, Plan, Arg.Any<CancellationToken>()).Returns(created);
 
-        var service = BuildService();
-        var summary = await service.SubscribeAsync(BuyerId, BuyerId, "Ada", "Lovelace", "eshop-pro", null, CancellationToken.None);
+        var service = CreateService();
+        var result = await service.SubscribeAsync(UserRef, UserRef, Plan);
 
-        await _billingClient.Received(1).EnsureCustomerAsync(BuyerId, BuyerId, "Ada", "Lovelace", Arg.Any<CancellationToken>());
-        await _subscriptionRepo.Received(1).AddAsync(Arg.Is<Subscription>(s => s.ProviderSubscriptionId == 9001 && s.BuyerId == BuyerId), Arg.Any<CancellationToken>());
-        Assert.Equal(9001, summary.Provider.ProviderSubscriptionId);
+        Assert.Equal(7, result.Id);
+        await _billingClient.Received(1).CreateSubscriptionAsync(42, Plan, Arg.Any<CancellationToken>());
+        await _publisher.Received(1).Publish(Arg.Any<SubscriptionActivated>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task PublishesSubscriptionActivatedNotification()
+    public async Task ReturnsExistingActiveSubscriptionWithoutCreatingASecondOne()
     {
-        _billingClient.ListPlansAsync(Arg.Any<CancellationToken>()).Returns(new List<BillingPlan> { ProPlan });
-        _billingClient.EnsureCustomerAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(555);
-        _billingClient.CreateSubscriptionAsync(Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
-            .Returns(new BillingSubscription(9001, 555, "eshop-pro", "active", 0, null, null, null, null, null));
+        var existing = new CustomerSubscription { Id = 99, State = SubscriptionState.Active, ProductHandle = Plan };
+        _billingClient.EnsureCustomerAsync(UserRef, UserRef, Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(42);
+        _billingClient.GetSubscriptionsForCustomerAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new[] { existing });
 
-        var service = BuildService();
-        await service.SubscribeAsync(BuyerId, BuyerId, "Ada", "Lovelace", "eshop-pro", null, CancellationToken.None);
+        var service = CreateService();
+        var result = await service.SubscribeAsync(UserRef, UserRef, Plan);
 
-        await _publisher.Received(1).Publish(Arg.Any<Microsoft.eShopWeb.ApplicationCore.IntegrationEvents.SubscriptionActivated>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task RejectsSubscribeWhenPlanRequiresPaymentMethodButNoneSupplied()
-    {
-        var cardRequiredPlan = new BillingPlan("card-plan", 1, "Card Plan", 1000, 1, "month", true);
-        _billingClient.ListPlansAsync(Arg.Any<CancellationToken>()).Returns(new List<BillingPlan> { cardRequiredPlan });
-
-        var service = BuildService();
-
-        await Assert.ThrowsAsync<InvalidSubscriptionStateException>(() =>
-            service.SubscribeAsync(BuyerId, BuyerId, "Ada", "Lovelace", "card-plan", null, CancellationToken.None));
-
-        await _billingClient.DidNotReceive().EnsureCustomerAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task RejectsSubscribeToAnUnknownPlanHandle()
-    {
-        _billingClient.ListPlansAsync(Arg.Any<CancellationToken>()).Returns(new List<BillingPlan> { ProPlan });
-
-        var service = BuildService();
-
-        await Assert.ThrowsAsync<InvalidSubscriptionStateException>(() =>
-            service.SubscribeAsync(BuyerId, BuyerId, "Ada", "Lovelace", "does-not-exist", null, CancellationToken.None));
+        Assert.Equal(99, result.Id);
+        await _billingClient.DidNotReceive().CreateSubscriptionAsync(Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _publisher.DidNotReceive().Publish(Arg.Any<SubscriptionActivated>(), Arg.Any<CancellationToken>());
     }
 }

@@ -1,22 +1,26 @@
 using MediatR;
+using Microsoft.eShopWeb.ApplicationCore.Entities.SubscriptionAggregate;
 
 namespace Microsoft.eShopWeb.ApplicationCore.IntegrationEvents;
 
-/// <summary>Published in-process, best-effort, after a lifecycle transition (UC4: pause/resume/cancel/reactivate).</summary>
+/// <summary>
+/// In-process notification published after a subscription lifecycle transition (UC4 step 3),
+/// carrying the old → new state. Best-effort delivery (§2.5).
+/// </summary>
 public class SubscriptionStateChanged : INotification
 {
-    public SubscriptionStateChanged(string buyerId, int subscriptionId, int providerSubscriptionId, string oldState, string newState)
+    public SubscriptionStateChanged(int subscriptionId, SubscriptionLifecycleAction action, SubscriptionState oldState, SubscriptionState newState, CustomerSubscription subscription)
     {
-        BuyerId = buyerId;
         SubscriptionId = subscriptionId;
-        ProviderSubscriptionId = providerSubscriptionId;
+        Action = action;
         OldState = oldState;
         NewState = newState;
+        Subscription = subscription;
     }
 
-    public string BuyerId { get; }
     public int SubscriptionId { get; }
-    public int ProviderSubscriptionId { get; }
-    public string OldState { get; }
-    public string NewState { get; }
+    public SubscriptionLifecycleAction Action { get; }
+    public SubscriptionState OldState { get; }
+    public SubscriptionState NewState { get; }
+    public CustomerSubscription Subscription { get; }
 }

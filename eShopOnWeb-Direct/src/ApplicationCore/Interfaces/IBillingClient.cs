@@ -1,54 +1,61 @@
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.eShopWeb.ApplicationCore.Entities.SubscriptionAggregate;
 
 namespace Microsoft.eShopWeb.ApplicationCore.Interfaces;
 
 /// <summary>
-/// Provider-agnostic seam onto the recurring-billing provider. This is the ONLY interface
-/// ApplicationCore knows about; the concrete implementation (Maxio, over plain HTTP) lives in
-/// Infrastructure. No Maxio-specific type, status code, or field name leaks through this contract.
+/// The single, provider-agnostic seam to the billing provider. Exactly one Infrastructure class
+/// implements this (talking to the provider over HTTP); nothing else in the application touches
+/// the provider directly. The concrete implementation owns all provider configuration — including
+/// which product family / metered component the integration is bound to and the outbound base URL
+/// (see plan §2.3) — so ApplicationCore stays free of provider details. Every method throws
+/// <see cref="Exceptions.BillingProviderException"/> when the provider rejects a request or is unreachable.
 /// </summary>
 public interface IBillingClient
 {
-    Task<IReadOnlyList<BillingPlan>> ListPlansAsync(CancellationToken cancellationToken);
+    /// <summary>Lists the recurring plans available for customers to subscribe to (UC1 step 1).</summary>
+    Task<IReadOnlyCollection<SubscriptionPlan>> ListPlansAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Verifies the configured usage component handle resolves to a component of metered kind on the
-    /// product family (UC2 startup/first-call check) and returns its info. Throws
-    /// MeteredComponentMisconfiguredException otherwise - the component handle itself is a Maxio-side
-    /// configuration detail Infrastructure owns; ApplicationCore never needs to know it.
+    /// Ensures a provider-side customer exists for the given stable reference (the eShopOnWeb
+    /// user's email/username), creating one if necessary. Idempotent on the reference. Returns
+    /// the provider-side customer id.
     /// </summary>
-    Task<BillingComponentInfo> GetMeteredComponentAsync(CancellationToken cancellationToken);
+    Task<int> EnsureCustomerAsync(string reference, string email, string? firstName, string? lastName, CancellationToken cancellationToken = default);
 
-    /// <summary>Idempotent on <paramref name="customerReference"/>: returns the existing provider customer id if one is already on file.</summary>
-    Task<int> EnsureCustomerAsync(string customerReference, string email, string firstName, string lastName, CancellationToken cancellationToken);
+    /// <summary>Returns the provider-side customer id for a reference, or null if none exists.</summary>
+    Task<int?> FindCustomerIdByReferenceAsync(string reference, CancellationToken cancellationToken = default);
 
-    Task<BillingSubscription> CreateSubscriptionAsync(int providerCustomerId, string productHandle, string? paymentToken, CancellationToken cancellationToken);
+    /// <summary>Lists a customer's subscriptions.</summary>
+    Task<IReadOnlyCollection<CustomerSubscription>> GetSubscriptionsForCustomerAsync(int customerId, CancellationToken cancellationToken = default);
 
-    Task<BillingSubscription> GetSubscriptionAsync(int providerSubscriptionId, CancellationToken cancellationToken);
+    /// <summary>Reads a single subscription (authoritative provider state).</summary>
+    Task<CustomerSubscription> GetSubscriptionAsync(int subscriptionId, CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<BillingSubscription>> ListCustomerSubscriptionsAsync(int providerCustomerId, CancellationToken cancellationToken);
+    /// <summary>Enrolls an existing customer in a plan (UC1 step 4).</summary>
+    Task<CustomerSubscription> CreateSubscriptionAsync(int customerId, string productHandle, CancellationToken cancellationToken = default);
 
-    /// <summary>Records usage against the one configured metered component. Validates the component's kind first (see GetMeteredComponentAsync).</summary>
-    Task<BillingUsageResult> RecordUsageAsync(int providerSubscriptionId, decimal quantity, string? memo, CancellationToken cancellationToken);
+    /// <summary>
+    /// Resolves the configured metered ("pay-as-you-go") component and returns it, so the caller can
+    /// verify it really is of metered kind before recording usage (UC2 precondition). Throws if the
+    /// configured handle does not resolve.
+    /// </summary>
+    Task<BillingComponent> GetMeteredComponentAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>Period-to-date unit balance for the configured metered component on a subscription.</summary>
-    Task<int> GetUsageBalanceAsync(int providerSubscriptionId, CancellationToken cancellationToken);
+    /// <summary>Records usage against the subscription's configured metered component (UC2 step 2).</summary>
+    Task RecordUsageAsync(int subscriptionId, int quantity, string? memo, CancellationToken cancellationToken = default);
 
-    Task<BillingProrationPreview> PreviewPlanChangeNowAsync(int providerSubscriptionId, string targetProductHandle, CancellationToken cancellationToken);
+    /// <summary>Reads the running period-to-date billable unit total for the configured metered component (UC2 step 3).</summary>
+    Task<int> GetUsageTotalAsync(int subscriptionId, CancellationToken cancellationToken = default);
 
-    Task<BillingSubscription> CommitPlanChangeNowAsync(int providerSubscriptionId, string targetProductHandle, CancellationToken cancellationToken);
+    /// <summary>Previews the prorated cost of a plan change before committing it (UC3 step 2).</summary>
+    Task<ProrationPreview> PreviewPlanChangeAsync(int subscriptionId, string targetProductHandle, PlanChangeTiming timing, CancellationToken cancellationToken = default);
 
-    Task<BillingSubscription> SchedulePlanChangeAtRenewalAsync(int providerSubscriptionId, string targetProductHandle, CancellationToken cancellationToken);
+    /// <summary>Commits a plan change with the chosen timing (UC3 step 4).</summary>
+    Task<CustomerSubscription> ChangePlanAsync(int subscriptionId, string targetProductHandle, PlanChangeTiming timing, CancellationToken cancellationToken = default);
 
-    Task<BillingSubscription> PauseSubscriptionAsync(int providerSubscriptionId, CancellationToken cancellationToken);
-
-    Task<BillingSubscription> ResumeSubscriptionAsync(int providerSubscriptionId, CancellationToken cancellationToken);
-
-    Task<BillingSubscription> CancelSubscriptionImmediatelyAsync(int providerSubscriptionId, string? reason, CancellationToken cancellationToken);
-
-    Task<BillingSubscription> ScheduleCancelAtEndOfPeriodAsync(int providerSubscriptionId, string? reason, CancellationToken cancellationToken);
-
-    Task<BillingSubscription> ReactivateSubscriptionAsync(int providerSubscriptionId, CancellationToken cancellationToken);
+    /// <summary>Applies a lifecycle transition (UC4).</summary>
+    Task<CustomerSubscription> ApplyLifecycleActionAsync(int subscriptionId, SubscriptionLifecycleAction action, string? reason, CancellationToken cancellationToken = default);
 }

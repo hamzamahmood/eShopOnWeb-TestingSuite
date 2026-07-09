@@ -9,246 +9,216 @@ using Microsoft.eShopWeb.ApplicationCore.Entities.SubscriptionAggregate;
 using Microsoft.eShopWeb.ApplicationCore.Exceptions;
 using Microsoft.eShopWeb.ApplicationCore.IntegrationEvents;
 using Microsoft.eShopWeb.ApplicationCore.Interfaces;
-using Microsoft.eShopWeb.ApplicationCore.Specifications;
 
 namespace Microsoft.eShopWeb.ApplicationCore.Services;
 
+/// <summary>
+/// Orchestrates the subscription use cases (mirrors <see cref="OrderService"/>): it validates input,
+/// drives the provider-agnostic <see cref="IBillingClient"/>, and publishes in-process MediatR
+/// notifications on meaningful state changes. Publication is best-effort (§2.5): a handler failure is
+/// logged and never rolls back a successful provider call.
+/// </summary>
 public class SubscriptionService : ISubscriptionService
 {
-    private readonly IRepository<Subscription> _subscriptionRepository;
-    private readonly IRepository<UsageRecord> _usageRepository;
     private readonly IBillingClient _billingClient;
     private readonly IPublisher _publisher;
     private readonly IAppLogger<SubscriptionService> _logger;
 
-    public SubscriptionService(
-        IRepository<Subscription> subscriptionRepository,
-        IRepository<UsageRecord> usageRepository,
-        IBillingClient billingClient,
+    public SubscriptionService(IBillingClient billingClient,
         IPublisher publisher,
         IAppLogger<SubscriptionService> logger)
     {
-        _subscriptionRepository = subscriptionRepository;
-        _usageRepository = usageRepository;
         _billingClient = billingClient;
         _publisher = publisher;
         _logger = logger;
     }
 
-    public Task<IReadOnlyList<BillingPlan>> ListPlansAsync(CancellationToken cancellationToken)
+    public Task<IReadOnlyCollection<SubscriptionPlan>> ListPlansAsync(CancellationToken cancellationToken = default)
         => _billingClient.ListPlansAsync(cancellationToken);
 
-    public async Task<SubscriptionSummary> SubscribeAsync(string buyerId, string email, string firstName, string lastName, string productHandle, string? paymentToken, CancellationToken cancellationToken)
+    public async Task<CustomerSubscription> SubscribeAsync(string userReference, string email, string productHandle, CancellationToken cancellationToken = default)
     {
-        Guard.Against.NullOrEmpty(buyerId, nameof(buyerId));
+        Guard.Against.NullOrEmpty(userReference, nameof(userReference));
         Guard.Against.NullOrEmpty(email, nameof(email));
-        Guard.Against.NullOrEmpty(firstName, nameof(firstName));
-        Guard.Against.NullOrEmpty(lastName, nameof(lastName));
         Guard.Against.NullOrEmpty(productHandle, nameof(productHandle));
 
-        var plans = await _billingClient.ListPlansAsync(cancellationToken);
-        var plan = plans.FirstOrDefault(p => p.Handle == productHandle);
-        if (plan is null)
+        // Ensure the provider-side customer exists (idempotent on the user reference).
+        var customerId = await _billingClient.EnsureCustomerAsync(userReference, email, null, null, cancellationToken);
+
+        // Duplicate-subscribe protection: if this customer is already actively enrolled in the
+        // chosen plan, return that enrollment rather than creating a second one.
+        var existing = await _billingClient.GetSubscriptionsForCustomerAsync(customerId, cancellationToken);
+        var alreadyActive = existing.FirstOrDefault(s => s.IsActive &&
+            string.Equals(s.ProductHandle, productHandle, StringComparison.OrdinalIgnoreCase));
+        if (alreadyActive is not null)
         {
-            throw new InvalidSubscriptionStateException($"'{productHandle}' is not a plan available for subscription.");
-        }
-        if (plan.RequiresPaymentMethod && string.IsNullOrEmpty(paymentToken))
-        {
-            throw new InvalidSubscriptionStateException($"Plan '{productHandle}' requires a payment method; none was provided.");
-        }
-
-        var providerCustomerId = await _billingClient.EnsureCustomerAsync(buyerId, email, firstName, lastName, cancellationToken);
-        var billingSubscription = await _billingClient.CreateSubscriptionAsync(providerCustomerId, productHandle, paymentToken, cancellationToken);
-
-        var subscription = new Subscription(buyerId, providerCustomerId, billingSubscription.ProviderSubscriptionId, productHandle, billingSubscription.State);
-        await _subscriptionRepository.AddAsync(subscription, cancellationToken);
-
-        await PublishBestEffortAsync(new SubscriptionActivated(buyerId, subscription.Id, subscription.ProviderSubscriptionId, productHandle), cancellationToken);
-
-        return new SubscriptionSummary(subscription.Id, billingSubscription);
-    }
-
-    public async Task<IReadOnlyList<SubscriptionSummary>> GetSubscriptionsForUserAsync(string buyerId, CancellationToken cancellationToken)
-    {
-        Guard.Against.NullOrEmpty(buyerId, nameof(buyerId));
-
-        var subscriptions = await _subscriptionRepository.ListAsync(new SubscriptionsByUserSpecification(buyerId), cancellationToken);
-        var summaries = new List<SubscriptionSummary>(subscriptions.Count);
-        foreach (var subscription in subscriptions)
-        {
-            summaries.Add(await RefreshFromProviderAsync(subscription, cancellationToken));
+            return alreadyActive;
         }
 
-        return summaries;
-    }
+        var subscription = await _billingClient.CreateSubscriptionAsync(customerId, productHandle, cancellationToken);
 
-    public async Task<SubscriptionSummary> GetSubscriptionAsync(string actorBuyerId, bool isAdmin, int subscriptionId, CancellationToken cancellationToken)
-    {
-        var subscription = await LoadOwnedSubscriptionAsync(actorBuyerId, isAdmin, subscriptionId, cancellationToken);
-        return await RefreshFromProviderAsync(subscription, cancellationToken);
-    }
-
-    public async Task<UsageSummary> RecordUsageAsync(string actorBuyerId, bool isAdmin, int subscriptionId, decimal quantity, string? memo, string idempotencyKey, CancellationToken cancellationToken)
-    {
-        Guard.Against.NullOrEmpty(idempotencyKey, nameof(idempotencyKey));
-        if (quantity == 0)
-        {
-            throw new InvalidSubscriptionStateException("Usage quantity must not be zero.");
-        }
-
-        var subscription = await LoadOwnedSubscriptionAsync(actorBuyerId, isAdmin, subscriptionId, cancellationToken);
-
-        var existing = await _usageRepository.FirstOrDefaultAsync(
-            new UsageRecordByIdempotencyKeySpecification(subscription.ProviderSubscriptionId, idempotencyKey), cancellationToken);
-        if (existing is not null)
-        {
-            _logger.LogInformation("Duplicate usage report for subscription {SubscriptionId} with idempotency key {IdempotencyKey} - returning the original result", subscriptionId, idempotencyKey);
-            var currentBalance = await _billingClient.GetUsageBalanceAsync(subscription.ProviderSubscriptionId, cancellationToken);
-            return new UsageSummary(existing.ProviderUsageId, existing.Quantity, currentBalance);
-        }
-
-        var result = await _billingClient.RecordUsageAsync(subscription.ProviderSubscriptionId, quantity, memo, cancellationToken);
-        await _usageRepository.AddAsync(new UsageRecord(subscription.ProviderSubscriptionId, idempotencyKey, result.Quantity, result.Memo, result.ProviderUsageId), cancellationToken);
-
-        var balance = await _billingClient.GetUsageBalanceAsync(subscription.ProviderSubscriptionId, cancellationToken);
-        return new UsageSummary(result.ProviderUsageId, result.Quantity, balance);
-    }
-
-    public async Task<int> GetUsageBalanceAsync(string actorBuyerId, bool isAdmin, int subscriptionId, CancellationToken cancellationToken)
-    {
-        var subscription = await LoadOwnedSubscriptionAsync(actorBuyerId, isAdmin, subscriptionId, cancellationToken);
-        return await _billingClient.GetUsageBalanceAsync(subscription.ProviderSubscriptionId, cancellationToken);
-    }
-
-    public async Task<BillingProrationPreview?> PreviewPlanChangeAsync(string actorBuyerId, bool isAdmin, int subscriptionId, string targetProductHandle, PlanChangeTiming timing, CancellationToken cancellationToken)
-    {
-        var subscription = await LoadOwnedSubscriptionAsync(actorBuyerId, isAdmin, subscriptionId, cancellationToken);
-        GuardTargetPlanIsDifferent(subscription, targetProductHandle);
-
-        return timing == PlanChangeTiming.Now
-            ? await _billingClient.PreviewPlanChangeNowAsync(subscription.ProviderSubscriptionId, targetProductHandle, cancellationToken)
-            : null; // AtRenewal is a delayed product change: no proration applies.
-    }
-
-    public async Task<PlanChangeResult> CommitPlanChangeAsync(string actorBuyerId, bool isAdmin, int subscriptionId, string targetProductHandle, PlanChangeTiming timing, int? expectedProratedAdjustmentInCents, CancellationToken cancellationToken)
-    {
-        var subscription = await LoadOwnedSubscriptionAsync(actorBuyerId, isAdmin, subscriptionId, cancellationToken);
-        GuardTargetPlanIsDifferent(subscription, targetProductHandle);
-
-        var oldProductHandle = subscription.ProductHandle;
-        BillingProrationPreview? proration = null;
-        BillingSubscription updated;
-
-        if (timing == PlanChangeTiming.Now)
-        {
-            proration = await _billingClient.PreviewPlanChangeNowAsync(subscription.ProviderSubscriptionId, targetProductHandle, cancellationToken);
-            if (expectedProratedAdjustmentInCents.HasValue && expectedProratedAdjustmentInCents.Value != proration.ProratedAdjustmentInCents)
-            {
-                throw new StalePlanChangePreviewException();
-            }
-
-            updated = await _billingClient.CommitPlanChangeNowAsync(subscription.ProviderSubscriptionId, targetProductHandle, cancellationToken);
-        }
-        else
-        {
-            updated = await _billingClient.SchedulePlanChangeAtRenewalAsync(subscription.ProviderSubscriptionId, targetProductHandle, cancellationToken);
-        }
-
-        subscription.SyncFromProvider(updated.ProductHandle, updated.State);
-        await _subscriptionRepository.UpdateAsync(subscription, cancellationToken);
-
-        await PublishBestEffortAsync(new SubscriptionPlanChanged(subscription.BuyerId, subscription.Id, subscription.ProviderSubscriptionId, oldProductHandle, targetProductHandle, timing), cancellationToken);
-
-        return new PlanChangeResult(new SubscriptionSummary(subscription.Id, updated), oldProductHandle, targetProductHandle, timing, proration);
-    }
-
-    public async Task<SubscriptionSummary> PauseAsync(string actorBuyerId, bool isAdmin, int subscriptionId, CancellationToken cancellationToken)
-    {
-        var subscription = await LoadOwnedSubscriptionAsync(actorBuyerId, isAdmin, subscriptionId, cancellationToken);
-        if (subscription.State == "on_hold")
-        {
-            throw new InvalidSubscriptionStateException("Subscription is already on hold.");
-        }
-
-        return await ApplyTransitionAsync(subscription, () => _billingClient.PauseSubscriptionAsync(subscription.ProviderSubscriptionId, cancellationToken), cancellationToken);
-    }
-
-    public async Task<SubscriptionSummary> ResumeAsync(string actorBuyerId, bool isAdmin, int subscriptionId, CancellationToken cancellationToken)
-    {
-        var subscription = await LoadOwnedSubscriptionAsync(actorBuyerId, isAdmin, subscriptionId, cancellationToken);
-        if (subscription.State != "on_hold")
-        {
-            throw new InvalidSubscriptionStateException("Only subscriptions on hold can be resumed.");
-        }
-
-        return await ApplyTransitionAsync(subscription, () => _billingClient.ResumeSubscriptionAsync(subscription.ProviderSubscriptionId, cancellationToken), cancellationToken);
-    }
-
-    public async Task<SubscriptionSummary> CancelAsync(string actorBuyerId, bool isAdmin, int subscriptionId, CancelTiming timing, string? reason, CancellationToken cancellationToken)
-    {
-        var subscription = await LoadOwnedSubscriptionAsync(actorBuyerId, isAdmin, subscriptionId, cancellationToken);
-        if (subscription.State is "canceled" or "expired")
-        {
-            throw new InvalidSubscriptionStateException("Subscription is already canceled.");
-        }
-
-        return await ApplyTransitionAsync(subscription, () => timing == CancelTiming.Immediate
-            ? _billingClient.CancelSubscriptionImmediatelyAsync(subscription.ProviderSubscriptionId, reason, cancellationToken)
-            : _billingClient.ScheduleCancelAtEndOfPeriodAsync(subscription.ProviderSubscriptionId, reason, cancellationToken), cancellationToken);
-    }
-
-    public async Task<SubscriptionSummary> ReactivateAsync(string actorBuyerId, bool isAdmin, int subscriptionId, CancellationToken cancellationToken)
-    {
-        var subscription = await LoadOwnedSubscriptionAsync(actorBuyerId, isAdmin, subscriptionId, cancellationToken);
-        if (subscription.State is not ("canceled" or "unpaid" or "trial_ended"))
-        {
-            throw new InvalidSubscriptionStateException("Only canceled, unpaid, or trial-ended subscriptions can be reactivated.");
-        }
-
-        return await ApplyTransitionAsync(subscription, () => _billingClient.ReactivateSubscriptionAsync(subscription.ProviderSubscriptionId, cancellationToken), cancellationToken);
-    }
-
-    private async Task<SubscriptionSummary> ApplyTransitionAsync(Subscription subscription, Func<Task<BillingSubscription>> transition, CancellationToken cancellationToken)
-    {
-        var oldState = subscription.State;
-        var updated = await transition();
-
-        subscription.SyncFromProvider(updated.ProductHandle, updated.State);
-        await _subscriptionRepository.UpdateAsync(subscription, cancellationToken);
-
-        await PublishBestEffortAsync(new SubscriptionStateChanged(subscription.BuyerId, subscription.Id, subscription.ProviderSubscriptionId, oldState, updated.State), cancellationToken);
-
-        return new SubscriptionSummary(subscription.Id, updated);
-    }
-
-    private async Task<Subscription> LoadOwnedSubscriptionAsync(string actorBuyerId, bool isAdmin, int subscriptionId, CancellationToken cancellationToken)
-    {
-        Guard.Against.NullOrEmpty(actorBuyerId, nameof(actorBuyerId));
-
-        var subscription = await _subscriptionRepository.GetByIdAsync(subscriptionId, cancellationToken);
-        if (subscription is null || (!isAdmin && subscription.BuyerId != actorBuyerId))
-        {
-            // Same exception for "not found" and "not yours": ownership is never revealed to a non-owner.
-            throw new SubscriptionNotFoundException(subscriptionId);
-        }
+        await PublishBestEffortAsync(new SubscriptionActivated(userReference, subscription), cancellationToken);
 
         return subscription;
     }
 
-    private async Task<SubscriptionSummary> RefreshFromProviderAsync(Subscription subscription, CancellationToken cancellationToken)
+    public async Task<IReadOnlyCollection<CustomerSubscription>> GetMySubscriptionsAsync(string userReference, CancellationToken cancellationToken = default)
     {
-        var billingSubscription = await _billingClient.GetSubscriptionAsync(subscription.ProviderSubscriptionId, cancellationToken);
-        subscription.SyncFromProvider(billingSubscription.ProductHandle, billingSubscription.State);
-        await _subscriptionRepository.UpdateAsync(subscription, cancellationToken);
-        return new SubscriptionSummary(subscription.Id, billingSubscription);
+        Guard.Against.NullOrEmpty(userReference, nameof(userReference));
+
+        var customerId = await _billingClient.FindCustomerIdByReferenceAsync(userReference, cancellationToken);
+        if (customerId is null)
+        {
+            return Array.Empty<CustomerSubscription>();
+        }
+
+        return await _billingClient.GetSubscriptionsForCustomerAsync(customerId.Value, cancellationToken);
     }
 
-    private static void GuardTargetPlanIsDifferent(Subscription subscription, string targetProductHandle)
+    public async Task<UsageResult> RecordUsageAsync(int subscriptionId, int quantity, string? memo, string? ownerReference, CancellationToken cancellationToken = default)
     {
-        Guard.Against.NullOrEmpty(targetProductHandle, nameof(targetProductHandle));
-        if (subscription.ProductHandle == targetProductHandle)
+        Guard.Against.NegativeOrZero(subscriptionId, nameof(subscriptionId));
+        // Reject invalid quantity before any provider call (UC2 failure scenario).
+        Guard.Against.NegativeOrZero(quantity, nameof(quantity));
+
+        // Startup / first-call validation: the configured usage component must resolve and be metered,
+        // otherwise we refuse to record usage (UC2 preconditions & failure scenarios).
+        var component = await _billingClient.GetMeteredComponentAsync(cancellationToken);
+        if (!component.IsMetered)
         {
-            throw new InvalidSubscriptionStateException($"Subscription is already on plan '{targetProductHandle}'.");
+            throw new BillingProviderException(
+                $"The configured usage component '{component.Handle}' is not a metered component (kind: {component.Kind}). " +
+                "Correct the seed so it is a metered-kind component (see plan UC0) before recording usage.");
+        }
+
+        // The subscription must exist and be active, and (for customer self-service) must belong to the caller.
+        var subscription = await _billingClient.GetSubscriptionAsync(subscriptionId, cancellationToken);
+        if (!subscription.IsActive)
+        {
+            throw new BillingProviderException(
+                $"Subscription {subscriptionId} is not active (state: {subscription.State}); usage cannot be recorded.");
+        }
+
+        if (ownerReference is not null)
+        {
+            var ownerId = await _billingClient.FindCustomerIdByReferenceAsync(ownerReference, cancellationToken);
+            if (ownerId is null || ownerId.Value != subscription.CustomerId)
+            {
+                throw new BillingProviderException($"Subscription {subscriptionId} does not belong to the current user.");
+            }
+        }
+
+        await _billingClient.RecordUsageAsync(subscriptionId, quantity, memo, cancellationToken);
+
+        // Read back the running period-to-date total. If this fails the usage still stands, so we
+        // report success with the total marked unavailable rather than failing the whole operation.
+        int? total = null;
+        try
+        {
+            total = await _billingClient.GetUsageTotalAsync(subscriptionId, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Recorded usage on subscription {0} but failed to read back the period-to-date total: {1}",
+                subscriptionId, ex.Message);
+        }
+
+        return new UsageResult { RecordedQuantity = quantity, Memo = memo, PeriodToDateTotal = total };
+    }
+
+    public async Task<ProrationPreview> PreviewPlanChangeAsync(int subscriptionId, string targetProductHandle, PlanChangeTiming timing, CancellationToken cancellationToken = default)
+    {
+        Guard.Against.NegativeOrZero(subscriptionId, nameof(subscriptionId));
+        Guard.Against.NullOrEmpty(targetProductHandle, nameof(targetProductHandle));
+
+        var subscription = await _billingClient.GetSubscriptionAsync(subscriptionId, cancellationToken);
+        GuardPlanChangeAllowed(subscription, targetProductHandle);
+
+        return await _billingClient.PreviewPlanChangeAsync(subscriptionId, targetProductHandle, timing, cancellationToken);
+    }
+
+    public async Task<CustomerSubscription> ChangePlanAsync(int subscriptionId, string targetProductHandle, PlanChangeTiming timing, ProrationPreview confirmedPreview, CancellationToken cancellationToken = default)
+    {
+        Guard.Against.NegativeOrZero(subscriptionId, nameof(subscriptionId));
+        Guard.Against.NullOrEmpty(targetProductHandle, nameof(targetProductHandle));
+        Guard.Against.Null(confirmedPreview, nameof(confirmedPreview));
+
+        var subscription = await _billingClient.GetSubscriptionAsync(subscriptionId, cancellationToken);
+        GuardPlanChangeAllowed(subscription, targetProductHandle);
+        var oldHandle = subscription.ProductHandle;
+
+        // Reject a stale preview: re-price and require the confirmed amounts to still match, so we never
+        // silently apply a different amount than the one shown to the customer (UC3, §6 Phase 4).
+        var fresh = await _billingClient.PreviewPlanChangeAsync(subscriptionId, targetProductHandle, timing, cancellationToken);
+        if (!PreviewsMatch(confirmedPreview, fresh))
+        {
+            throw new BillingProviderException(
+                "The previewed cost is no longer current. Please review a fresh preview before confirming the plan change.");
+        }
+
+        var updated = await _billingClient.ChangePlanAsync(subscriptionId, targetProductHandle, timing, cancellationToken);
+
+        await PublishBestEffortAsync(
+            new SubscriptionPlanChanged(subscriptionId, oldHandle, targetProductHandle, timing, updated), cancellationToken);
+
+        return updated;
+    }
+
+    public async Task<CustomerSubscription> ChangeLifecycleAsync(int subscriptionId, SubscriptionLifecycleAction action, string? reason, CancellationToken cancellationToken = default)
+    {
+        Guard.Against.NegativeOrZero(subscriptionId, nameof(subscriptionId));
+
+        var subscription = await _billingClient.GetSubscriptionAsync(subscriptionId, cancellationToken);
+        var oldState = subscription.State;
+        GuardLifecycleAllowed(subscription, action);
+
+        var updated = await _billingClient.ApplyLifecycleActionAsync(subscriptionId, action, reason, cancellationToken);
+
+        await PublishBestEffortAsync(
+            new SubscriptionStateChanged(subscriptionId, action, oldState, updated.State, updated), cancellationToken);
+
+        return updated;
+    }
+
+    private static bool PreviewsMatch(ProrationPreview a, ProrationPreview b) =>
+        a.ChargeInCents == b.ChargeInCents &&
+        a.CreditAppliedInCents == b.CreditAppliedInCents &&
+        a.PaymentDueInCents == b.PaymentDueInCents &&
+        a.ProratedAdjustmentInCents == b.ProratedAdjustmentInCents;
+
+    private static void GuardPlanChangeAllowed(CustomerSubscription subscription, string targetProductHandle)
+    {
+        if (string.Equals(subscription.ProductHandle, targetProductHandle, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new BillingProviderException(
+                $"The subscription is already on plan '{targetProductHandle}'; nothing to change.");
+        }
+
+        // A plan change is only meaningful for a live subscription; a cancelled one must be reactivated first.
+        if (subscription.State is SubscriptionState.Canceled or SubscriptionState.Expired)
+        {
+            throw new BillingProviderException(
+                $"Subscription {subscription.Id} is {subscription.State} and cannot change plans. Reactivate it first (UC4).");
+        }
+    }
+
+    private static void GuardLifecycleAllowed(CustomerSubscription subscription, SubscriptionLifecycleAction action)
+    {
+        var state = subscription.State;
+        var legal = action switch
+        {
+            SubscriptionLifecycleAction.Pause => state is SubscriptionState.Active or SubscriptionState.Trialing,
+            SubscriptionLifecycleAction.Resume => state is SubscriptionState.OnHold or SubscriptionState.Paused,
+            SubscriptionLifecycleAction.Cancel => state is not (SubscriptionState.Canceled or SubscriptionState.Expired),
+            SubscriptionLifecycleAction.CancelAtEndOfPeriod => state is SubscriptionState.Active or SubscriptionState.Trialing or SubscriptionState.PastDue,
+            SubscriptionLifecycleAction.Reactivate => state is SubscriptionState.Canceled or SubscriptionState.Unpaid or SubscriptionState.TrialEnded,
+            _ => false
+        };
+
+        if (!legal)
+        {
+            throw new BillingProviderException(
+                $"Cannot {action} a subscription that is {state}. Refresh the subscription and choose a transition legal from its current state.");
         }
     }
 
@@ -260,9 +230,10 @@ public class SubscriptionService : ISubscriptionService
         }
         catch (Exception ex)
         {
-            // In-process notifications are best-effort (plan.md section 2.5): a handler failure must
-            // never roll back the billing-provider action that already succeeded.
-            _logger.LogWarning("In-process notification handler failed for {NotificationType}: {Message}", notification.GetType().Name, ex.Message);
+            // Best-effort, in-process only (§2.5): the provider call already succeeded, so a handler
+            // failure must not roll it back — log and move on.
+            _logger.LogWarning("In-process publication of {0} failed (the state change still stands): {1}",
+                notification.GetType().Name, ex.Message);
         }
     }
 }

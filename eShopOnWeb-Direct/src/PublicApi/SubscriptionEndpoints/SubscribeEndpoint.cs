@@ -1,74 +1,44 @@
-using System.ComponentModel.DataAnnotations;
-using System.Threading;
+using System.Security.Claims;
 using System.Threading.Tasks;
-using Ardalis.ApiEndpoints;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.eShopWeb.ApplicationCore.Interfaces;
-using Swashbuckle.AspNetCore.Annotations;
+using MinimalApi.Endpoint;
 
 namespace Microsoft.eShopWeb.PublicApi.SubscriptionEndpoints;
 
-public class SubscribeRequest : BaseRequest
+/// <summary>
+/// Enrolls the authenticated caller in a plan (UC1). JWT-secured; mirrors the authorization style of
+/// <c>CreateCatalogItemEndpoint</c> but is open to any authenticated customer (not admin-only).
+/// </summary>
+public class SubscribeEndpoint : IEndpoint<IResult, SubscribeRequest, ISubscriptionService>
 {
-    [Required]
-    public string ProductHandle { get; set; } = string.Empty;
-
-    [Required]
-    public string FirstName { get; set; } = string.Empty;
-
-    [Required]
-    public string LastName { get; set; } = string.Empty;
-
-    /// <summary>Chargify.js token for plans where the selected plan requires a payment method. Optional otherwise.</summary>
-    public string? PaymentToken { get; set; }
-}
-
-public class SubscribeResponse : BaseResponse
-{
-    public SubscribeResponse(System.Guid correlationId) : base(correlationId) { }
-    public SubscribeResponse() { }
-
-    public SubscriptionDto Subscription { get; set; } = new();
-}
-
-/// <summary>UC1: enroll the authenticated customer in a plan. Mirrors CreateCatalogItemEndpoint's admin variant, minus the role restriction - any authenticated customer may subscribe themselves.</summary>
-public class SubscribeEndpoint : EndpointBaseAsync
-    .WithRequest<SubscribeRequest>
-    .WithActionResult<SubscribeResponse>
-{
-    private readonly ISubscriptionService _subscriptionService;
-
-    public SubscribeEndpoint(ISubscriptionService subscriptionService)
+    public void AddRoute(IEndpointRouteBuilder app)
     {
-        _subscriptionService = subscriptionService;
+        app.MapPost("api/subscriptions",
+            [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)] async
+            (SubscribeRequest request, ClaimsPrincipal user, ISubscriptionService subscriptionService) =>
+            {
+                request.UserName = user.Identity?.Name;
+                return await HandleAsync(request, subscriptionService);
+            })
+            .Produces<SubscribeResponse>()
+            .WithTags("SubscriptionEndpoints");
     }
 
-    [HttpPost("api/subscriptions")]
-    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
-    [SwaggerOperation(
-        Summary = "Subscribe to a plan",
-        Description = "Ensures a billing-provider customer exists for the authenticated user and enrolls it in the chosen plan.",
-        OperationId = "subscriptions.subscribe",
-        Tags = new[] { "SubscriptionEndpoints" })]
-    public override async Task<ActionResult<SubscribeResponse>> HandleAsync(SubscribeRequest request, CancellationToken cancellationToken = default)
+    public async Task<IResult> HandleAsync(SubscribeRequest request, ISubscriptionService subscriptionService)
     {
-        if (!ModelState.IsValid)
+        if (string.IsNullOrEmpty(request.UserName))
         {
-            return BadRequest(ModelState);
-        }
-
-        var buyerId = User.Identity?.Name;
-        if (string.IsNullOrEmpty(buyerId))
-        {
-            return Unauthorized();
+            return Results.Unauthorized();
         }
 
         var response = new SubscribeResponse(request.CorrelationId());
-        var summary = await _subscriptionService.SubscribeAsync(buyerId, buyerId, request.FirstName, request.LastName, request.ProductHandle, request.PaymentToken, cancellationToken);
-        response.Subscription = SubscriptionDto.FromSummary(summary);
-
-        return Ok(response);
+        var subscription = await subscriptionService.SubscribeAsync(request.UserName, request.UserName, request.ProductHandle);
+        response.Subscription = subscription.ToDto();
+        return Results.Ok(response);
     }
 }

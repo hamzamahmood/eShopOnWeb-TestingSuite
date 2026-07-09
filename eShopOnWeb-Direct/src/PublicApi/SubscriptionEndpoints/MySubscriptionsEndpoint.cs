@@ -1,59 +1,44 @@
-using System.Collections.Generic;
 using System.Linq;
-using System.Threading;
+using System.Security.Claims;
 using System.Threading.Tasks;
-using Ardalis.ApiEndpoints;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.eShopWeb.ApplicationCore.Interfaces;
-using Swashbuckle.AspNetCore.Annotations;
+using MinimalApi.Endpoint;
 
 namespace Microsoft.eShopWeb.PublicApi.SubscriptionEndpoints;
 
-public class MySubscriptionsRequest : BaseRequest
+/// <summary>
+/// Lists the authenticated caller's subscriptions (UC1 success state). JWT-secured; the caller is
+/// identified by their token's name claim (the same email/username used as the Maxio customer reference).
+/// </summary>
+public class MySubscriptionsEndpoint : IEndpoint<IResult, MySubscriptionsRequest, ISubscriptionService>
 {
-}
-
-public class MySubscriptionsResponse : BaseResponse
-{
-    public MySubscriptionsResponse(System.Guid correlationId) : base(correlationId) { }
-    public MySubscriptionsResponse() { }
-
-    public List<SubscriptionDto> Subscriptions { get; set; } = new();
-}
-
-/// <summary>AC-06: lists the authenticated user's subscriptions only.</summary>
-public class MySubscriptionsEndpoint : EndpointBaseAsync
-    .WithRequest<MySubscriptionsRequest>
-    .WithActionResult<MySubscriptionsResponse>
-{
-    private readonly ISubscriptionService _subscriptionService;
-
-    public MySubscriptionsEndpoint(ISubscriptionService subscriptionService)
+    public void AddRoute(IEndpointRouteBuilder app)
     {
-        _subscriptionService = subscriptionService;
+        app.MapGet("api/my-subscriptions",
+            [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)] async
+            (ClaimsPrincipal user, ISubscriptionService subscriptionService) =>
+            {
+                return await HandleAsync(new MySubscriptionsRequest { UserName = user.Identity?.Name }, subscriptionService);
+            })
+            .Produces<MySubscriptionsResponse>()
+            .WithTags("SubscriptionEndpoints");
     }
 
-    [HttpGet("api/subscriptions/mine")]
-    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
-    [SwaggerOperation(
-        Summary = "List my subscriptions",
-        Description = "Lists the authenticated user's own subscriptions, refreshed from the billing provider.",
-        OperationId = "subscriptions.mine",
-        Tags = new[] { "SubscriptionEndpoints" })]
-    public override async Task<ActionResult<MySubscriptionsResponse>> HandleAsync([FromQuery] MySubscriptionsRequest request, CancellationToken cancellationToken = default)
+    public async Task<IResult> HandleAsync(MySubscriptionsRequest request, ISubscriptionService subscriptionService)
     {
-        var buyerId = User.Identity?.Name;
-        if (string.IsNullOrEmpty(buyerId))
+        if (string.IsNullOrEmpty(request.UserName))
         {
-            return Unauthorized();
+            return Results.Unauthorized();
         }
 
         var response = new MySubscriptionsResponse(request.CorrelationId());
-        var subscriptions = await _subscriptionService.GetSubscriptionsForUserAsync(buyerId, cancellationToken);
-        response.Subscriptions = subscriptions.Select(SubscriptionDto.FromSummary).ToList();
-
-        return Ok(response);
+        var subscriptions = await subscriptionService.GetMySubscriptionsAsync(request.UserName);
+        response.Subscriptions.AddRange(subscriptions.Select(s => s.ToDto()));
+        return Results.Ok(response);
     }
 }

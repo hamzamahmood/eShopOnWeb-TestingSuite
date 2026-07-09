@@ -32,26 +32,35 @@ public class ExceptionMiddleware
     {
         context.Response.ContentType = "application/json";
 
-        // Every branch below carries a message that was already curated to be safe for an API
-        // response at the point the exception was constructed (see each type's constructor, and
-        // MaxioBillingClient's message curation for BillingProviderException) - unlike the generic
-        // catch-all, which is a pre-existing gap this middleware does not otherwise touch (quality-gate.md H2).
-        if (TryResolveSubscriptionStatusCode(exception, out var statusCode))
-        {
-            context.Response.StatusCode = statusCode;
-            await context.Response.WriteAsync(new ErrorDetails()
-            {
-                StatusCode = context.Response.StatusCode,
-                Message = exception.Message
-            }.ToString());
-        }
-        else if (exception is DuplicateException duplicationException)
+        if (exception is DuplicateException duplicationException)
         {
             context.Response.StatusCode = (int)HttpStatusCode.Conflict;
             await context.Response.WriteAsync(new ErrorDetails()
             {
                 StatusCode = context.Response.StatusCode,
                 Message = duplicationException.Message
+            }.ToString());
+        }
+        else if (exception is BillingProviderException billingException)
+        {
+            // Surface the provider's message. A 4xx from the provider (or a local validation failure) is a
+            // bad request; anything else is an upstream/gateway failure.
+            context.Response.StatusCode = billingException.StatusCode is >= 400 and < 500
+                ? (int)HttpStatusCode.BadRequest
+                : (int)HttpStatusCode.BadGateway;
+            await context.Response.WriteAsync(new ErrorDetails()
+            {
+                StatusCode = context.Response.StatusCode,
+                Message = billingException.Message
+            }.ToString());
+        }
+        else if (exception is ArgumentException argumentException)
+        {
+            context.Response.StatusCode = (int)HttpStatusCode.BadRequest;
+            await context.Response.WriteAsync(new ErrorDetails()
+            {
+                StatusCode = context.Response.StatusCode,
+                Message = argumentException.Message
             }.ToString());
         }
         else
@@ -63,22 +72,5 @@ public class ExceptionMiddleware
                 Message = exception.Message
             }.ToString());
         }
-    }
-
-    private static bool TryResolveSubscriptionStatusCode(Exception exception, out int statusCode)
-    {
-        statusCode = exception switch
-        {
-            SubscriptionNotFoundException => (int)HttpStatusCode.NotFound,
-            StalePlanChangePreviewException => (int)HttpStatusCode.Conflict,
-            InvalidSubscriptionStateException => (int)HttpStatusCode.UnprocessableEntity,
-            // A misconfigured billing-provider component is an operator/config problem, not the caller's fault.
-            MeteredComponentMisconfiguredException => (int)HttpStatusCode.InternalServerError,
-            BillingProviderException { HttpStatusCode: >= 400 and < 500 } => (int)HttpStatusCode.UnprocessableEntity,
-            BillingProviderException => (int)HttpStatusCode.BadGateway,
-            _ => 0
-        };
-
-        return statusCode != 0;
     }
 }

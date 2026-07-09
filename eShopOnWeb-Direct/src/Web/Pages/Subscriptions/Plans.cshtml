@@ -3,46 +3,49 @@
 @{
     ViewData["Title"] = "Subscription Plans";
 }
+<section class="esh-catalog-hero">
+    <div class="container">
+        <img class="esh-catalog-title" src="~/images/main_banner_text.png" />
+    </div>
+</section>
 
 <div class="container">
     <h1>Subscription Plans</h1>
 
-    @if (Model.ErrorMessage is not null)
+    @if (!string.IsNullOrEmpty(Model.StatusMessage))
+    {
+        <div class="alert alert-success">@Model.StatusMessage</div>
+    }
+    @if (!string.IsNullOrEmpty(Model.ErrorMessage))
     {
         <div class="alert alert-danger">@Model.ErrorMessage</div>
     }
 
-    <div class="row">
-        @foreach (var plan in Model.Plans)
-        {
-            <div class="col-md-4">
-                <div class="card mb-3">
-                    <div class="card-body">
-                        <h5 class="card-title">@plan.Name</h5>
-                        <p class="card-text">
-                            $@((plan.PriceInCents / 100m).ToString("N2")) every @plan.IntervalCount @plan.IntervalUnit
-                        </p>
-                        @if (plan.RequiresPaymentMethod)
-                        {
-                            <p class="text-muted">Requires a payment method.</p>
-                        }
+    @if (Model.Plans.Count == 0 && string.IsNullOrEmpty(Model.ErrorMessage))
+    {
+        <h3 class="esh-catalog-items row">No plans are available right now.</h3>
+    }
+    else
+    {
+        <div class="row">
+            @foreach (var plan in Model.Plans)
+            {
+                <div class="col-md-4">
+                    <div class="esh-catalog-item" style="padding: 1rem; border: 1px solid #eee; margin-bottom: 1rem;">
+                        <h3>@plan.Name</h3>
+                        <p>@plan.Description</p>
+                        <p><strong>$ @plan.Price.ToString("N2")</strong> / @(plan.Interval > 1 ? plan.Interval + " " : "")@plan.IntervalUnit</p>
                         <form method="post" asp-page-handler="Subscribe">
-                            <input type="hidden" name="Input.ProductHandle" value="@plan.Handle" />
-                            <div class="form-group">
-                                <label>First name</label>
-                                <input class="form-control" name="Input.FirstName" required />
-                            </div>
-                            <div class="form-group">
-                                <label>Last name</label>
-                                <input class="form-control" name="Input.LastName" required />
-                            </div>
-                            <button type="submit" class="btn btn-primary mt-2">Subscribe</button>
+                            <input type="hidden" name="productHandle" value="@plan.Handle" />
+                            <button type="submit" class="btn esh-basket-checkout">[ Subscribe ]</button>
                         </form>
                     </div>
                 </div>
-            </div>
-        }
-    </div>
+            }
+        </div>
+    }
 
-    <p><a asp-page="/Subscriptions/Mine">View my subscriptions</a></p>
+    <section class="esh-basket-item">
+        <a asp-page="./Mine" class="btn esh-basket-checkout text-white">[ My subscriptions ]</a>
+    </section>
 </div>

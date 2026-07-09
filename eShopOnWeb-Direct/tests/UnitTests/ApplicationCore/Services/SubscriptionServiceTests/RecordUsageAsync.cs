@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using MediatR;
@@ -5,7 +6,6 @@ using Microsoft.eShopWeb.ApplicationCore.Entities.SubscriptionAggregate;
 using Microsoft.eShopWeb.ApplicationCore.Exceptions;
 using Microsoft.eShopWeb.ApplicationCore.Interfaces;
 using Microsoft.eShopWeb.ApplicationCore.Services;
-using Microsoft.eShopWeb.ApplicationCore.Specifications;
 using NSubstitute;
 using Xunit;
 
@@ -13,76 +13,98 @@ namespace Microsoft.eShopWeb.UnitTests.ApplicationCore.Services.SubscriptionServ
 
 public class RecordUsageAsync
 {
-    private const string BuyerId = "buyer@example.com";
-    private readonly IRepository<Subscription> _subscriptionRepo = Substitute.For<IRepository<Subscription>>();
-    private readonly IRepository<UsageRecord> _usageRepo = Substitute.For<IRepository<UsageRecord>>();
     private readonly IBillingClient _billingClient = Substitute.For<IBillingClient>();
     private readonly IPublisher _publisher = Substitute.For<IPublisher>();
     private readonly IAppLogger<SubscriptionService> _logger = Substitute.For<IAppLogger<SubscriptionService>>();
 
-    private SubscriptionService BuildService() => new(_subscriptionRepo, _usageRepo, _billingClient, _publisher, _logger);
+    private SubscriptionService CreateService() => new(_billingClient, _publisher, _logger);
 
-    private static Subscription BuildOwnedSubscription() => new(BuyerId, 555, 9001, "eshop-pro", "active");
+    private void SetupMeteredComponent() =>
+        _billingClient.GetMeteredComponentAsync(Arg.Any<CancellationToken>())
+            .Returns(new BillingComponent { Id = 3033795, Handle = "api-call", Kind = BillingComponentKind.Metered });
 
-    [Fact]
-    public async Task RecordsUsageAndPersistsALedgerEntry()
+    private void SetupActiveSubscription(int id = 5, int customerId = 42) =>
+        _billingClient.GetSubscriptionAsync(id, Arg.Any<CancellationToken>())
+            .Returns(new CustomerSubscription { Id = id, State = SubscriptionState.Active, CustomerId = customerId });
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-3)]
+    public async Task RejectsNonPositiveQuantityWithoutCallingProvider(int quantity)
     {
-        var subscription = BuildOwnedSubscription();
-        _subscriptionRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(subscription);
-        _usageRepo.FirstOrDefaultAsync(Arg.Any<UsageRecordByIdempotencyKeySpecification>(), Arg.Any<CancellationToken>()).Returns((UsageRecord?)null);
-        _billingClient.RecordUsageAsync(9001, 5m, "batch", Arg.Any<CancellationToken>()).Returns(new BillingUsageResult(777, 5m, "batch"));
-        _billingClient.GetUsageBalanceAsync(9001, Arg.Any<CancellationToken>()).Returns(42);
+        var service = CreateService();
 
-        var service = BuildService();
-        var result = await service.RecordUsageAsync(BuyerId, isAdmin: false, 1, 5m, "batch", "key-1", CancellationToken.None);
+        await Assert.ThrowsAsync<ArgumentException>(() => service.RecordUsageAsync(5, quantity, null, null));
 
-        Assert.Equal(777, result.ProviderUsageId);
-        Assert.Equal(42, result.PeriodToDateUnitBalance);
-        await _usageRepo.Received(1).AddAsync(Arg.Is<UsageRecord>(u => u.IdempotencyKey == "key-1" && u.ProviderSubscriptionId == 9001), Arg.Any<CancellationToken>());
+        await _billingClient.DidNotReceive().RecordUsageAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task DuplicateIdempotencyKeyReplaysWithoutCallingProviderAgain()
+    public async Task RefusesWhenConfiguredComponentIsNotMetered()
     {
-        var subscription = BuildOwnedSubscription();
-        _subscriptionRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(subscription);
-        var existing = new UsageRecord(9001, "key-1", 5m, "batch", 777);
-        _usageRepo.FirstOrDefaultAsync(Arg.Any<UsageRecordByIdempotencyKeySpecification>(), Arg.Any<CancellationToken>()).Returns(existing);
-        _billingClient.GetUsageBalanceAsync(9001, Arg.Any<CancellationToken>()).Returns(42);
+        _billingClient.GetMeteredComponentAsync(Arg.Any<CancellationToken>())
+            .Returns(new BillingComponent { Id = 1, Handle = "api-call", Kind = BillingComponentKind.QuantityBased });
 
-        var service = BuildService();
-        var result = await service.RecordUsageAsync(BuyerId, isAdmin: false, 1, 5m, "batch", "key-1", CancellationToken.None);
+        var service = CreateService();
 
-        Assert.Equal(777, result.ProviderUsageId);
-        await _billingClient.DidNotReceive().RecordUsageAsync(Arg.Any<int>(), Arg.Any<decimal>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        await Assert.ThrowsAsync<BillingProviderException>(() => service.RecordUsageAsync(5, 1, null, null));
+        await _billingClient.DidNotReceive().RecordUsageAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task NonOwnerNonAdminCannotRecordUsageForSomeoneElsesSubscription()
+    public async Task RejectsWhenSubscriptionNotActive()
     {
-        var subscription = BuildOwnedSubscription();
-        _subscriptionRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(subscription);
+        SetupMeteredComponent();
+        _billingClient.GetSubscriptionAsync(5, Arg.Any<CancellationToken>())
+            .Returns(new CustomerSubscription { Id = 5, State = SubscriptionState.Canceled });
 
-        var service = BuildService();
+        var service = CreateService();
 
-        await Assert.ThrowsAsync<SubscriptionNotFoundException>(() =>
-            service.RecordUsageAsync("someone-else@example.com", isAdmin: false, 1, 5m, null, "key-1", CancellationToken.None));
-
-        await _billingClient.DidNotReceive().RecordUsageAsync(Arg.Any<int>(), Arg.Any<decimal>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        await Assert.ThrowsAsync<BillingProviderException>(() => service.RecordUsageAsync(5, 1, null, null));
+        await _billingClient.DidNotReceive().RecordUsageAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task AdminCanRecordUsageForAnySubscription()
+    public async Task RejectsWhenSubscriptionBelongsToAnotherCustomer()
     {
-        var subscription = BuildOwnedSubscription();
-        _subscriptionRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(subscription);
-        _usageRepo.FirstOrDefaultAsync(Arg.Any<UsageRecordByIdempotencyKeySpecification>(), Arg.Any<CancellationToken>()).Returns((UsageRecord?)null);
-        _billingClient.RecordUsageAsync(9001, 1m, null, Arg.Any<CancellationToken>()).Returns(new BillingUsageResult(1, 1m, null));
-        _billingClient.GetUsageBalanceAsync(9001, Arg.Any<CancellationToken>()).Returns(1);
+        SetupMeteredComponent();
+        SetupActiveSubscription(id: 5, customerId: 42);
+        _billingClient.FindCustomerIdByReferenceAsync("someone-else", Arg.Any<CancellationToken>()).Returns(99);
 
-        var service = BuildService();
-        var result = await service.RecordUsageAsync("admin@example.com", isAdmin: true, 1, 1m, null, "key-2", CancellationToken.None);
+        var service = CreateService();
 
-        Assert.Equal(1, result.PeriodToDateUnitBalance);
+        await Assert.ThrowsAsync<BillingProviderException>(() => service.RecordUsageAsync(5, 1, null, "someone-else"));
+        await _billingClient.DidNotReceive().RecordUsageAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RecordsUsageAndReturnsPeriodToDateTotal()
+    {
+        SetupMeteredComponent();
+        SetupActiveSubscription();
+        _billingClient.GetUsageTotalAsync(5, Arg.Any<CancellationToken>()).Returns(12);
+
+        var service = CreateService();
+        var result = await service.RecordUsageAsync(5, 3, "memo", null);
+
+        Assert.Equal(3, result.RecordedQuantity);
+        Assert.Equal(12, result.PeriodToDateTotal);
+        await _billingClient.Received(1).RecordUsageAsync(5, 3, "memo", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ReturnsNullTotalWhenReadBackFailsButUsageStands()
+    {
+        SetupMeteredComponent();
+        SetupActiveSubscription();
+        _billingClient.GetUsageTotalAsync(5, Arg.Any<CancellationToken>())
+            .Returns<int>(_ => throw new BillingProviderException("read-back failed"));
+
+        var service = CreateService();
+        var result = await service.RecordUsageAsync(5, 1, null, null);
+
+        Assert.Equal(1, result.RecordedQuantity);
+        Assert.Null(result.PeriodToDateTotal);
+        await _billingClient.Received(1).RecordUsageAsync(5, 1, null, Arg.Any<CancellationToken>());
     }
 }

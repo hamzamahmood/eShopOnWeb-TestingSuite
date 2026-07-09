@@ -1,20 +1,21 @@
 using MediatR;
+using Microsoft.eShopWeb.ApplicationCore.Entities.SubscriptionAggregate;
 
 namespace Microsoft.eShopWeb.ApplicationCore.IntegrationEvents;
 
-/// <summary>Published in-process, best-effort, after a subscription is successfully created in the billing provider (UC1).</summary>
+/// <summary>
+/// In-process notification published after a customer is successfully enrolled in a plan (UC1 step 6).
+/// Delivery is best-effort (§2.5): registered handlers run, but a handler failure never rolls back
+/// the enrollment.
+/// </summary>
 public class SubscriptionActivated : INotification
 {
-    public SubscriptionActivated(string buyerId, int subscriptionId, int providerSubscriptionId, string productHandle)
+    public SubscriptionActivated(string userReference, CustomerSubscription subscription)
     {
-        BuyerId = buyerId;
-        SubscriptionId = subscriptionId;
-        ProviderSubscriptionId = providerSubscriptionId;
-        ProductHandle = productHandle;
+        UserReference = userReference;
+        Subscription = subscription;
     }
 
-    public string BuyerId { get; }
-    public int SubscriptionId { get; }
-    public int ProviderSubscriptionId { get; }
-    public string ProductHandle { get; }
+    public string UserReference { get; }
+    public CustomerSubscription Subscription { get; }
 }
