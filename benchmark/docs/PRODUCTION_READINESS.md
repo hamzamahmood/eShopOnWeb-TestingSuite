@@ -1,6 +1,6 @@
 # Production-Readiness Definition of Done — SDK-vs-Spec Token Benchmark
 
-> **Status:** LOCKED · v0.2 · 2026-07-09
+> **Status:** LOCKED · v0.3 · 2026-07-09
 > **Purpose:** This document is the single source of truth for what "production-ready" means in
 > this experiment. It is *pre-registered*: it must be finalized and frozen **before** either
 > integration is built. Once locked, changes require a version bump + a dated rationale entry in
@@ -121,8 +121,8 @@ arm-agnostic; nothing here reads the arm's source.
 |---|---|---|---|---|
 | R1 | Transient 5xx on a safe GET recovers | ops 1,3,4 (+lookup in 2) | BB | mock returns 503-then-200; app call succeeds (2xx) |
 | R2 | Rate-limit (429) recovers to success | safe GET | BB | mock returns 429-then-200; app call succeeds (2xx). No timing assertion — `Retry-After` honoring is desirable-not-gated (§10) |
-| R3 | Transport fault is wrapped, not leaked | any op | BB | Toxiproxy resets/refuses the connection; app returns a clean mapped 5xx-class error, **no** raw stack/exception text, **no** crash |
-| R4 | A timeout exists (client never hangs forever) | any op | OBS-coarse | Toxiproxy holds the connection open indefinitely; app **terminates with a mapped error** within a generous ceiling (e.g. ≤ 60s) rather than hanging. Coarse liveness check, not a latency measurement |
+| R3 | Transport fault is wrapped, not leaked | any op | BB | the mock resets the connection (`HttpContext.Abort`); app returns a clean mapped 5xx-class error, **no** raw stack/exception text, **no** crash |
+| R4 | A timeout exists (client never hangs forever) | any op | OBS-coarse | the mock holds the connection open indefinitely (`Task.Delay`); app **terminates with a mapped error** within a generous ceiling (e.g. ≤ 60s) rather than hanging. Coarse liveness check, not a latency measurement |
 | R5 | **A failed write is not duplicated** | ops 8,9,11 | OBS-count | mock returns 503 on the POST and records inbound count; **count == 1** (client did not resend the unsafe write) |
 | R6 | Retries are bounded | safe GET | OBS-count | mock returns persistent 503; app gives up with a mapped error; recorded attempt count ≤ a small bound |
 
@@ -170,16 +170,17 @@ cost is "cost to reach pass-public"; holdout is a robustness/anti-gaming annotat
   return 429+`Retry-After`, 503-then-200, malformed JSON; **record inbound request counts, bodies,
   and timestamps** (this is what makes R2/R4/R5/R6/C3 black-box-observable); and expose an
   **auth-checking variant** for S2.
-- **Toxiproxy** — sits in front of the mock; the app's Maxio base URL points at Toxiproxy's listen
-  port. Owns the transport faults (connection reset, hang past timeout, connection refused/`down`,
-  slow) toggled per-test via its HTTP API. More deterministic than raw Kestrel socket-abort on
-  Windows.
+- **Transport faults are injected by the mock itself** (verified on Windows): connection reset via
+  `HttpContext.Abort()` (the client sees a genuine transport error — curl exit 56 / .NET
+  `HttpRequestException`), and hang-past-timeout via `Task.Delay`. No proxy layer is needed; the
+  app's base URL points straight at the mock. (Toxiproxy was planned but proved unnecessary once
+  in-proc `Abort()` was confirmed to yield a real client-side transport error.)
 - **Log-scrape** — the harness captures the app's stdout/log file per run; S1 greps it for known
   secret values. Arm-agnostic (both arms emit logs).
 - **Boot test** — the harness boots the app with a mutated config for S3.
 
-Division of labor: **Toxiproxy = transport-level faults; mock = application-level faults + request
-recording.**
+Division of labor: the **mock** injects both transport-level faults (reset/hang) and
+application-level faults (429/503/malformed), and records every inbound request.
 
 ## 9. Pass / fail criteria
 
@@ -225,6 +226,10 @@ and are disclosed.
 - **v0.2 LOCKED — 2026-07-09** — frozen as the definition of done, before any integration is built.
   No further changes without a version bump + rationale here; changes after seeing run results are
   disallowed (see §11 rules).
+- v0.3 — 2026-07-09 — instrument amendment (pre-run, benign): transport faults (R3 reset / R4 hang)
+  are injected by the mock itself (`HttpContext.Abort()` / `Task.Delay`, verified on Windows to yield
+  a real client-side transport error), so **Toxiproxy is dropped** and the app's base URL points
+  straight at the mock. The R3/R4 *properties* and every other check are unchanged.
 
 ## 12. Companion documents
 

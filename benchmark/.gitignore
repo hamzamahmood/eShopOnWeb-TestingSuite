@@ -1,0 +1,7 @@
+# .NET build artifacts (mock, gate, harness projects)
+bin/
+obj/
+
+# run artifacts
+runs/
+*.tmp

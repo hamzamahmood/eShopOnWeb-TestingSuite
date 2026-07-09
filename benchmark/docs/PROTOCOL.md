@@ -46,7 +46,7 @@ signal*: Arm A's on-demand plugin-skill tokens vs. Arm B's cost of ingesting the
 | Prompt scaffold | `TASK_SPEC.md` §5 verbatim; only the `{{ARM_MATERIAL}}` block differs |
 | Task spec / routes / request contracts | `TASK_SPEC.md` §3, LOCKED |
 | Definition of done / gate / holdout | `PRODUCTION_READINESS.md`, LOCKED; same gate binary both arms |
-| Mock + Toxiproxy + canned data + fault triggers | identical images/config |
+| Mock (faults + recording) + canned data + fault config | identical |
 | Starting repo | same pristine eShopOnWeb clone at a **pinned commit**, zero billing code (`TASK_SPEC.md` §1.1) |
 | Isolation | `claude --bare`; no CLAUDE.md / benchmark docs / prior integration in context |
 | Budget cap, tooling, permission mode, env, concurrency | identical |

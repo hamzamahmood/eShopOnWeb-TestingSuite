@@ -92,11 +92,11 @@ wire shape (snake_case envelopes) internally — that mapping is part of the int
 
 ## 4. Environment & configuration (identical for both arms)
 
-The agent's app is configured to reach the provider through **Toxiproxy → mock**:
+The agent's app is configured to reach the provider (the mock) directly:
 
 | Config key | Value | Purpose |
 |---|---|---|
-| `Maxio__BaseUrl` | `http://localhost:8474` | Toxiproxy listener (forwards to the mock on `:8080`) |
+| `Maxio__BaseUrl` | `http://localhost:8080` | the mock directly (transport faults are injected by the mock itself; no proxy layer) |
 | `Maxio__Subdomain` | `acme` | provider site |
 | `Maxio__ApiKey` | `test-api-key` | Basic auth `Base64("{ApiKey}:x")` |
 | `Maxio__ProductFamilyId` / `Maxio__ProductFamilyHandle` | (from mock fixtures) | fixed path param for op 1 |
@@ -183,7 +183,7 @@ CONSTRAINTS
 - `PROTOCOL.md` — held-constant list, N runs, budget cap, token capture rig, statistics,
   DONE/ROBUST tiering, credibility safeguards.
 - `gate/`, `mock/` — the executable gate (public + holdout) and the spec-faithful, fault-injecting,
-  request-recording mock; Toxiproxy sidecar for transport faults.
+  request-recording mock (the mock injects transport faults itself; no proxy layer).
 - **Materials prerequisite (blocks the build):** the exact OpenAPI spec APIMatic used to generate the
   `maxio-sdk` — present at repo `openAPI/` (`openapi.yaml` + `components/`). It is Arm B's material
   AND the contract the mock is built to. `APIMATIC-META.json` (codegen config) is NOT part of Arm B's

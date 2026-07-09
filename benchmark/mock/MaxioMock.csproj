@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>MaxioMock</RootNamespace>
+    <AssemblyName>MaxioMock</AssemblyName>
+    <!-- Standalone experimenter tooling: not part of eShopOnWeb's solution. -->
+  </PropertyGroup>
+
+</Project>
