@@ -13,8 +13,9 @@
 param(
     [Parameter(Mandatory)][ValidateSet('A','B')][string]$Arm,
     [string]$RunId    = (Get-Date -Format 'yyyyMMdd-HHmmss'),
-    [string]$Model    = '',      # pin at pilot; empty => CLI default
-    [int]   $MaxTurns = 200,
+    [string]$Model        = '',   # pin at pilot; empty => CLI default
+    [string]$Effort       = '',   # low|medium|high|xhigh|max; empty => CLI default
+    [double]$MaxBudgetUsd = 0,    # safety backstop via --max-budget-usd; 0 => no cap
     [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'
@@ -69,9 +70,11 @@ Set-Content (Join-Path $Ws 'gate.cmd') $gateCmd -NoNewline
 
 # 5) plugin toggle + composed claude args
 $pluginArgs = if ($Arm -eq 'A') { @('--plugin-dir', $Plugin) } else { @() }
-$claudeArgs = @('-p', $prompt, '--bare') + $pluginArgs +
-              @('--output-format','json','--dangerously-skip-permissions','--max-turns', "$MaxTurns")
-if ($Model) { $claudeArgs += @('--model', $Model) }
+$claudeArgs = @('-p', $prompt) + $pluginArgs +
+              @('--output-format','json','--dangerously-skip-permissions')
+if ($Model)              { $claudeArgs += @('--model', $Model) }
+if ($Effort)             { $claudeArgs += @('--effort', $Effort) }
+if ($MaxBudgetUsd -gt 0) { $claudeArgs += @('--max-budget-usd', "$MaxBudgetUsd") }
 
 if ($DryRun) {
     Write-Host "DRY RUN — no agent launched, no tokens spent" -ForegroundColor Yellow
@@ -90,16 +93,29 @@ Write-Host "building gate + mock ..."
 dotnet build $Gate -v quiet | Out-Null
 dotnet build $Mock -v quiet | Out-Null
 
-# 7) launch the agent headless, cwd = workspace  (THIS spends tokens)
+# 7) launch the agent headless, cwd = workspace, with an ISOLATED per-run config dir.
+#    Seeding a fresh CLAUDE_CONFIG_DIR with only the credentials authenticates the child WITHOUT
+#    pulling in the globally-enabled plugins (maxio-sdk/skill-creator/frontend-design) or any global
+#    CLAUDE.md — the isolation --bare would give, but --bare also strips auth. Arm A re-adds only the
+#    maxio-sdk plugin via --plugin-dir; Arm B gets none.
 Write-Host "launching agent ..." -ForegroundColor Magenta
+$cfgDir = Join-Path $RunDir 'claude-config'
+New-Item -ItemType Directory -Force $cfgDir | Out-Null
+Copy-Item (Join-Path $env:USERPROFILE '.claude\.credentials.json') $cfgDir -Force
+$env:CLAUDE_CONFIG_DIR = $cfgDir
+$errLog = Join-Path $RunDir 'claude-stderr.log'
 Push-Location $Ws
-try { $result = & claude @claudeArgs 2>&1 | Out-String } finally { Pop-Location }
+try { $result = & claude @claudeArgs 2>$errLog | Out-String }   # stderr separated so warnings can't pollute the JSON
+finally { Pop-Location; Remove-Item Env:\CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue }
 Set-Content (Join-Path $RunDir 'claude-result.json') $result -NoNewline
 
-# 8) parse tokens from the -p JSON result
-$usage=$null; $cost=$null; $turns=$null; $sid=$null
-try { $j = $result | ConvertFrom-Json; $usage=$j.usage; $cost=$j.total_cost_usd; $turns=$j.num_turns; $sid=$j.session_id }
-catch { Write-Warning "could not parse claude JSON result (see claude-result.json)" }
+# 8) parse tokens (robust: locate the result object even if any stray text precedes it)
+$usage=$null; $cost=$null; $turns=$null; $sid=$null; $apiError=$null
+try {
+    $k = $result.IndexOf('{"type":"result"')
+    $j = ($(if ($k -ge 0) { $result.Substring($k) } else { $result })) | ConvertFrom-Json
+    $usage=$j.usage; $cost=$j.total_cost_usd; $turns=$j.num_turns; $sid=$j.session_id; $apiError=$j.is_error
+} catch { Write-Warning "could not parse claude JSON result (see claude-result.json / claude-stderr.log)" }
 
 # 9) DONE (public) then ROBUST (holdout) — experimenter-verified on the produced tree
 function Invoke-Gate([string]$mode) {
@@ -112,10 +128,10 @@ $robust = $done -and (Invoke-Gate 'holdout')
 
 # 10) manifest
 [ordered]@{
-    runId=$RunId; arm=$Arm; model=$Model; maxTurns=$MaxTurns; sessionId=$sid
-    tokens=$usage; totalCostUsd=$cost; numTurns=$turns
+    runId=$RunId; arm=$Arm; model=$Model; effort=$Effort; maxBudgetUsd=$MaxBudgetUsd; sessionId=$sid
+    tokens=$usage; totalCostUsd=$cost; numTurns=$turns; apiError=$apiError
     done=$done; robust=$robust; workspace=$Ws
 } | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $RunDir 'manifest.json')
 
-Write-Host "DONE=$done  ROBUST=$robust  cost=`$$cost  turns=$turns" -ForegroundColor Green
+Write-Host "DONE=$done  ROBUST=$robust  apiError=$apiError  cost=`$$cost  turns=$turns" -ForegroundColor Green
 Write-Host "manifest: $(Join-Path $RunDir 'manifest.json')"
