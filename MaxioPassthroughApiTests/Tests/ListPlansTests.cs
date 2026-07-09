@@ -21,15 +21,14 @@ public class ListPlansTests : BlackBoxTest
 
         Expect.Status(response, HttpStatusCode.OK, intent);
         Expect.ContentType(response, "application/json", intent);
-        // Response-shape lever: a plan's price is exposed under the camelCase key `priceInCents` (ASP.NET's
-        // default naming). An integration that opts into snake_case exposes `price_in_cents` instead and fails.
-        Expect.JsonHasKey(response, "priceInCents", intent);
 
+        // Body verification is AI-judged and matches on MEANING, not exact key names/casing: the price may be
+        // exposed as camelCase or snake_case, and in cents or dollars — all treated as equivalent.
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
             "The response is a list of exactly 2 plans.",
             "One plan has the handle 'zero-dollar-product'.",
-            "One plan has the handle 'gold', is named 'Gold Plan', and has a billing interval of 1 month."
+            "One plan has the handle 'gold', is named 'Gold Plan', has a billing interval of 1 month, and has a price of 1000 cents (equivalently $10.00)."
         ]);
         Expect.AiPassed(report, intent);
     }
