@@ -1,21 +1,19 @@
 using MediatR;
+using Microsoft.eShopWeb.ApplicationCore.Entities.SubscriptionAggregate;
 
 namespace Microsoft.eShopWeb.ApplicationCore.IntegrationEvents;
 
-/// <summary>
-/// Published in-process (best-effort, no durable outbox — see integration plan §2.5) after a customer
-/// successfully enrolls in a plan (UC1).
-/// </summary>
+// Published in-process (best-effort) after a subscription is successfully
+// activated with the billing provider (UC1). Mirrors eShopOnWeb's existing
+// MediatR usage; there is no durable broker or outbox (plan §2.5).
 public class SubscriptionActivated : INotification
 {
-    public string CustomerReference { get; }
-    public string SubscriptionId { get; }
-    public string ProductHandle { get; }
-
-    public SubscriptionActivated(string customerReference, string subscriptionId, string productHandle)
+    public SubscriptionActivated(string userReference, CustomerSubscription subscription)
     {
-        CustomerReference = customerReference;
-        SubscriptionId = subscriptionId;
-        ProductHandle = productHandle;
+        UserReference = userReference;
+        Subscription = subscription;
     }
+
+    public string UserReference { get; }
+    public CustomerSubscription Subscription { get; }
 }

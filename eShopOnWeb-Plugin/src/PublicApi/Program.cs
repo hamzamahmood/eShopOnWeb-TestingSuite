@@ -2,14 +2,12 @@
 using System.Collections.Generic;
 using System.Text;
 using BlazorShared;
-using MediatR;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.eShopWeb;
 using Microsoft.eShopWeb.ApplicationCore.Constants;
 using Microsoft.eShopWeb.ApplicationCore.Interfaces;
-using Microsoft.eShopWeb.ApplicationCore.IntegrationEvents;
 using Microsoft.eShopWeb.ApplicationCore.Services;
 using Microsoft.eShopWeb.Infrastructure.Data;
 using Microsoft.eShopWeb.Infrastructure.Identity;
@@ -34,7 +32,6 @@ builder.Configuration.AddConfigurationFile("appsettings.test.json");
 builder.Logging.AddConsole();
 
 Microsoft.eShopWeb.Infrastructure.Dependencies.ConfigureServices(builder.Configuration, builder.Services);
-Microsoft.eShopWeb.Infrastructure.Dependencies.ConfigureMaxioServices(builder.Configuration, builder.Services);
 
 builder.Services.AddIdentity<ApplicationUser, IdentityRole>()
         .AddEntityFrameworkStores<AppIdentityDbContext>()
@@ -47,9 +44,12 @@ var catalogSettings = builder.Configuration.Get<CatalogSettings>() ?? new Catalo
 builder.Services.AddSingleton<IUriComposer>(new UriComposer(catalogSettings));
 builder.Services.AddScoped(typeof(IAppLogger<>), typeof(LoggerAdapter<>));
 builder.Services.AddScoped<ITokenClaimsService, IdentityTokenClaimService>();
-builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
-builder.Services.AddMemoryCache();
-builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(SubscriptionActivated).Assembly));
+
+// In-process MediatR pipeline (subscription lifecycle notifications, plan §2.5).
+builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssemblyContaining<Program>());
+
+// Maxio subscription integration (ISubscriptionService, IBillingClient, typed HttpClient).
+Microsoft.eShopWeb.Infrastructure.MaxioBillingServiceExtensions.AddMaxioBillingServices(builder.Services, builder.Configuration);
 
 var configSection = builder.Configuration.GetRequiredSection(BaseUrlConfiguration.CONFIG_NAME);
 builder.Services.Configure<BaseUrlConfiguration>(configSection);
@@ -87,12 +87,7 @@ builder.Services.AddCors(options =>
         });
 });
 
-builder.Services.AddControllers()
-    // Serialize enums (e.g. SubscriptionDto.State) as their names rather than integers in controller
-    // responses. Scoped to MVC controllers only (the MaxioBilling + passthrough surfaces); the
-    // minimal-API subscription/catalog endpoints use their own JSON options and are unaffected.
-    .AddJsonOptions(options =>
-        options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter()));
+builder.Services.AddControllers();
 builder.Services.AddAutoMapper(typeof(MappingProfile).Assembly);
 builder.Configuration.AddEnvironmentVariables();
 

@@ -1,23 +1,22 @@
 using MediatR;
-using Microsoft.eShopWeb.ApplicationCore.Models.Subscriptions;
+using Microsoft.eShopWeb.ApplicationCore.Entities.SubscriptionAggregate;
 
 namespace Microsoft.eShopWeb.ApplicationCore.IntegrationEvents;
 
-/// <summary>
-/// Published in-process after a lifecycle transition (pause/resume/cancel/reactivate — UC4) commits.
-/// </summary>
+// Published in-process (best-effort) after a lifecycle transition (UC4),
+// carrying the old and new state.
 public class SubscriptionStateChanged : INotification
 {
-    public string CustomerReference { get; }
-    public string SubscriptionId { get; }
-    public SubscriptionState OldState { get; }
-    public SubscriptionState NewState { get; }
-
-    public SubscriptionStateChanged(string customerReference, string subscriptionId, SubscriptionState oldState, SubscriptionState newState)
+    public SubscriptionStateChanged(int subscriptionId, SubscriptionLifecycleAction action, string oldState, string newState)
     {
-        CustomerReference = customerReference;
         SubscriptionId = subscriptionId;
+        Action = action;
         OldState = oldState;
         NewState = newState;
     }
+
+    public int SubscriptionId { get; }
+    public SubscriptionLifecycleAction Action { get; }
+    public string OldState { get; }
+    public string NewState { get; }
 }

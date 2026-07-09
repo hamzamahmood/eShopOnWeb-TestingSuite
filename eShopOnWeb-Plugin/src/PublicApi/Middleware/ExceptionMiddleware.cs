@@ -32,11 +32,6 @@ public class ExceptionMiddleware
     {
         context.Response.ContentType = "application/json";
 
-        // Every branch below surfaces exception.Message deliberately: each of these exception types is
-        // constructed with a safe, user-facing message at its throw site (see the ApplicationCore
-        // exception + MaxioBillingClient's WrapError/WrapRawError) - the real provider detail is logged
-        // there, never carried on the exception itself. This is not the same as serializing a raw
-        // .NET/EF exception.Message, which this middleware still must not do.
         if (exception is DuplicateException duplicationException)
         {
             context.Response.StatusCode = (int)HttpStatusCode.Conflict;
@@ -46,40 +41,24 @@ public class ExceptionMiddleware
                 Message = duplicationException.Message
             }.ToString());
         }
-        else if (exception is SubscriptionNotFoundException notFoundException)
+        else if (exception is BillingConfigurationException billingConfigurationException)
         {
-            context.Response.StatusCode = (int)HttpStatusCode.NotFound;
+            // Misconfiguration against the billing provider (e.g. stale seed ids).
+            context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
             await context.Response.WriteAsync(new ErrorDetails()
             {
                 StatusCode = context.Response.StatusCode,
-                Message = notFoundException.Message
+                Message = billingConfigurationException.Message
             }.ToString());
         }
-        else if (exception is IllegalSubscriptionTransitionException or StalePreviewException)
+        else if (exception is BillingProviderException billingProviderException)
         {
-            context.Response.StatusCode = (int)HttpStatusCode.Conflict;
+            // The billing provider rejected the request or was unreachable.
+            context.Response.StatusCode = (int)HttpStatusCode.BadGateway;
             await context.Response.WriteAsync(new ErrorDetails()
             {
                 StatusCode = context.Response.StatusCode,
-                Message = exception.Message
-            }.ToString());
-        }
-        else if (exception is PaymentVerificationRequiredException paymentException)
-        {
-            context.Response.StatusCode = (int)HttpStatusCode.UnprocessableEntity;
-            await context.Response.WriteAsync(new ErrorDetails()
-            {
-                StatusCode = context.Response.StatusCode,
-                Message = paymentException.Message + " " + string.Join(" ", paymentException.ProviderMessages)
-            }.ToString());
-        }
-        else if (exception is MeteredComponentMisconfiguredException or BillingProviderException)
-        {
-            context.Response.StatusCode = (int)HttpStatusCode.UnprocessableEntity;
-            await context.Response.WriteAsync(new ErrorDetails()
-            {
-                StatusCode = context.Response.StatusCode,
-                Message = exception.Message
+                Message = billingProviderException.Message
             }.ToString());
         }
         else

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <RootNamespace>Microsoft.eShopWeb.MaxioBillingTestApi</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Standalone verification host; not part of either solution. -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\src\ApplicationCore\ApplicationCore.csproj" />
+    <ProjectReference Include="..\src\Infrastructure\Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

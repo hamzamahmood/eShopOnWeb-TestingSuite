@@ -2,90 +2,128 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
-using System.Net;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using MaxioAdvancedBilling;
+using MaxioAdvancedBilling.Core.Authentication.Basic;
 using MaxioAdvancedBilling.Core.ErrorResponse;
 using MaxioAdvancedBilling.Core.Exceptions;
 using MaxioAdvancedBilling.Errors;
 using MaxioAdvancedBilling.Models;
+using MaxioAdvancedBilling.Models.AnyOf;
 using MaxioAdvancedBilling.Models.Enums;
+using MaxioAdvancedBilling.Servers;
+using Microsoft.eShopWeb.ApplicationCore.Entities.SubscriptionAggregate;
 using Microsoft.eShopWeb.ApplicationCore.Exceptions;
 using Microsoft.eShopWeb.ApplicationCore.Interfaces;
-using Microsoft.eShopWeb.ApplicationCore.Models.Subscriptions;
 using Microsoft.eShopWeb.Infrastructure.Configuration;
 using Microsoft.Extensions.Options;
-using DomainSubscriptionState = Microsoft.eShopWeb.ApplicationCore.Models.Subscriptions.SubscriptionState;
-using MaxioSubscription = MaxioAdvancedBilling.Models.Subscription;
-using MaxioSubscriptionState = MaxioAdvancedBilling.Models.Enums.SubscriptionState;
 
 namespace Microsoft.eShopWeb.Infrastructure.Services;
 
-/// <summary>
-/// The single class in this codebase that talks to Maxio Advanced Billing. Implements the provider-agnostic
-/// <see cref="IBillingClient"/> via the generated <see cref="MaxioAdvancedBillingClient"/> SDK. Every SDK
-/// call is wrapped to translate <c>SdkException&lt;TError&gt;</c> into the typed <c>ApplicationCore</c>
-/// exceptions - callers above this class never see a Maxio SDK type.
-/// </summary>
+// The single integration point with Maxio Advanced Billing. Implements the
+// provider-agnostic IBillingClient behind a typed HttpClient (supplied by
+// IHttpClientFactory) and the Maxio SDK. This class is the ONLY place that
+// touches the provider, and the only place that resolves the outbound base URL
+// (plan §2.2 / §2.3) — so retargeting prod / dev / mock is a config change here
+// and never leaks outward.
 public class MaxioBillingClient : IBillingClient
 {
     private readonly MaxioAdvancedBillingClient _client;
     private readonly MaxioSettings _settings;
     private readonly IAppLogger<MaxioBillingClient> _logger;
 
-    public MaxioBillingClient(MaxioAdvancedBillingClient client, IOptions<MaxioSettings> settings, IAppLogger<MaxioBillingClient> logger)
+    // Process-wide one-time validation of the metered component (plan UC2).
+    private static readonly SemaphoreSlim MeteredGate = new(1, 1);
+    private static volatile bool _meteredValidated;
+
+    public MaxioBillingClient(System.Net.Http.HttpClient httpClient,
+        IOptions<MaxioSettings> options,
+        IAppLogger<MaxioBillingClient> logger)
     {
-        _client = client;
-        _settings = settings.Value;
+        _settings = options.Value;
         _logger = logger;
+
+        // Resolve the outbound target once, here: an explicit Maxio:BaseUrl wins
+        // verbatim, otherwise the host is derived from the subdomain (+ region).
+        var resolvedBaseUrl = _settings.ResolveBaseUrl();
+        httpClient.BaseAddress = new Uri(resolvedBaseUrl);
+
+        var clientOptions = new MaxioAdvancedBillingClientOptions
+        {
+            Environment = _settings.IsEuRegion ? ServerEnvironment.Eu : ServerEnvironment.Us,
+            BasicAuth = new BasicAuthCredentials
+            {
+                // Maxio HTTP Basic: username = API key, password = literal "x".
+                Username = _settings.ApiKey ?? string.Empty,
+                Password = "x"
+            }
+        };
+
+        // Feed the resolved (already fully-substituted) URL into the SDK's server
+        // template. Because it carries no {site} token it is used verbatim — this
+        // is what makes an explicit Maxio:BaseUrl override win over the default.
+        if (_settings.IsEuRegion)
+        {
+            clientOptions.Server.Production.Eu.BaseUrl = resolvedBaseUrl;
+        }
+        else
+        {
+            clientOptions.Server.Production.Us.BaseUrl = resolvedBaseUrl;
+        }
+
+        _client = new MaxioAdvancedBillingClient(httpClient, clientOptions);
     }
 
-    public async Task<IReadOnlyList<PlanDto>> ListPlansAsync(CancellationToken cancellationToken)
-    {
-        try
+    // ----- UC1: plans & enrollment -------------------------------------------
+
+    public Task<IReadOnlyList<SubscriptionPlan>> ListPlansAsync(CancellationToken cancellationToken = default)
+        => ExecAsync("list plans", async () =>
         {
             var products = await _client.ProductFamilies.ListProductsForProductFamily(
-                _settings.ProductFamilyId.ToString(CultureInfo.InvariantCulture),
-                dateField: null, filter: null, startDate: null, endDate: null, startDatetime: null, endDatetime: null,
-                includeArchived: false, include: null, ct: cancellationToken);
+                FamilyIdParam(),
+                dateField: null, filter: null, startDate: null, endDate: null,
+                startDatetime: null, endDatetime: null, includeArchived: false, include: null,
+                page: 1, perPage: 200, ct: cancellationToken);
 
-            return products
-                .Select(p => p.Product)
-                .Where(p => p is not null && p.ArchivedAt is null)
-                .Select(p => MapPlan(p!))
+            IReadOnlyList<SubscriptionPlan> plans = products
+                .Select(p => MapPlan(p.Product))
+                .Where(p => p.Id != 0)
                 .ToList();
-        }
-        catch (SdkException<ListProductsForProductFamilyError> ex)
-        {
-            throw WrapError(ex.Error, "list plans");
-        }
-    }
+            return plans;
+        });
 
-    public async Task<string?> FindCustomerIdAsync(string customerReference, CancellationToken cancellationToken)
+    public async Task<SubscriptionPlan?> FindPlanAsync(string planHandle,
+        CancellationToken cancellationToken = default)
     {
+        EnsureConfigured();
         try
         {
-            var response = await _client.Customers.ReadCustomerByReference(customerReference, cancellationToken);
-            return response.Customer.Id!.Value.ToString(CultureInfo.InvariantCulture);
+            var response = await _client.Products.ReadProductByHandle(planHandle, cancellationToken);
+            return MapPlan(response.Product);
         }
-        catch (SdkException<RawError> ex) when (ex.Error.StatusCode == HttpStatusCode.NotFound)
+        catch (SdkException<RawError> ex) when ((int)ex.Error.StatusCode == 404)
         {
             return null;
         }
         catch (SdkException<RawError> ex)
         {
-            throw WrapRawError(ex.Error, "find customer");
+            throw Fail("find plan", ex.Error);
+        }
+        catch (Exception ex) when (Wrappable(ex))
+        {
+            throw Fail("find plan", ex);
         }
     }
 
-    public async Task<string> FindOrCreateCustomerAsync(string customerReference, string email, string? firstName, string? lastName, CancellationToken cancellationToken)
+    public async Task<int> EnsureCustomerAsync(string reference, string email, string firstName, string lastName,
+        CancellationToken cancellationToken = default)
     {
-        var existingId = await FindCustomerIdAsync(customerReference, cancellationToken);
-        if (existingId is not null)
+        EnsureConfigured();
+        var existing = await FindCustomerIdAsync(reference, cancellationToken);
+        if (existing is not null)
         {
-            return existingId;
+            return existing.Value;
         }
 
         try
@@ -94,457 +132,647 @@ public class MaxioBillingClient : IBillingClient
             {
                 Customer = new CreateCustomer
                 {
-                    FirstName = string.IsNullOrWhiteSpace(firstName) ? "eShopOnWeb" : firstName,
-                    LastName = string.IsNullOrWhiteSpace(lastName) ? "Customer" : lastName,
+                    FirstName = firstName,
+                    LastName = lastName,
                     Email = email,
-                    Reference = customerReference
+                    Reference = reference
                 }
             }, cancellationToken);
-            return created.Customer.Id!.Value.ToString(CultureInfo.InvariantCulture);
+
+            return created.Customer.Id
+                   ?? throw new BillingProviderException("Maxio create customer returned no customer id.");
         }
-        catch (Exception ex) when (ex is SdkException<CreateCustomerError> or JsonException)
+        catch (SdkException<CreateCustomerError> ex)
         {
-            // A concurrent request may have created this reference between our lookup above and this
-            // call. Recover by re-reading rather than assuming failure means no customer exists.
-            // (Also guards against CreateCustomerError's typed validation body - CustomerErrorResponse1 -
-            // not matching Maxio's actual documented errors:[] shape for this operation; see final report.)
-            var recovered = await FindCustomerIdAsync(customerReference, cancellationToken);
-            if (recovered is not null)
+            // A concurrent create can race on the unique reference; re-read once.
+            var raced = await FindCustomerIdAsync(reference, cancellationToken);
+            if (raced is not null)
             {
-                return recovered;
+                return raced.Value;
             }
 
-            _logger.LogWarning("Maxio create customer failed for reference {CustomerReference}: {ErrorMessage}", customerReference, ex.Message);
-            throw new BillingProviderException("The billing provider could not create a customer record for this user.", ex);
+            if (ex.Error.TryGetRawError(out var raw))
+            {
+                throw Fail("create customer", raw);
+            }
+
+            throw Fail("create customer", "the billing provider rejected the customer details.");
+        }
+        catch (Exception ex) when (Wrappable(ex))
+        {
+            throw Fail("create customer", ex);
         }
     }
 
-    public async Task<SubscriptionDto> CreateSubscriptionAsync(string providerCustomerId, string productHandle, CancellationToken cancellationToken)
+    public async Task<int?> FindCustomerIdAsync(string reference, CancellationToken cancellationToken = default)
     {
+        EnsureConfigured();
+        try
+        {
+            var response = await _client.Customers.ReadCustomerByReference(reference, cancellationToken);
+            return response.Customer.Id;
+        }
+        catch (SdkException<RawError> ex) when ((int)ex.Error.StatusCode == 404)
+        {
+            return null;
+        }
+        catch (SdkException<RawError> ex)
+        {
+            throw Fail("look up customer", ex.Error);
+        }
+        catch (Exception ex) when (Wrappable(ex))
+        {
+            throw Fail("look up customer", ex);
+        }
+    }
+
+    public async Task<CustomerSubscription> SubscribeAsync(int customerId, string planHandle,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureConfigured();
         try
         {
             var response = await _client.Subscriptions.CreateSubscription(new CreateSubscriptionRequest
             {
                 Subscription = new CreateSubscription
                 {
-                    ProductHandle = productHandle,
-                    CustomerId = ParseId(providerCustomerId),
-                    // The sandbox site uses Relationship Invoicing with default_payment_collection_method
-                    // "automatic" (confirmed via GET /site.json), which requires a card on file regardless
-                    // of the product's own require_credit_card=false setting. Both plans this integration
-                    // targets are deliberately payment-method-optional (integration plan §1.3/UC1), so
-                    // every subscription created here explicitly requests remittance (invoice-based, no
-                    // card required) collection rather than the site's automatic default.
+                    CustomerId = customerId,
+                    ProductHandle = planHandle,
+                    // Bill via invoice/remittance rather than automatic card capture, so the
+                    // demo enrolls without a payment method or 3-DS (plan UC0/UC1). The charge
+                    // accrues to the subscription's invoice.
                     PaymentCollectionMethod = CollectionMethod.Remittance
                 }
             }, cancellationToken);
-            return MapSubscription(response.Subscription!);
-        }
-        catch (SdkException<CreateSubscriptionError> ex)
-        {
-            throw ToSubscribeFailure(ex.Error, "create subscription");
-        }
-    }
-
-    public async Task<SubscriptionDto> ReadSubscriptionAsync(string subscriptionId, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var response = await _client.Subscriptions.ReadSubscription(ParseId(subscriptionId), include: null, ct: cancellationToken);
-            if (response.Subscription is null)
-            {
-                throw new SubscriptionNotFoundException(subscriptionId);
-            }
 
             return MapSubscription(response.Subscription);
         }
-        catch (SdkException<RawError> ex) when (ex.Error.StatusCode == HttpStatusCode.NotFound)
+        catch (SdkException<CreateSubscriptionError> ex)
         {
-            throw new SubscriptionNotFoundException(subscriptionId);
+            throw Fail("create subscription",
+                ex.Error.TryGetErrorListResponse1(out var errors) ? errors.Errors : null, ex.Error);
         }
-        catch (SdkException<RawError> ex)
+        catch (Exception ex) when (Wrappable(ex))
         {
-            throw WrapRawError(ex.Error, "read subscription");
+            throw Fail("create subscription", ex);
         }
     }
 
-    public async Task<IReadOnlyList<SubscriptionDto>> ListCustomerSubscriptionsAsync(string providerCustomerId, CancellationToken cancellationToken)
-    {
-        try
+    public Task<IReadOnlyList<CustomerSubscription>> ListCustomerSubscriptionsAsync(int customerId,
+        CancellationToken cancellationToken = default)
+        => ExecAsync("list customer subscriptions", async () =>
         {
-            var responses = await _client.Customers.ListCustomerSubscriptions(ParseId(providerCustomerId), cancellationToken);
-            return responses
-                .Where(r => r.Subscription is not null)
-                .Select(r => MapSubscription(r.Subscription!))
+            var subscriptions = await _client.Customers.ListCustomerSubscriptions(customerId, cancellationToken);
+            IReadOnlyList<CustomerSubscription> mapped = subscriptions
+                .Select(s => MapSubscription(s.Subscription))
                 .ToList();
-        }
-        catch (SdkException<RawError> ex)
-        {
-            throw WrapRawError(ex.Error, "list customer subscriptions");
-        }
-    }
+            return mapped;
+        });
 
-    public async Task VerifyMeteredComponentAsync(CancellationToken cancellationToken)
+    public async Task<CustomerSubscription?> GetSubscriptionAsync(int subscriptionId,
+        CancellationToken cancellationToken = default)
     {
-        Component? component;
+        EnsureConfigured();
         try
         {
-            var response = await _client.Components.FindComponent(_settings.MeteredComponentHandle, cancellationToken);
-            component = response.Component;
+            var response = await _client.Subscriptions.ReadSubscription(subscriptionId, include: null,
+                ct: cancellationToken);
+            return MapSubscription(response.Subscription);
         }
-        catch (SdkException<RawError> ex) when (ex.Error.StatusCode == HttpStatusCode.NotFound)
+        catch (SdkException<RawError> ex) when ((int)ex.Error.StatusCode == 404)
         {
-            throw new MeteredComponentMisconfiguredException(_settings.MeteredComponentHandle, "no component with this handle exists on the site");
+            return null;
         }
         catch (SdkException<RawError> ex)
         {
-            throw WrapRawError(ex.Error, "verify metered component");
+            throw Fail("read subscription", ex.Error);
         }
-
-        if (component is null)
+        catch (Exception ex) when (Wrappable(ex))
         {
-            throw new MeteredComponentMisconfiguredException(_settings.MeteredComponentHandle, "no component with this handle exists on the site");
-        }
-
-        if (component.Kind != ComponentKind.MeteredComponent)
-        {
-            throw new MeteredComponentMisconfiguredException(_settings.MeteredComponentHandle, $"kind is '{component.Kind}', not metered");
-        }
-
-        if (component.ProductFamilyId != _settings.ProductFamilyId)
-        {
-            throw new MeteredComponentMisconfiguredException(_settings.MeteredComponentHandle, "component does not belong to the configured product family");
+            throw Fail("read subscription", ex);
         }
     }
 
-    public async Task<UsageDto> RecordUsageAsync(string subscriptionId, decimal quantity, string? memo, CancellationToken cancellationToken)
+    // ----- UC2: pay-as-you-go usage ------------------------------------------
+
+    public async Task EnsureMeteredComponentAsync(CancellationToken cancellationToken = default)
     {
+        if (_meteredValidated)
+        {
+            return;
+        }
+
+        EnsureConfigured();
+        await MeteredGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (_meteredValidated)
+            {
+                return;
+            }
+
+            Component component;
+            try
+            {
+                var response = await _client.Components.FindComponent(_settings.MeteredComponentHandle,
+                    cancellationToken);
+                component = response.Component;
+            }
+            catch (SdkException<RawError> ex) when ((int)ex.Error.StatusCode == 404)
+            {
+                throw new BillingConfigurationException(
+                    $"The configured metered component '{_settings.MeteredComponentHandle}' does not resolve on " +
+                    "the billing provider. Re-check the seed (plan UC0).");
+            }
+            catch (SdkException<RawError> ex)
+            {
+                throw Fail("validate metered component", ex.Error);
+            }
+
+            var kind = component.Kind?.Value;
+            if (!string.Equals(kind, ComponentKind.MeteredComponent.Value, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new BillingConfigurationException(
+                    $"The configured component '{_settings.MeteredComponentHandle}' is of kind '{kind ?? "unknown"}' " +
+                    "but must be metered. Archive it and recreate it as metered (plan UC0).");
+            }
+
+            if (_settings.ProductFamilyId > 0 && component.ProductFamilyId is int familyId &&
+                familyId != _settings.ProductFamilyId)
+            {
+                throw new BillingConfigurationException(
+                    $"The metered component '{_settings.MeteredComponentHandle}' belongs to product family " +
+                    $"{familyId}, not the configured family {_settings.ProductFamilyId}. Recreate it on the " +
+                    "correct family (plan UC0).");
+            }
+
+            _meteredValidated = true;
+        }
+        finally
+        {
+            MeteredGate.Release();
+        }
+    }
+
+    public async Task<int> RecordUsageAsync(int subscriptionId, int quantity, string? memo,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureConfigured();
         try
         {
             var response = await _client.SubscriptionComponents.CreateUsage(
-                ParseId(subscriptionId),
-                (double)_settings.MeteredComponentId,
+                SubscriptionIdOrReference.Int(subscriptionId),
+                MeteredComponentId(),
                 new CreateUsageRequest
                 {
-                    Usage = new CreateUsage { Quantity = quantity, Memo = memo }
-                },
-                cancellationToken);
+                    Usage = new CreateUsage
+                    {
+                        Quantity = quantity,
+                        Memo = memo
+                    }
+                }, cancellationToken);
 
-            var usage = response.Usage;
-            return new UsageDto(
-                usage.Id?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
-                ReadQuantity(usage.Quantity),
-                usage.Memo,
-                usage.CreatedAt);
+            if (response.Usage.Quantity is { } recorded && recorded.TryGetInt(out var value))
+            {
+                return value;
+            }
+
+            return quantity;
         }
         catch (SdkException<CreateUsageError> ex)
         {
-            throw WrapError(ex.Error, "record usage");
+            throw Fail("record usage",
+                ex.Error.TryGetErrorListResponse1(out var errors) ? errors.Errors : null, ex.Error);
+        }
+        catch (Exception ex) when (Wrappable(ex))
+        {
+            throw Fail("record usage", ex);
         }
     }
 
-    public async Task<UsageSummaryDto> GetUsageSummaryAsync(string subscriptionId, CancellationToken cancellationToken)
-    {
-        try
+    public Task<int?> GetPeriodToDateUsageAsync(int subscriptionId, CancellationToken cancellationToken = default)
+        => ExecAsync<int?>("read usage total", async () =>
         {
-            var id = ParseId(subscriptionId);
-            var componentTask = _client.SubscriptionComponents.ReadSubscriptionComponent(id, (double)_settings.MeteredComponentId, cancellationToken);
-            var subscriptionTask = _client.Subscriptions.ReadSubscription(id, include: null, ct: cancellationToken);
-            await Task.WhenAll(componentTask, subscriptionTask);
+            // Constrain the running total to the current billing period.
+            var subscription = await _client.Subscriptions.ReadSubscription(subscriptionId, include: null,
+                ct: cancellationToken);
+            var since = subscription.Subscription?.CurrentPeriodStartedAt;
 
-            var component = (await componentTask).Component;
-            var subscription = (await subscriptionTask).Subscription;
+            var usages = await _client.SubscriptionComponents.ListUsages(
+                SubscriptionIdOrReference.Int(subscriptionId),
+                MeteredComponentId(),
+                sinceId: null, maxId: null, sinceDate: since, untilDate: null,
+                page: 1, perPage: 200, ct: cancellationToken);
 
-            return new UsageSummaryDto(
-                _settings.MeteredComponentHandle,
-                (decimal)(component?.UnitBalance ?? 0),
-                subscription?.CurrentPeriodStartedAt,
-                subscription?.CurrentPeriodEndsAt);
-        }
-        catch (SdkException<ReadSubscriptionComponentError> ex)
-        {
-            throw WrapError(ex.Error, "get usage summary");
-        }
-        catch (SdkException<RawError> ex)
-        {
-            throw WrapRawError(ex.Error, "get usage summary");
-        }
-    }
-
-    public async Task<PlanChangeQuoteDto> PreviewPlanChangeAsync(string subscriptionId, string targetProductHandle, PlanChangeTiming timing, CancellationToken cancellationToken)
-    {
-        var current = await ReadSubscriptionAsync(subscriptionId, cancellationToken);
-
-        if (timing == PlanChangeTiming.AtRenewal)
-        {
-            // UpdateSubscription (used to commit this timing) applies the new product at the normal
-            // start of the next period with no proration - there is nothing to quote.
-            return new PlanChangeQuoteDto(subscriptionId, current.ProductHandle, targetProductHandle, timing, 0m, current.NextAssessmentAt ?? DateTimeOffset.UtcNow);
-        }
-
-        try
-        {
-            var response = await _client.SubscriptionProducts.PreviewSubscriptionProductMigration(ParseId(subscriptionId), new SubscriptionMigrationPreviewRequest
+            var total = 0;
+            foreach (var usage in usages)
             {
-                Migration = new SubscriptionMigrationPreviewOptions
-                {
-                    ProductHandle = targetProductHandle,
-                    PreservePeriod = true
-                }
-            }, cancellationToken);
+                total += ReadQuantity(usage.Usage.Quantity);
+            }
 
-            // payment_due_in_cents is the actual net amount charged right now (>0 on an upgrade; 0 on a
-            // downgrade, since Maxio holds any excess as account credit rather than charging anything).
-            // prorated_adjustment_in_cents alone is only the old-plan credit component and, taken by
-            // itself, is negative even for upgrades - confirmed against the live sandbox (a basic->pro
-            // upgrade returned a negative prorated_adjustment despite genuinely owing money at
-            // payment_due). When nothing is due, credit_applied_in_cents (already negative) reports the
-            // credit the customer is receiving instead.
-            var migration = response.Migration;
-            var netCents = migration.PaymentDueInCents is > 0 ? migration.PaymentDueInCents.Value : migration.CreditAppliedInCents ?? 0;
-            var amount = netCents / 100m;
-            return new PlanChangeQuoteDto(subscriptionId, current.ProductHandle, targetProductHandle, timing, amount, DateTimeOffset.UtcNow);
-        }
-        catch (SdkException<PreviewSubscriptionProductMigrationError> ex)
-        {
-            throw WrapError(ex.Error, "preview plan change");
-        }
-    }
+            return total;
+        });
 
-    public async Task<SubscriptionDto> CommitPlanChangeAsync(string subscriptionId, string targetProductHandle, PlanChangeTiming timing, CancellationToken cancellationToken)
+    // ----- UC3: plan change --------------------------------------------------
+
+    public async Task<PlanChangePreview> PreviewPlanChangeAsync(int subscriptionId, string fromPlanHandle,
+        string toPlanHandle, bool applyNow, CancellationToken cancellationToken = default)
     {
-        var id = ParseId(subscriptionId);
-
-        if (timing == PlanChangeTiming.AtRenewal)
+        EnsureConfigured();
+        if (applyNow)
         {
             try
             {
-                var response = await _client.Subscriptions.UpdateSubscription(id, new UpdateSubscriptionRequest
+                var response = await _client.SubscriptionProducts.PreviewSubscriptionProductMigration(subscriptionId,
+                    new SubscriptionMigrationPreviewRequest
+                    {
+                        Migration = new SubscriptionMigrationPreviewOptions
+                        {
+                            ProductHandle = toPlanHandle,
+                            PreservePeriod = true
+                        }
+                    }, cancellationToken);
+
+                var m = response.Migration;
+                return new PlanChangePreview
                 {
-                    Subscription = new UpdateSubscription { ProductHandle = targetProductHandle }
-                }, cancellationToken);
-                return MapSubscription(response.Subscription!);
+                    FromPlanHandle = fromPlanHandle,
+                    ToPlanHandle = toPlanHandle,
+                    ApplyNow = true,
+                    ProratedAdjustmentInCents = m.ProratedAdjustmentInCents ?? 0,
+                    ChargeInCents = m.ChargeInCents ?? 0,
+                    CreditAppliedInCents = m.CreditAppliedInCents ?? 0,
+                    PaymentDueInCents = m.PaymentDueInCents ?? 0,
+                    EffectiveDate = null
+                };
             }
-            catch (SdkException<UpdateSubscriptionError> ex)
+            catch (SdkException<PreviewSubscriptionProductMigrationError> ex)
             {
-                throw ToSubscribeFailure(ex.Error, "commit plan change");
+                throw Fail("preview plan change",
+                    ex.Error.TryGetErrorListResponse1(out var errors) ? errors.Errors : null, ex.Error);
+            }
+            catch (Exception ex) when (Wrappable(ex))
+            {
+                throw Fail("preview plan change", ex);
             }
         }
 
+        // "At renewal": no proration. The amount effective from the next period is
+        // simply the target plan price; nothing is due now.
+        var targetPlan = await FindPlanAsync(toPlanHandle, cancellationToken);
+        var subscription = await GetSubscriptionAsync(subscriptionId, cancellationToken);
+        return new PlanChangePreview
+        {
+            FromPlanHandle = fromPlanHandle,
+            ToPlanHandle = toPlanHandle,
+            ApplyNow = false,
+            ChargeInCents = targetPlan?.PriceInCents ?? 0,
+            PaymentDueInCents = 0,
+            EffectiveDate = subscription?.CurrentPeriodEndsAt
+        };
+    }
+
+    public async Task<CustomerSubscription> ChangePlanAsync(int subscriptionId, string toPlanHandle, bool applyNow,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureConfigured();
+        if (applyNow)
+        {
+            try
+            {
+                var response = await _client.SubscriptionProducts.MigrateSubscriptionProduct(subscriptionId,
+                    new SubscriptionProductMigrationRequest
+                    {
+                        Migration = new SubscriptionProductMigration
+                        {
+                            ProductHandle = toPlanHandle,
+                            PreservePeriod = true
+                        }
+                    }, cancellationToken);
+
+                return MapSubscription(response.Subscription);
+            }
+            catch (SdkException<MigrateSubscriptionProductError> ex)
+            {
+                throw Fail("change plan",
+                    ex.Error.TryGetErrorListResponse1(out var errors) ? errors.Errors : null, ex.Error);
+            }
+            catch (Exception ex) when (Wrappable(ex))
+            {
+                throw Fail("change plan", ex);
+            }
+        }
+
+        // Delayed product change: takes effect at the next renewal.
         try
         {
-            var response = await _client.SubscriptionProducts.MigrateSubscriptionProduct(id, new SubscriptionProductMigrationRequest
-            {
-                Migration = new SubscriptionProductMigration { ProductHandle = targetProductHandle, PreservePeriod = true }
-            }, cancellationToken);
-            return MapSubscription(response.Subscription!);
+            var response = await _client.Subscriptions.UpdateSubscription(subscriptionId,
+                new UpdateSubscriptionRequest
+                {
+                    Subscription = new UpdateSubscription
+                    {
+                        ProductHandle = toPlanHandle,
+                        ProductChangeDelayed = true
+                    }
+                }, cancellationToken);
+
+            return MapSubscription(response.Subscription);
         }
-        catch (SdkException<MigrateSubscriptionProductError> ex)
+        catch (SdkException<UpdateSubscriptionError> ex)
         {
-            throw ToSubscribeFailure(ex.Error, "commit plan change");
+            if (ex.Error.TryGetRawError(out var raw))
+            {
+                throw Fail("schedule plan change", raw);
+            }
+
+            throw Fail("schedule plan change", "the billing provider rejected the scheduled plan change.");
+        }
+        catch (Exception ex) when (Wrappable(ex))
+        {
+            throw Fail("schedule plan change", ex);
         }
     }
 
-    public async Task<SubscriptionDto> PauseAsync(string subscriptionId, CancellationToken cancellationToken)
+    // ----- UC4: lifecycle ----------------------------------------------------
+
+    public async Task<CustomerSubscription> PauseAsync(int subscriptionId,
+        CancellationToken cancellationToken = default)
     {
+        EnsureConfigured();
         try
         {
-            var response = await _client.SubscriptionStatus.PauseSubscription(ParseId(subscriptionId), body: null, ct: cancellationToken);
-            return MapSubscription(response.Subscription!);
+            var response = await _client.SubscriptionStatus.PauseSubscription(subscriptionId, body: null,
+                ct: cancellationToken);
+            return MapSubscription(response.Subscription);
         }
         catch (SdkException<PauseSubscriptionError> ex)
         {
-            throw WrapError(ex.Error, "pause subscription");
+            throw Fail("pause subscription",
+                ex.Error.TryGetErrorListResponse1(out var errors) ? errors.Errors : null, ex.Error);
+        }
+        catch (Exception ex) when (Wrappable(ex))
+        {
+            throw Fail("pause subscription", ex);
         }
     }
 
-    public async Task<SubscriptionDto> ResumeAsync(string subscriptionId, CancellationToken cancellationToken)
+    public async Task<CustomerSubscription> ResumeAsync(int subscriptionId,
+        CancellationToken cancellationToken = default)
     {
+        EnsureConfigured();
         try
         {
-            var response = await _client.SubscriptionStatus.ResumeSubscription(ParseId(subscriptionId), calendarBillingResumptionCharge: null, ct: cancellationToken);
-            return MapSubscription(response.Subscription!);
+            var response = await _client.SubscriptionStatus.ResumeSubscription(subscriptionId,
+                calendarBillingResumptionCharge: null, ct: cancellationToken);
+            return MapSubscription(response.Subscription);
         }
         catch (SdkException<ResumeSubscriptionError> ex)
         {
-            throw WrapError(ex.Error, "resume subscription");
+            throw Fail("resume subscription",
+                ex.Error.TryGetErrorListResponse1(out var errors) ? errors.Errors : null, ex.Error);
+        }
+        catch (Exception ex) when (Wrappable(ex))
+        {
+            throw Fail("resume subscription", ex);
         }
     }
 
-    public async Task<SubscriptionDto> CancelAsync(string subscriptionId, CancelTiming timing, string? reason, CancellationToken cancellationToken)
+    public async Task<CustomerSubscription> CancelAsync(int subscriptionId, bool endOfPeriod, string? reason,
+        CancellationToken cancellationToken = default)
     {
+        EnsureConfigured();
+        if (endOfPeriod)
+        {
+            try
+            {
+                await _client.SubscriptionStatus.InitiateDelayedCancellation(subscriptionId,
+                    new CancellationRequest
+                    {
+                        Subscription = new CancellationOptions
+                        {
+                            CancellationMessage = reason,
+                            CancelAtEndOfPeriod = true
+                        }
+                    }, cancellationToken);
+            }
+            catch (SdkException<InitiateDelayedCancellationError> ex)
+            {
+                throw Fail("schedule cancellation",
+                    ex.Error.TryGetErrorListResponse1(out var errors) ? errors.Errors : null, ex.Error);
+            }
+            catch (Exception ex) when (Wrappable(ex))
+            {
+                throw Fail("schedule cancellation", ex);
+            }
+
+            // Delayed cancellation returns its own payload; re-read the subscription
+            // so callers observe the authoritative (pending-cancellation) state.
+            var refreshed = await GetSubscriptionAsync(subscriptionId, cancellationToken);
+            return refreshed ?? throw new BillingProviderException(
+                $"Subscription {subscriptionId} could not be re-read after scheduling cancellation.");
+        }
+
         try
         {
-            var response = await _client.SubscriptionStatus.CancelSubscription(ParseId(subscriptionId), new CancellationRequest
-            {
-                Subscription = new CancellationOptions
+            var response = await _client.SubscriptionStatus.CancelSubscription(subscriptionId,
+                new CancellationRequest
                 {
-                    CancellationMessage = reason,
-                    CancelAtEndOfPeriod = timing == CancelTiming.EndOfPeriod
-                }
-            }, cancellationToken);
-            return MapSubscription(response.Subscription!);
+                    Subscription = new CancellationOptions
+                    {
+                        CancellationMessage = reason,
+                        CancelAtEndOfPeriod = false
+                    }
+                }, cancellationToken);
+            return MapSubscription(response.Subscription);
         }
         catch (SdkException<CancelSubscriptionApiError> ex)
         {
-            throw WrapError(ex.Error, "cancel subscription");
+            if (ex.Error.TryGetRawError(out var raw))
+            {
+                throw Fail("cancel subscription", raw);
+            }
+
+            throw Fail("cancel subscription", "the billing provider rejected the cancellation.");
+        }
+        catch (Exception ex) when (Wrappable(ex))
+        {
+            throw Fail("cancel subscription", ex);
         }
     }
 
-    public async Task<SubscriptionDto> ReactivateAsync(string subscriptionId, CancellationToken cancellationToken)
+    public async Task<CustomerSubscription> ReactivateAsync(int subscriptionId,
+        CancellationToken cancellationToken = default)
     {
+        EnsureConfigured();
         try
         {
-            var response = await _client.SubscriptionStatus.ReactivateSubscription(ParseId(subscriptionId), body: null, ct: cancellationToken);
-            return MapSubscription(response.Subscription!);
+            var response = await _client.SubscriptionStatus.ReactivateSubscription(subscriptionId, body: null,
+                ct: cancellationToken);
+            return MapSubscription(response.Subscription);
         }
         catch (SdkException<ReactivateSubscriptionError> ex)
         {
-            throw WrapError(ex.Error, "reactivate subscription");
+            throw Fail("reactivate subscription",
+                ex.Error.TryGetErrorListResponse1(out var errors) ? errors.Errors : null, ex.Error);
         }
-    }
-
-    private static bool ContainsPaymentKeyword(string message) =>
-        message.Contains("card", StringComparison.OrdinalIgnoreCase) ||
-        message.Contains("payment", StringComparison.OrdinalIgnoreCase) ||
-        message.Contains("3-d secure", StringComparison.OrdinalIgnoreCase) ||
-        message.Contains("3d secure", StringComparison.OrdinalIgnoreCase) ||
-        message.Contains("3ds", StringComparison.OrdinalIgnoreCase);
-
-    private Exception ToSubscribeFailure(CreateSubscriptionError error, string operation)
-    {
-        if (error.TryGetErrorListResponse1(out var validation))
+        catch (Exception ex) when (Wrappable(ex))
         {
-            if (validation.Errors.Any(ContainsPaymentKeyword))
-            {
-                return new PaymentVerificationRequiredException(validation.Errors);
-            }
-
-            _logger.LogWarning("Maxio {Operation} rejected the request: {Errors}", operation, string.Join("; ", validation.Errors));
-            return new BillingProviderException("The billing provider rejected this request: " + string.Join(" ", validation.Errors));
+            throw Fail("reactivate subscription", ex);
         }
-
-        return WrapError(error, operation);
     }
 
-    private Exception ToSubscribeFailure(MigrateSubscriptionProductError error, string operation)
+    // ----- mapping helpers ---------------------------------------------------
+
+    private static SubscriptionPlan MapPlan(Product product) => new()
     {
-        if (error.TryGetErrorListResponse1(out var validation))
-        {
-            if (validation.Errors.Any(ContainsPaymentKeyword))
-            {
-                return new PaymentVerificationRequiredException(validation.Errors);
-            }
+        Id = product.Id ?? 0,
+        Handle = product.Handle ?? string.Empty,
+        Name = product.Name ?? string.Empty,
+        PriceInCents = product.PriceInCents ?? 0,
+        Interval = product.Interval ?? 1,
+        IntervalUnit = product.IntervalUnit?.Value ?? "month"
+    };
 
-            _logger.LogWarning("Maxio {Operation} rejected the request: {Errors}", operation, string.Join("; ", validation.Errors));
-            return new BillingProviderException("The billing provider rejected this request: " + string.Join(" ", validation.Errors));
-        }
-
-        return WrapError(error, operation);
-    }
-
-    private Exception ToSubscribeFailure(UpdateSubscriptionError error, string operation)
+    private static CustomerSubscription MapSubscription(Subscription? subscription)
     {
-        if (error.TryGetErrorListResponse1(out var validation))
+        if (subscription is null)
         {
-            if (validation.Errors.Any(ContainsPaymentKeyword))
-            {
-                return new PaymentVerificationRequiredException(validation.Errors);
-            }
-
-            _logger.LogWarning("Maxio {Operation} rejected the request: {Errors}", operation, string.Join("; ", validation.Errors));
-            return new BillingProviderException("The billing provider rejected this request: " + string.Join(" ", validation.Errors));
+            throw new BillingProviderException("The billing provider returned an empty subscription payload.");
         }
 
-        return WrapError(error, operation);
-    }
-
-    private BillingProviderException WrapError(MaxioAdvancedBilling.Core.ErrorResponse.ApiError error, string operation)
-    {
-        if (error.TryGetRawError(out var raw))
+        return new CustomerSubscription
         {
-            return WrapRawError(raw, operation);
-        }
-
-        _logger.LogWarning("Maxio {Operation} returned an unhandled validation error", operation);
-        return new BillingProviderException($"The billing provider could not complete '{operation}'.");
+            Id = subscription.Id ?? 0,
+            CustomerId = subscription.Customer?.Id ?? 0,
+            CustomerReference = subscription.Customer?.Reference,
+            PlanHandle = subscription.Product?.Handle,
+            PlanName = subscription.Product?.Name,
+            PriceInCents = subscription.ProductPriceInCents,
+            State = subscription.State?.Value ?? string.Empty,
+            CurrentPeriodEndsAt = subscription.CurrentPeriodEndsAt,
+            CancelAtEndOfPeriod = subscription.CancelAtEndOfPeriod ?? false,
+            CanceledAt = subscription.CanceledAt,
+            DelayedCancelAt = subscription.DelayedCancelAt,
+            NextPlanHandle = subscription.NextProductHandle
+        };
     }
 
-    private BillingProviderException WrapRawError(RawError raw, string operation)
-    {
-        _logger.LogWarning("Maxio {Operation} failed: HTTP {StatusCode} {Body}", operation, (int)raw.StatusCode, SafeReadBody(raw));
-        return new BillingProviderException($"The billing provider could not complete '{operation}'.");
-    }
-
-    private static string SafeReadBody(RawError raw)
-    {
-        try
-        {
-            return raw.ReadAsString();
-        }
-        catch
-        {
-            return "<unreadable body>";
-        }
-    }
-
-    private static double ParseId(string id) => double.Parse(id, NumberStyles.Float, CultureInfo.InvariantCulture);
-
-    private static decimal ReadQuantity(MaxioAdvancedBilling.Models.AnyOf.Quantity1? quantity)
+    private static int ReadQuantity(Quantity1? quantity)
     {
         if (quantity is null)
         {
-            return 0m;
+            return 0;
         }
 
-        if (quantity.TryGetDouble(out var d))
+        if (quantity.TryGetInt(out var intValue))
         {
-            return (decimal)d;
+            return intValue;
         }
 
-        if (quantity.TryGetString(out var s) && decimal.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
+        if (quantity.TryGetString(out var stringValue) &&
+            int.TryParse(stringValue, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
         {
             return parsed;
         }
 
-        return 0m;
+        return 0;
     }
 
-    private static PlanDto MapPlan(Product product) => new(
-        product.Handle ?? string.Empty,
-        product.Name ?? string.Empty,
-        (product.PriceInCents ?? 0) / 100m,
-        (int)(product.Interval ?? 1),
-        product.IntervalUnit?.Value ?? "month",
-        product.RequireCreditCard ?? false);
+    private ComponentIdModel MeteredComponentId() =>
+        _settings.MeteredComponentId > 0
+            ? ComponentIdModel.Int(_settings.MeteredComponentId)
+            : ComponentIdModel.String($"handle:{_settings.MeteredComponentHandle}");
 
-    private static SubscriptionDto MapSubscription(MaxioSubscription subscription) => new(
-        subscription.Id?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
-        subscription.Customer?.Reference ?? string.Empty,
-        subscription.Product?.Handle ?? string.Empty,
-        subscription.Product?.Name ?? string.Empty,
-        (subscription.ProductPriceInCents ?? 0) / 100m,
-        MapState(subscription.State),
-        (subscription.ProductPriceInCents ?? 0) / 100m,
-        subscription.NextAssessmentAt);
+    private string FamilyIdParam() =>
+        _settings.ProductFamilyId > 0
+            ? _settings.ProductFamilyId.ToString(CultureInfo.InvariantCulture)
+            : $"handle:{_settings.ProductFamilyHandle}";
 
-    private static DomainSubscriptionState MapState(MaxioSubscriptionState? state)
+    // ----- error handling ----------------------------------------------------
+
+    // Fails fast (no network) when the API key is absent, so an unconfigured
+    // environment surfaces a clear configuration error instead of attempting an
+    // outbound call — and the best-effort order-usage hook becomes a no-op.
+    private void EnsureConfigured()
     {
-        if (state is null)
+        if (string.IsNullOrWhiteSpace(_settings.ApiKey))
         {
-            return DomainSubscriptionState.Other;
+            throw new BillingConfigurationException(
+                "Maxio is not configured: set Maxio:ApiKey via .NET user-secrets (see plan §5).");
+        }
+    }
+
+    // Wraps read/list operations that only ever surface SdkException<RawError>.
+    private async Task<T> ExecAsync<T>(string action, Func<Task<T>> call)
+    {
+        EnsureConfigured();
+        try
+        {
+            return await call();
+        }
+        catch (SdkException<RawError> ex)
+        {
+            throw Fail(action, ex.Error);
+        }
+        catch (Exception ex) when (Wrappable(ex))
+        {
+            throw Fail(action, ex);
+        }
+    }
+
+    private BillingProviderException Fail(string action, RawError raw)
+    {
+        var body = Summarize(raw.ReadAsString());
+        var message = string.IsNullOrEmpty(body)
+            ? $"Maxio {action} failed with HTTP {(int)raw.StatusCode} ({raw.StatusCode})."
+            : $"Maxio {action} failed with HTTP {(int)raw.StatusCode}: {body}";
+        _logger.LogWarning(message);
+        return new BillingProviderException(message);
+    }
+
+    private BillingProviderException Fail(string action, IReadOnlyList<string>? messages, ApiError fallback)
+    {
+        if (messages is { Count: > 0 })
+        {
+            var message = $"Maxio {action} failed: {string.Join("; ", messages)}";
+            _logger.LogWarning(message);
+            return new BillingProviderException(message);
         }
 
-        return state.Value switch
+        if (fallback.TryGetRawError(out var raw))
         {
-            "active" => DomainSubscriptionState.Active,
-            "trialing" => DomainSubscriptionState.Trialing,
-            "on_hold" => DomainSubscriptionState.OnHold,
-            "past_due" => DomainSubscriptionState.PastDue,
-            "canceled" => DomainSubscriptionState.Canceled,
-            "unpaid" => DomainSubscriptionState.Unpaid,
-            "expired" => DomainSubscriptionState.Expired,
-            _ => DomainSubscriptionState.Other
-        };
+            return Fail(action, raw);
+        }
+
+        return Fail(action, "the billing provider rejected the request.");
+    }
+
+    private BillingProviderException Fail(string action, string detail)
+    {
+        var message = $"Maxio {action} failed: {detail}";
+        _logger.LogWarning(message);
+        return new BillingProviderException(message);
+    }
+
+    private BillingProviderException Fail(string action, Exception ex)
+    {
+        var message = $"Maxio {action} failed: {ex.Message}";
+        _logger.LogWarning(message);
+        return new BillingProviderException(message, ex);
+    }
+
+    // Domain exceptions we raise deliberately, and cancellation, must pass through.
+    private static bool Wrappable(Exception ex) =>
+        ex is not (OperationCanceledException or BillingProviderException or BillingConfigurationException);
+
+    private static string Summarize(string? body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return string.Empty;
+        }
+
+        var collapsed = body.Replace('\r', ' ').Replace('\n', ' ').Trim();
+        return collapsed.Length > 500 ? collapsed[..500] + "…" : collapsed;
     }
 }

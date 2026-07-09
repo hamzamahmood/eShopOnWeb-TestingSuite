@@ -1,78 +1,51 @@
-using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
-using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.eShopWeb.ApplicationCore.Exceptions;
 using Microsoft.eShopWeb.ApplicationCore.Interfaces;
 using MinimalApi.Endpoint;
 
 namespace Microsoft.eShopWeb.PublicApi.SubscriptionEndpoints;
 
-public class SubscribeRequest : BaseRequest
+/// <summary>
+/// Enrolls the authenticated caller in a plan (UC1). Idempotent: an existing
+/// active subscription is returned rather than creating a second enrollment.
+/// </summary>
+public class SubscribeEndpoint : IEndpoint<IResult, SubscribeRequest, ClaimsPrincipal>
 {
-    [Required]
-    public string ProductHandle { get; set; } = string.Empty;
-}
+    private readonly ISubscriptionService _subscriptionService;
 
-public class SubscribeResponse : BaseResponse
-{
-    public SubscribeResponse(System.Guid correlationId) : base(correlationId) { }
-    public SubscribeResponse() { }
+    public SubscribeEndpoint(ISubscriptionService subscriptionService)
+    {
+        _subscriptionService = subscriptionService;
+    }
 
-    public string SubscriptionId { get; set; } = string.Empty;
-    public string ProductHandle { get; set; } = string.Empty;
-    public string ProductName { get; set; } = string.Empty;
-    public decimal Price { get; set; }
-    public string State { get; set; } = string.Empty;
-    public System.DateTimeOffset? NextAssessmentAt { get; set; }
-}
-
-/// <summary>UC1: enrolls the authenticated user in a plan.</summary>
-public class SubscribeEndpoint : IEndpoint<IResult, SubscribeRequest, SubscriptionEndpointContext>
-{
     public void AddRoute(IEndpointRouteBuilder app)
     {
         app.MapPost("api/subscriptions",
-            [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)] async
-            (SubscribeRequest request, ISubscriptionService subscriptionService, ClaimsPrincipal user, CancellationToken cancellationToken) =>
-            {
-                return await HandleAsync(request, EndpointContext.From(subscriptionService, user, cancellationToken));
-            })
-            .Produces<SubscribeResponse>()
+                [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)] async
+                (SubscribeRequest request, ClaimsPrincipal user) => await HandleAsync(request, user))
+            .Produces<CustomerSubscriptionDto>()
             .WithTags("SubscriptionEndpoints");
     }
 
-    public async Task<IResult> HandleAsync(SubscribeRequest request, SubscriptionEndpointContext context)
+    public async Task<IResult> HandleAsync(SubscribeRequest request, ClaimsPrincipal user)
     {
-        if (!RequestValidation.TryValidate(request, out var errors))
+        var reference = user.Identity?.Name;
+        if (string.IsNullOrEmpty(reference))
         {
-            return Results.ValidationProblem(errors);
+            return Results.Unauthorized();
         }
 
-        var response = new SubscribeResponse(request.CorrelationId());
-
-        try
+        if (string.IsNullOrWhiteSpace(request.PlanHandle))
         {
-            var subscription = await context.SubscriptionService.SubscribeAsync(
-                context.CallerUserId, context.CallerUserId, null, null, request.ProductHandle, context.CancellationToken);
-
-            response.SubscriptionId = subscription.SubscriptionId;
-            response.ProductHandle = subscription.ProductHandle;
-            response.ProductName = subscription.ProductName;
-            response.Price = subscription.Price;
-            response.State = subscription.State.ToString();
-            response.NextAssessmentAt = subscription.NextAssessmentAt;
-
-            return Results.Created($"api/subscriptions/{subscription.SubscriptionId}", response);
+            return Results.BadRequest("A plan handle is required.");
         }
-        catch (PaymentVerificationRequiredException ex)
-        {
-            return Results.UnprocessableEntity(new { ex.Message, ex.ProviderMessages });
-        }
+
+        var subscription = await _subscriptionService.SubscribeAsync(reference, request.PlanHandle);
+        return Results.Ok(subscription.ToDto());
     }
 }

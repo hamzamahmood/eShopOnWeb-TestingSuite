@@ -1,4 +1,4 @@
-using System.Net.Mime;
+﻿using System.Net.Mime;
 using Ardalis.ListStartupServices;
 using Azure.Identity;
 using BlazorAdmin;
@@ -18,22 +18,15 @@ using Microsoft.eShopWeb.Web;
 using Microsoft.eShopWeb.Web.Configuration;
 using Microsoft.eShopWeb.Web.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
-using Microsoft.eShopWeb.Web.Pages;
-using Microsoft.FeatureManagement;
-using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.AddConsole();
 
-builder.Configuration.AddEnvironmentVariables();
-
-if (builder.Environment.IsDevelopment() || builder.Environment.EnvironmentName == "Docker")
-{
+if (builder.Environment.IsDevelopment() || builder.Environment.EnvironmentName == "Docker"){
     // Configure SQL Server (local)
     Microsoft.eShopWeb.Infrastructure.Dependencies.ConfigureServices(builder.Configuration, builder.Services);
 }
-else
-{
+else{
     // Configure SQL Server (prod)
     var credential = new ChainedTokenCredential(new AzureDeveloperCliCredential(), new DefaultAzureCredential());
     builder.Configuration.AddAzureKeyVault(new Uri(builder.Configuration["AZURE_KEY_VAULT_ENDPOINT"] ?? ""), credential);
@@ -48,8 +41,6 @@ else
         options.UseSqlServer(connectionString, sqlOptions => sqlOptions.EnableRetryOnFailure());
     });
 }
-
-Microsoft.eShopWeb.Infrastructure.Dependencies.ConfigureMaxioServices(builder.Configuration, builder.Services);
 
 builder.Services.AddCookieSettings();
 
@@ -67,6 +58,7 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole>()
                            .AddDefaultTokenProviders();
 
 builder.Services.AddScoped<ITokenClaimsService, IdentityTokenClaimService>();
+builder.Configuration.AddEnvironmentVariables();
 builder.Services.AddCoreServices(builder.Configuration);
 builder.Services.AddWebServices(builder.Configuration);
 
@@ -101,45 +93,6 @@ builder.Services.Configure<ServiceConfig>(config =>
     config.Path = "/allservices";
 });
 
-// Initialize useAppConfig parameter
-var useAppConfig = false;
-Boolean.TryParse(builder.Configuration["UseAppConfig"], out useAppConfig);
-// Add Azure App Configuration middleware to the container of services.
-builder.Services.AddAzureAppConfiguration();
-
-// Load configuration from Azure App Configuration
-if (useAppConfig)
-{
-    builder.Configuration.AddAzureAppConfiguration(options =>
-    {
-        var appConfigEndpoint = builder.Configuration["AppConfigEndpoint"];
-
-        if (String.IsNullOrEmpty(appConfigEndpoint))
-        {
-            throw new Exception("AppConfigEndpoint is not set in the configuration. Please set AppConfigEndpoint in the configuration.");
-        }
-
-        options.Connect(new Uri(appConfigEndpoint), new DefaultAzureCredential())
-        .ConfigureRefresh(refresh =>
-        {
-            // Default cache expiration is 30 seconds
-            refresh.Register("eShopWeb:Settings:NoResultsMessage").SetRefreshInterval(TimeSpan.FromSeconds(10));
-        })
-        .UseFeatureFlags(featureFlagOptions =>
-        {
-            // Default cache expiration is 30 seconds
-            featureFlagOptions.SetRefreshInterval(TimeSpan.FromSeconds(10));
-        });
-    });
-}
-
-// Add Feature Management AFTER Azure App Configuration is loaded
-builder.Services.AddFeatureManagement();
-
-// Bind configuration "eShopWeb:Settings" section to the Settings object
-// This must be AFTER Azure App Configuration is added so it picks up remote values
-builder.Services.Configure<SettingsViewModel>(builder.Configuration.GetSection("eShopWeb:Settings"));
-
 // blazor configuration
 var configSection = builder.Configuration.GetRequiredSection(BaseUrlConfiguration.CONFIG_NAME);
 builder.Services.Configure<BaseUrlConfiguration>(configSection);
@@ -161,12 +114,6 @@ builder.Services.AddBlazorServices();
 builder.Services.AddDatabaseDeveloperPageExceptionFilter();
 
 var app = builder.Build();
-
-if (useAppConfig)
-{
-    // Use Azure App Configuration middleware for dynamic configuration refresh.
-    app.UseAzureAppConfiguration();
-}
 
 app.Logger.LogInformation("App created...");
 

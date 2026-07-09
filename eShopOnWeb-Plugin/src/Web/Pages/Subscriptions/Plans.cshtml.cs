@@ -4,69 +4,89 @@ using Ardalis.GuardClauses;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.eShopWeb.ApplicationCore.Entities.SubscriptionAggregate;
 using Microsoft.eShopWeb.ApplicationCore.Exceptions;
 using Microsoft.eShopWeb.ApplicationCore.Interfaces;
-using Microsoft.eShopWeb.ApplicationCore.Models.Subscriptions;
 
 namespace Microsoft.eShopWeb.Web.Pages.Subscriptions;
 
+// UC1 — browse plans and subscribe (mirrors Pages/Basket/Index). Customer-facing,
+// so [Authorize] with cookie auth (plan §2.4).
 [Authorize]
 public class PlansModel : PageModel
 {
     private readonly ISubscriptionService _subscriptionService;
-    private readonly IAppLogger<PlansModel> _logger;
 
-    public PlansModel(ISubscriptionService subscriptionService, IAppLogger<PlansModel> logger)
+    public PlansModel(ISubscriptionService subscriptionService)
     {
         _subscriptionService = subscriptionService;
-        _logger = logger;
     }
 
-    public IReadOnlyList<PlanDto> Plans { get; private set; } = new List<PlanDto>();
-
-    [BindProperty]
-    public SubscribeInput Input { get; set; } = new();
+    public IReadOnlyList<SubscriptionPlan> Plans { get; private set; } = new List<SubscriptionPlan>();
+    public CustomerSubscription? ActiveSubscription { get; private set; }
 
     [TempData]
     public string? StatusMessage { get; set; }
 
-    public async Task OnGet()
+    public string? ErrorMessage { get; private set; }
+
+    public async Task OnGetAsync()
     {
-        Plans = await _subscriptionService.ListPlansAsync(HttpContext.RequestAborted);
+        await LoadAsync();
     }
 
-    public async Task<IActionResult> OnPostSubscribeAsync()
+    public async Task<IActionResult> OnPostAsync(string planHandle)
     {
-        if (!ModelState.IsValid)
+        if (string.IsNullOrWhiteSpace(planHandle))
         {
-            Plans = await _subscriptionService.ListPlansAsync(HttpContext.RequestAborted);
+            await LoadAsync();
+            ErrorMessage = "Please choose a plan to subscribe to.";
             return Page();
         }
 
-        // eShopOnWeb identifies the signed-in user by User.Identity.Name (email), the same stable
-        // reference OrderController/Checkout already use - not the Identity GUID id, which the
-        // PublicApi's JWT never carries (see IdentityTokenClaimService), so both hosts must agree on
-        // the same reference for a user's Maxio customer record to be found consistently.
-        Guard.Against.Null(User?.Identity?.Name, nameof(User.Identity.Name));
-        var userId = User.Identity.Name!;
-
+        var userReference = GetUserReference();
         try
         {
-            await _subscriptionService.SubscribeAsync(userId, userId, null, null, Input.ProductHandle, HttpContext.RequestAborted);
-            StatusMessage = "You're subscribed! Your new plan is shown below.";
-            return RedirectToPage("Mine");
+            var subscription = await _subscriptionService.SubscribeAsync(userReference, planHandle);
+            StatusMessage =
+                $"You are subscribed to {subscription.PlanName ?? subscription.PlanHandle} (subscription #{subscription.Id}).";
+            return RedirectToPage("/Subscriptions/Mine");
         }
-        catch (PaymentVerificationRequiredException ex)
+        catch (BillingConfigurationException ex)
         {
-            StatusMessage = "Additional payment information is required: " + string.Join(" ", ex.ProviderMessages);
+            ErrorMessage = ex.Message;
         }
         catch (BillingProviderException ex)
         {
-            _logger.LogWarning("Subscribe failed for user {UserId}: {ErrorMessage}", userId, ex.Message);
-            StatusMessage = ex.Message;
+            ErrorMessage = ex.Message;
         }
 
-        Plans = await _subscriptionService.ListPlansAsync(HttpContext.RequestAborted);
+        await LoadAsync();
         return Page();
+    }
+
+    private async Task LoadAsync()
+    {
+        var userReference = GetUserReference();
+        try
+        {
+            Plans = await _subscriptionService.GetAvailablePlansAsync();
+            ActiveSubscription = await _subscriptionService.GetActiveSubscriptionForUserAsync(userReference);
+        }
+        catch (BillingConfigurationException ex)
+        {
+            ErrorMessage ??= ex.Message;
+        }
+        catch (BillingProviderException ex)
+        {
+            // Friendly error on the Plans page; no enrollment is attempted (UC1 failure path).
+            ErrorMessage ??= ex.Message;
+        }
+    }
+
+    private string GetUserReference()
+    {
+        Guard.Against.Null(User?.Identity?.Name, nameof(User.Identity.Name));
+        return User!.Identity!.Name!;
     }
 }

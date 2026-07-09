@@ -2,44 +2,56 @@
 @model Microsoft.eShopWeb.Web.Pages.Subscriptions.PlansModel
 @{
     ViewData["Title"] = "Subscription Plans";
+    var usd = System.Globalization.CultureInfo.GetCultureInfo("en-US");
 }
 
-<div class="container">
-    <h2>Subscription Plans</h2>
+<div class="esh-catalog-hero">
+    <div class="container">
+        <h1 style="padding-top:20px;">@ViewData["Title"]</h1>
+    </div>
+</div>
 
+<div class="container">
     @if (!string.IsNullOrEmpty(Model.StatusMessage))
     {
-        <div class="alert alert-info">@Model.StatusMessage</div>
+        <div class="alert alert-success" role="alert">@Model.StatusMessage</div>
+    }
+    @if (!string.IsNullOrEmpty(Model.ErrorMessage))
+    {
+        <div class="alert alert-danger" role="alert">@Model.ErrorMessage</div>
     }
 
-    <div asp-validation-summary="All" class="text-danger"></div>
-
-    @if (!Model.Plans.Any())
+    @if (Model.ActiveSubscription != null)
     {
-        <p>No plans are currently available.</p>
-    }
-    else
-    {
-        <div class="row">
-            @foreach (var plan in Model.Plans)
-            {
-                <div class="col-xs-12 col-md-4">
-                    <div class="esh-catalog-items" style="padding: 15px; margin-bottom: 15px; border: 1px solid #ddd;">
-                        <h3>@plan.Name</h3>
-                        <p>$@plan.Price.ToString("N2") / @plan.IntervalCount @plan.IntervalUnit</p>
-                        @if (plan.RequiresPaymentMethod)
-                        {
-                            <p><em>Requires a payment method.</em></p>
-                        }
-                        <form method="post" asp-page-handler="Subscribe">
-                            <input type="hidden" name="Input.ProductHandle" value="@plan.Handle" />
-                            <button type="submit" class="btn esh-basket-checkout">Subscribe</button>
-                        </form>
-                    </div>
-                </div>
-            }
+        <div class="alert alert-info" role="alert">
+            You already have an active subscription to
+            <strong>@(Model.ActiveSubscription.PlanName ?? Model.ActiveSubscription.PlanHandle)</strong>.
+            Manage it on <a asp-page="/Subscriptions/Mine">My subscriptions</a>.
         </div>
     }
 
-    <a asp-page="Mine">View my subscriptions</a>
+    @if (Model.Plans.Count == 0 && string.IsNullOrEmpty(Model.ErrorMessage))
+    {
+        <p>No plans are currently available.</p>
+    }
+
+    <div class="row">
+        @foreach (var plan in Model.Plans)
+        {
+            <div class="col-md-4" style="margin-bottom:20px;">
+                <div class="card" style="border:1px solid #eee;padding:20px;height:100%;">
+                    <h3>@plan.Name</h3>
+                    <p class="text-muted">@plan.Handle</p>
+                    <h4>@plan.Price.ToString("C", usd) <small>/ @plan.Interval @plan.IntervalUnit</small></h4>
+                    <form method="post">
+                        <input type="hidden" name="planHandle" value="@plan.Handle" />
+                        <button type="submit" class="btn btn-primary"
+                                disabled="@(Model.ActiveSubscription != null)">
+                            Subscribe
+                        </button>
+                    </form>
+                </div>
+            </div>
+        }
+    </div>
 </div>

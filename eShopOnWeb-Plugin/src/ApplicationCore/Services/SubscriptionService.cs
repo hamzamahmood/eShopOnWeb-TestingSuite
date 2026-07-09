@@ -1,203 +1,361 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Ardalis.GuardClauses;
 using MediatR;
+using Microsoft.eShopWeb.ApplicationCore.Entities.SubscriptionAggregate;
 using Microsoft.eShopWeb.ApplicationCore.Exceptions;
 using Microsoft.eShopWeb.ApplicationCore.Interfaces;
 using Microsoft.eShopWeb.ApplicationCore.IntegrationEvents;
-using Microsoft.eShopWeb.ApplicationCore.Models.Subscriptions;
 
 namespace Microsoft.eShopWeb.ApplicationCore.Services;
 
+// Use-case orchestration for subscriptions (mirrors OrderService). Validates,
+// drives the billing client, and publishes best-effort in-process notifications.
 public class SubscriptionService : ISubscriptionService
 {
     private readonly IBillingClient _billingClient;
     private readonly IPublisher _publisher;
-    private readonly IIdempotencyCache _idempotencyCache;
     private readonly IAppLogger<SubscriptionService> _logger;
 
-    public SubscriptionService(
-        IBillingClient billingClient,
+    public SubscriptionService(IBillingClient billingClient,
         IPublisher publisher,
-        IIdempotencyCache idempotencyCache,
         IAppLogger<SubscriptionService> logger)
     {
         _billingClient = billingClient;
         _publisher = publisher;
-        _idempotencyCache = idempotencyCache;
         _logger = logger;
     }
 
-    public Task<IReadOnlyList<PlanDto>> ListPlansAsync(CancellationToken cancellationToken) =>
-        _billingClient.ListPlansAsync(cancellationToken);
+    public Task<IReadOnlyList<SubscriptionPlan>> GetAvailablePlansAsync(CancellationToken cancellationToken = default)
+        => _billingClient.ListPlansAsync(cancellationToken);
 
-    public async Task<SubscriptionDto> SubscribeAsync(string userId, string email, string? firstName, string? lastName, string productHandle, CancellationToken cancellationToken)
+    // UC1 — Subscribe to a plan.
+    public async Task<CustomerSubscription> SubscribeAsync(string userReference, string planHandle,
+        CancellationToken cancellationToken = default)
     {
-        var providerCustomerId = await _billingClient.FindOrCreateCustomerAsync(userId, email, firstName, lastName, cancellationToken);
-        var subscription = await _billingClient.CreateSubscriptionAsync(providerCustomerId, productHandle, cancellationToken);
+        Guard.Against.NullOrEmpty(userReference, nameof(userReference));
+        Guard.Against.NullOrEmpty(planHandle, nameof(planHandle));
 
-        await _publisher.Publish(new SubscriptionActivated(userId, subscription.SubscriptionId, subscription.ProductHandle), cancellationToken);
-        _logger.LogInformation("User {UserId} subscribed to plan {ProductHandle} (subscription {SubscriptionId})", userId, productHandle, subscription.SubscriptionId);
+        // Fail with a configuration error (pointing back at UC0) rather than
+        // enrolling against a guessed/unknown plan.
+        var plan = await _billingClient.FindPlanAsync(planHandle, cancellationToken);
+        if (plan is null)
+        {
+            throw new BillingConfigurationException(
+                $"The configured plan '{planHandle}' does not resolve on the billing provider. " +
+                "Verify the seeded product handles/ids (see plan UC0).");
+        }
+
+        var (firstName, lastName) = DeriveName(userReference);
+        var customerId = await _billingClient.EnsureCustomerAsync(userReference, userReference, firstName, lastName,
+            cancellationToken);
+
+        // Idempotency: a double-click / repeated call must never create a second
+        // enrollment. If an active subscription already exists, return it.
+        var existing = await _billingClient.ListCustomerSubscriptionsAsync(customerId, cancellationToken);
+        var active = existing.FirstOrDefault(s => s.IsActive);
+        if (active is not null)
+        {
+            _logger.LogInformation(
+                $"Subscribe skipped for '{userReference}': active subscription {active.Id} already exists.");
+            return active;
+        }
+
+        var subscription = await _billingClient.SubscribeAsync(customerId, planHandle, cancellationToken);
+
+        await PublishSafeAsync(new SubscriptionActivated(userReference, subscription), cancellationToken);
 
         return subscription;
     }
 
-    public async Task<IReadOnlyList<SubscriptionDto>> ListMySubscriptionsAsync(string userId, CancellationToken cancellationToken)
-    {
-        var providerCustomerId = await _billingClient.FindCustomerIdAsync(userId, cancellationToken);
-        if (providerCustomerId is null)
-        {
-            return System.Array.Empty<SubscriptionDto>();
-        }
+    public Task<IReadOnlyList<CustomerSubscription>> GetSubscriptionsForUserAsync(string userReference,
+        CancellationToken cancellationToken = default)
+        => GetSubscriptionsCoreAsync(userReference, cancellationToken);
 
-        return await _billingClient.ListCustomerSubscriptionsAsync(providerCustomerId, cancellationToken);
+    public async Task<CustomerSubscription?> GetActiveSubscriptionForUserAsync(string userReference,
+        CancellationToken cancellationToken = default)
+    {
+        var subs = await GetSubscriptionsCoreAsync(userReference, cancellationToken);
+        return subs.FirstOrDefault(s => s.IsActive) ?? subs.FirstOrDefault();
     }
 
-    public async Task<UsageDto> RecordUsageAsync(string subscriptionId, string callerUserId, bool callerIsAdmin, decimal quantity, string? memo, string requestId, CancellationToken cancellationToken)
+    // UC2 — record usage for the signed-in customer's active subscription.
+    public async Task<UsageSummary> RecordUsageForUserAsync(string userReference, int quantity, string? memo,
+        CancellationToken cancellationToken = default)
     {
-        await _billingClient.VerifyMeteredComponentAsync(cancellationToken);
-        await GetOwnedSubscriptionAsync(subscriptionId, callerUserId, callerIsAdmin, cancellationToken);
+        Guard.Against.NullOrEmpty(userReference, nameof(userReference));
+        Guard.Against.NegativeOrZero(quantity, nameof(quantity));
 
-        if (!_idempotencyCache.TryClaim($"usage:{subscriptionId}:{requestId}"))
+        var active = await GetActiveSubscriptionForUserAsync(userReference, cancellationToken);
+        if (active is null || !active.IsActive)
         {
-            _logger.LogInformation("Duplicate usage request {RequestId} for subscription {SubscriptionId} ignored", requestId, subscriptionId);
-            return new UsageDto("duplicate", 0m, "Duplicate request; no additional usage recorded.", null);
+            throw new BillingProviderException(
+                "No active subscription was found for this user; usage cannot be recorded.");
         }
 
-        var usage = await _billingClient.RecordUsageAsync(subscriptionId, quantity, memo, cancellationToken);
-        _logger.LogInformation("Recorded {Quantity} usage unit(s) on subscription {SubscriptionId}", quantity, subscriptionId);
-        return usage;
+        return await RecordUsageAsync(active.Id, quantity, memo, cancellationToken);
     }
 
-    public async Task RecordUsageForUserIfSubscribedAsync(string userId, decimal quantity, string? memo, string requestId, CancellationToken cancellationToken)
+    // UC2 — admin path: record usage against any subscription by id.
+    public async Task<UsageSummary> RecordUsageAsync(int subscriptionId, int quantity, string? memo,
+        CancellationToken cancellationToken = default)
     {
-        var providerCustomerId = await _billingClient.FindCustomerIdAsync(userId, cancellationToken);
-        if (providerCustomerId is null)
+        Guard.Against.NegativeOrZero(subscriptionId, nameof(subscriptionId));
+        Guard.Against.NegativeOrZero(quantity, nameof(quantity));
+
+        // Refuse to record usage unless the configured component is metered.
+        await _billingClient.EnsureMeteredComponentAsync(cancellationToken);
+
+        var recorded = await _billingClient.RecordUsageAsync(subscriptionId, quantity, memo, cancellationToken);
+
+        // Read-back of the running total is best-effort: the usage already stands.
+        int? periodToDate;
+        try
         {
-            _logger.LogInformation("User {UserId} has no billing-provider customer record; skipping automatic usage hook", userId);
-            return;
+            periodToDate = await _billingClient.GetPeriodToDateUsageAsync(subscriptionId, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"Usage recorded for subscription {subscriptionId} but period-to-date " +
+                               $"read-back failed: {ex.Message}");
+            periodToDate = null;
         }
 
-        var subscriptions = await _billingClient.ListCustomerSubscriptionsAsync(providerCustomerId, cancellationToken);
-        var active = subscriptions.FirstOrDefault(s => s.State == SubscriptionState.Active);
-        if (active is null)
+        return new UsageSummary
         {
-            _logger.LogInformation("User {UserId} has no active subscription; skipping automatic usage hook", userId);
-            return;
+            SubscriptionId = subscriptionId,
+            RecordedQuantity = recorded,
+            PeriodToDateTotal = periodToDate,
+            Memo = memo
+        };
+    }
+
+    // UC2 hook — one order placed => one billable unit. Best-effort by contract:
+    // a billing failure here must never surface to (or roll back) the order flow.
+    public async Task RecordOrderUsageAsync(string userReference, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(userReference))
+            {
+                return;
+            }
+
+            var active = await GetActiveSubscriptionForUserAsync(userReference, cancellationToken);
+            if (active is null || !active.IsActive)
+            {
+                return;
+            }
+
+            await _billingClient.EnsureMeteredComponentAsync(cancellationToken);
+            await _billingClient.RecordUsageAsync(active.Id, 1, "eShopOnWeb order placed", cancellationToken);
+            _logger.LogInformation(
+                $"Recorded 1 usage unit against subscription {active.Id} for order placed by '{userReference}'.");
+        }
+        catch (Exception ex)
+        {
+            // Swallow: usage metering is additive and must not affect the order.
+            _logger.LogWarning($"Automatic order-usage recording failed for '{userReference}': {ex.Message}");
+        }
+    }
+
+    // UC3 — preview a plan change.
+    public async Task<PlanChangePreview> PreviewPlanChangeForUserAsync(string userReference, string targetPlanHandle,
+        bool applyNow, CancellationToken cancellationToken = default)
+    {
+        var (subscription, currentHandle) = await ResolveChangeableSubscriptionAsync(userReference, targetPlanHandle,
+            cancellationToken);
+        return await _billingClient.PreviewPlanChangeAsync(subscription.Id, currentHandle, targetPlanHandle, applyNow,
+            cancellationToken);
+    }
+
+    // UC3 — commit a plan change; reject if the preview is stale.
+    public async Task<CustomerSubscription> ChangePlanForUserAsync(string userReference, string targetPlanHandle,
+        bool applyNow, long confirmedAmountDueInCents, CancellationToken cancellationToken = default)
+    {
+        var (subscription, currentHandle) = await ResolveChangeableSubscriptionAsync(userReference, targetPlanHandle,
+            cancellationToken);
+
+        // Re-price at commit time and reject if it no longer matches what the
+        // customer confirmed — never silently apply a different amount (UC3).
+        var fresh = await _billingClient.PreviewPlanChangeAsync(subscription.Id, currentHandle, targetPlanHandle,
+            applyNow, cancellationToken);
+        if (fresh.PaymentDueInCents != confirmedAmountDueInCents)
+        {
+            throw new BillingProviderException(
+                "The plan-change preview is no longer valid (the prorated amount changed). " +
+                "Please review the updated preview and confirm again.");
         }
 
-        await RecordUsageAsync(active.SubscriptionId, userId, callerIsAdmin: false, quantity, memo, requestId, cancellationToken);
+        var updated = await _billingClient.ChangePlanAsync(subscription.Id, targetPlanHandle, applyNow,
+            cancellationToken);
+
+        await PublishSafeAsync(
+            new SubscriptionPlanChanged(subscription.Id, currentHandle, targetPlanHandle, applyNow),
+            cancellationToken);
+
+        return updated;
     }
 
-    public async Task<UsageSummaryDto> GetUsageSummaryAsync(string subscriptionId, string callerUserId, bool callerIsAdmin, CancellationToken cancellationToken)
+    // UC4 — lifecycle for the signed-in customer's subscription.
+    public async Task<CustomerSubscription> ChangeLifecycleForUserAsync(string userReference,
+        SubscriptionLifecycleAction action, bool endOfPeriod, string? reason,
+        CancellationToken cancellationToken = default)
     {
-        await GetOwnedSubscriptionAsync(subscriptionId, callerUserId, callerIsAdmin, cancellationToken);
-        return await _billingClient.GetUsageSummaryAsync(subscriptionId, cancellationToken);
-    }
+        Guard.Against.NullOrEmpty(userReference, nameof(userReference));
 
-    public async Task<ProrationPreviewDto> PreviewPlanChangeAsync(string subscriptionId, string callerUserId, bool callerIsAdmin, string targetProductHandle, PlanChangeTiming timing, CancellationToken cancellationToken)
-    {
-        await GetOwnedSubscriptionAsync(subscriptionId, callerUserId, callerIsAdmin, cancellationToken);
-
-        var quote = await _billingClient.PreviewPlanChangeAsync(subscriptionId, targetProductHandle, timing, cancellationToken);
-        var preview = new ProrationPreviewDto(quote.SubscriptionId, quote.FromProductHandle, quote.ToProductHandle, quote.Timing, quote.ProratedAmount, quote.EffectiveAt, string.Empty);
-        var token = _idempotencyCache.StorePreview(preview);
-        return preview with { PreviewToken = token };
-    }
-
-    public async Task<SubscriptionDto> CommitPlanChangeAsync(string subscriptionId, string callerUserId, bool callerIsAdmin, string previewToken, CancellationToken cancellationToken)
-    {
-        await GetOwnedSubscriptionAsync(subscriptionId, callerUserId, callerIsAdmin, cancellationToken);
-
-        var cachedPreview = _idempotencyCache.TakePreview(previewToken);
-        if (cachedPreview is null || cachedPreview.SubscriptionId != subscriptionId)
+        var subs = await GetSubscriptionsCoreAsync(userReference, cancellationToken);
+        var target = SelectForAction(subs, action);
+        if (target is null)
         {
-            throw new StalePreviewException();
+            throw new BillingProviderException("No subscription was found for this user for the requested action.");
         }
 
-        var freshQuote = await _billingClient.PreviewPlanChangeAsync(subscriptionId, cachedPreview.ToProductHandle, cachedPreview.Timing, cancellationToken);
-        if (freshQuote.ProratedAmount != cachedPreview.ProratedAmount)
-        {
-            throw new StalePreviewException();
-        }
-
-        var result = await _billingClient.CommitPlanChangeAsync(subscriptionId, cachedPreview.ToProductHandle, cachedPreview.Timing, cancellationToken);
-
-        await _publisher.Publish(new SubscriptionPlanChanged(result.CustomerReference, subscriptionId, cachedPreview.FromProductHandle, cachedPreview.ToProductHandle, cachedPreview.ProratedAmount), cancellationToken);
-        _logger.LogInformation("Subscription {SubscriptionId} changed plan {OldPlan} -> {NewPlan}", subscriptionId, cachedPreview.FromProductHandle, cachedPreview.ToProductHandle);
-
-        return result;
+        return await ApplyLifecycleAsync(target, action, endOfPeriod, reason, cancellationToken);
     }
 
-    public async Task<SubscriptionDto> PauseAsync(string subscriptionId, string callerUserId, bool callerIsAdmin, CancellationToken cancellationToken)
+    // UC4 — admin path by subscription id.
+    public async Task<CustomerSubscription> ChangeLifecycleAsync(int subscriptionId,
+        SubscriptionLifecycleAction action, bool endOfPeriod, string? reason,
+        CancellationToken cancellationToken = default)
     {
-        var current = await GetOwnedSubscriptionAsync(subscriptionId, callerUserId, callerIsAdmin, cancellationToken);
-        if (current.State != SubscriptionState.Active)
+        Guard.Against.NegativeOrZero(subscriptionId, nameof(subscriptionId));
+
+        var subscription = await _billingClient.GetSubscriptionAsync(subscriptionId, cancellationToken);
+        if (subscription is null)
         {
-            throw new IllegalSubscriptionTransitionException(subscriptionId, "pause", current.State);
+            throw new BillingProviderException($"Subscription {subscriptionId} was not found.");
         }
 
-        var result = await _billingClient.PauseAsync(subscriptionId, cancellationToken);
-        await PublishStateChangedAsync(result, current.State, cancellationToken);
-        return result;
+        return await ApplyLifecycleAsync(subscription, action, endOfPeriod, reason, cancellationToken);
     }
 
-    public async Task<SubscriptionDto> ResumeAsync(string subscriptionId, string callerUserId, bool callerIsAdmin, CancellationToken cancellationToken)
+    private async Task<CustomerSubscription> ApplyLifecycleAsync(CustomerSubscription subscription,
+        SubscriptionLifecycleAction action, bool endOfPeriod, string? reason, CancellationToken cancellationToken)
     {
-        var current = await GetOwnedSubscriptionAsync(subscriptionId, callerUserId, callerIsAdmin, cancellationToken);
-        if (current.State != SubscriptionState.OnHold)
+        EnsureTransitionLegal(subscription, action);
+
+        var oldState = subscription.State;
+        var updated = action switch
         {
-            throw new IllegalSubscriptionTransitionException(subscriptionId, "resume", current.State);
+            SubscriptionLifecycleAction.Pause => await _billingClient.PauseAsync(subscription.Id, cancellationToken),
+            SubscriptionLifecycleAction.Resume => await _billingClient.ResumeAsync(subscription.Id, cancellationToken),
+            SubscriptionLifecycleAction.Cancel => await _billingClient.CancelAsync(subscription.Id, endOfPeriod, reason,
+                cancellationToken),
+            SubscriptionLifecycleAction.Reactivate => await _billingClient.ReactivateAsync(subscription.Id,
+                cancellationToken),
+            _ => throw new ArgumentOutOfRangeException(nameof(action), action, "Unknown lifecycle action.")
+        };
+
+        await PublishSafeAsync(
+            new SubscriptionStateChanged(subscription.Id, action, oldState, updated.State),
+            cancellationToken);
+
+        return updated;
+    }
+
+    private async Task<IReadOnlyList<CustomerSubscription>> GetSubscriptionsCoreAsync(string userReference,
+        CancellationToken cancellationToken)
+    {
+        Guard.Against.NullOrEmpty(userReference, nameof(userReference));
+
+        var customerId = await _billingClient.FindCustomerIdAsync(userReference, cancellationToken);
+        if (customerId is null)
+        {
+            return Array.Empty<CustomerSubscription>();
         }
 
-        var result = await _billingClient.ResumeAsync(subscriptionId, cancellationToken);
-        await PublishStateChangedAsync(result, current.State, cancellationToken);
-        return result;
+        return await _billingClient.ListCustomerSubscriptionsAsync(customerId.Value, cancellationToken);
     }
 
-    public async Task<SubscriptionDto> CancelAsync(string subscriptionId, string callerUserId, bool callerIsAdmin, CancelTiming timing, string? reason, CancellationToken cancellationToken)
+    private async Task<(CustomerSubscription subscription, string currentHandle)> ResolveChangeableSubscriptionAsync(
+        string userReference, string targetPlanHandle, CancellationToken cancellationToken)
     {
-        var current = await GetOwnedSubscriptionAsync(subscriptionId, callerUserId, callerIsAdmin, cancellationToken);
-        if (current.State is SubscriptionState.Canceled or SubscriptionState.Expired)
+        Guard.Against.NullOrEmpty(userReference, nameof(userReference));
+        Guard.Against.NullOrEmpty(targetPlanHandle, nameof(targetPlanHandle));
+
+        var subscription = await GetActiveSubscriptionForUserAsync(userReference, cancellationToken);
+        if (subscription is null)
         {
-            throw new IllegalSubscriptionTransitionException(subscriptionId, "cancel", current.State);
+            throw new BillingProviderException("No subscription was found for this user.");
         }
 
-        var result = await _billingClient.CancelAsync(subscriptionId, timing, reason, cancellationToken);
-        await PublishStateChangedAsync(result, current.State, cancellationToken);
-        return result;
-    }
-
-    public async Task<SubscriptionDto> ReactivateAsync(string subscriptionId, string callerUserId, bool callerIsAdmin, CancellationToken cancellationToken)
-    {
-        var current = await GetOwnedSubscriptionAsync(subscriptionId, callerUserId, callerIsAdmin, cancellationToken);
-        if (current.State != SubscriptionState.Canceled)
+        if (!subscription.CanChangePlan)
         {
-            throw new IllegalSubscriptionTransitionException(subscriptionId, "reactivate", current.State);
+            throw new BillingProviderException(
+                $"A plan change is not allowed while the subscription is '{subscription.State}'. " +
+                "Reactivate the subscription first.");
         }
 
-        var result = await _billingClient.ReactivateAsync(subscriptionId, cancellationToken);
-        await PublishStateChangedAsync(result, current.State, cancellationToken);
-        return result;
-    }
-
-    private async Task<SubscriptionDto> GetOwnedSubscriptionAsync(string subscriptionId, string callerUserId, bool callerIsAdmin, CancellationToken cancellationToken)
-    {
-        var subscription = await _billingClient.ReadSubscriptionAsync(subscriptionId, cancellationToken);
-        if (!callerIsAdmin && subscription.CustomerReference != callerUserId)
+        var currentHandle = subscription.PlanHandle ?? string.Empty;
+        if (string.Equals(currentHandle, targetPlanHandle, StringComparison.OrdinalIgnoreCase))
         {
-            // Deliberately the same exception as "does not exist" - a non-admin must not learn that a
-            // subscription id belonging to someone else exists.
-            throw new SubscriptionNotFoundException(subscriptionId);
+            throw new BillingProviderException("The subscription is already on the requested plan.");
         }
 
-        return subscription;
+        // Validate the target resolves before doing anything else (config error -> UC0).
+        var targetPlan = await _billingClient.FindPlanAsync(targetPlanHandle, cancellationToken);
+        if (targetPlan is null)
+        {
+            throw new BillingConfigurationException(
+                $"The target plan '{targetPlanHandle}' does not resolve on the billing provider (see plan UC0).");
+        }
+
+        return (subscription, currentHandle);
     }
 
-    private Task PublishStateChangedAsync(SubscriptionDto result, SubscriptionState oldState, CancellationToken cancellationToken)
+    private static void EnsureTransitionLegal(CustomerSubscription subscription, SubscriptionLifecycleAction action)
     {
-        _logger.LogInformation("Subscription {SubscriptionId} transitioned {OldState} -> {NewState}", result.SubscriptionId, oldState, result.State);
-        return _publisher.Publish(new SubscriptionStateChanged(result.CustomerReference, result.SubscriptionId, oldState, result.State), cancellationToken);
+        var legal = action switch
+        {
+            SubscriptionLifecycleAction.Pause => subscription.CanPause,
+            SubscriptionLifecycleAction.Resume => subscription.CanResume,
+            SubscriptionLifecycleAction.Cancel => subscription.CanCancel,
+            SubscriptionLifecycleAction.Reactivate => subscription.CanReactivate,
+            _ => false
+        };
+
+        if (!legal)
+        {
+            throw new BillingProviderException(
+                $"Cannot {action.ToString().ToLowerInvariant()} a subscription in state '{subscription.State}'.");
+        }
+    }
+
+    private static CustomerSubscription? SelectForAction(IReadOnlyList<CustomerSubscription> subs,
+        SubscriptionLifecycleAction action)
+    {
+        return action switch
+        {
+            SubscriptionLifecycleAction.Reactivate => subs.FirstOrDefault(s => s.IsCanceled) ?? subs.FirstOrDefault(),
+            SubscriptionLifecycleAction.Resume => subs.FirstOrDefault(s => s.IsPaused) ?? subs.FirstOrDefault(),
+            _ => subs.FirstOrDefault(s => s.IsActive) ?? subs.FirstOrDefault(s => s.IsPaused) ?? subs.FirstOrDefault()
+        };
+    }
+
+    private async Task PublishSafeAsync(INotification notification, CancellationToken cancellationToken)
+    {
+        // Best-effort in-process eventing (plan §2.5): a handler failure never
+        // rolls back the successful provider call.
+        try
+        {
+            await _publisher.Publish(notification, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"Publishing {notification.GetType().Name} failed: {ex.Message}");
+        }
+    }
+
+    private static (string firstName, string lastName) DeriveName(string userReference)
+    {
+        var local = userReference.Contains('@')
+            ? userReference[..userReference.IndexOf('@')]
+            : userReference;
+        var firstName = string.IsNullOrWhiteSpace(local) ? "eShopOnWeb" : local;
+        return (firstName, "Customer");
     }
 }

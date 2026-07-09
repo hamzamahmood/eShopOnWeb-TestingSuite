@@ -2,23 +2,19 @@ using MediatR;
 
 namespace Microsoft.eShopWeb.ApplicationCore.IntegrationEvents;
 
-/// <summary>
-/// Published in-process after a plan change (UC3) commits.
-/// </summary>
+// Published in-process (best-effort) after a subscription's plan is changed (UC3).
 public class SubscriptionPlanChanged : INotification
 {
-    public string CustomerReference { get; }
-    public string SubscriptionId { get; }
-    public string OldProductHandle { get; }
-    public string NewProductHandle { get; }
-    public decimal ProratedAmount { get; }
-
-    public SubscriptionPlanChanged(string customerReference, string subscriptionId, string oldProductHandle, string newProductHandle, decimal proratedAmount)
+    public SubscriptionPlanChanged(int subscriptionId, string fromPlanHandle, string toPlanHandle, bool appliedNow)
     {
-        CustomerReference = customerReference;
         SubscriptionId = subscriptionId;
-        OldProductHandle = oldProductHandle;
-        NewProductHandle = newProductHandle;
-        ProratedAmount = proratedAmount;
+        FromPlanHandle = fromPlanHandle;
+        ToPlanHandle = toPlanHandle;
+        AppliedNow = appliedNow;
     }
+
+    public int SubscriptionId { get; }
+    public string FromPlanHandle { get; }
+    public string ToPlanHandle { get; }
+    public bool AppliedNow { get; }
 }

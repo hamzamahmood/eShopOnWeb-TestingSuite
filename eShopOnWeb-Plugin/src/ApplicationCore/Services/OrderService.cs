@@ -1,5 +1,5 @@
-﻿using System.Linq;
-using System.Threading;
+﻿using System;
+using System.Linq;
 using System.Threading.Tasks;
 using Ardalis.GuardClauses;
 using MediatR;
@@ -56,6 +56,16 @@ public class OrderService : IOrderService
 
         await _orderRepository.AddAsync(order);
 
-        await _publisher.Publish(new OrderPlaced(order.BuyerId, order.Id), CancellationToken.None);
+        // Announce the new order in-process (best-effort). The pay-as-you-go hook
+        // (UC2) records one usage unit; a handler failure must never roll back the
+        // order (plan §2.5), so publication is deliberately swallowed on error.
+        try
+        {
+            await _publisher.Publish(new OrderCreated(basket.BuyerId));
+        }
+        catch (Exception)
+        {
+            // Intentionally ignored: eventing is best-effort and additive.
+        }
     }
 }
