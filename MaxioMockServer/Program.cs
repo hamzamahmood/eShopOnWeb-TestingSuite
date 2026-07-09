@@ -33,6 +33,46 @@ static IResult Errors(int statusCode, params string[] messages) =>
 // for an id outside MockStore.SubscriptionsById.
 static IResult SubscriptionNotFound() => Errors(StatusCodes.Status404NotFound, "Subscription not found.");
 
+// --- Persistent server-fault injection (robustness suite) ----------------------------------------------
+// UNLIKE the transient retry_/ratelimit_/connbreak_ references (which fail once then recover), these reserved
+// triggers fail on EVERY attempt, so they survive the client's idempotent-GET retries and force the
+// integration layer to surface the upstream fault. They test how robustly the infra layer handles a faulty
+// Maxio: a genuine 5xx/429, a well-formed-status-but-malformed body, and an empty body. The suite asserts the
+// integration turns each into a clean server error (5xx) without crashing or leaking internals.
+//
+// The malformed-body cases below return a truncated `{"subscription": ...` body: valid HTTP 200, unparseable
+// JSON -> the client's deserialization must fail gracefully (a 200 is not retried, so this exercises the parse
+// path, not the retry path).
+//
+// Emits a Maxio-documented 429 with a Retry-After header (the shape a real rate limit takes).
+static IResult RateLimited(HttpContext ctx, string message)
+{
+    ctx.Response.Headers.RetryAfter = "1";
+    return Results.Json(new { errors = new[] { message } }, statusCode: StatusCodes.Status429TooManyRequests);
+}
+
+// Reserved subscription ids that trigger a persistent upstream fault on every subscription-scoped route
+// (read/pause/resume/reactivate/migrate/cancel/usage/summary). Checked before the normal not-found lookup.
+static IResult? SubscriptionFault(HttpContext ctx, int subscriptionId) => subscriptionId switch
+{
+    59990500 => Results.Json(new { errors = new[] { "Internal server error." } }, statusCode: StatusCodes.Status500InternalServerError),
+    59990503 => Results.Json(new { errors = new[] { "The billing service is temporarily unavailable. Please retry." } }, statusCode: StatusCodes.Status503ServiceUnavailable),
+    59990429 => RateLimited(ctx, "Too many requests. Please retry later."),
+    59990900 => Results.Text("{\"subscription\": {\"id\": 599909", "application/json"), // malformed JSON, HTTP 200
+    59990204 => Results.Text(string.Empty, "application/json"),                          // empty body, HTTP 200
+    _ => null
+};
+
+// Reserved product handles that trigger a persistent upstream fault on create-subscription / migrate. Checked
+// before the payment-failure and known-handle checks so these short-circuit to the injected fault.
+static IResult? ProductHandleFault(HttpContext ctx, string? productHandle) => productHandle switch
+{
+    "server-error-500" => Results.Json(new { errors = new[] { "Internal server error." } }, statusCode: StatusCodes.Status500InternalServerError),
+    "server-error-503" => Results.Json(new { errors = new[] { "The billing service is temporarily unavailable." } }, statusCode: StatusCodes.Status503ServiceUnavailable),
+    "malformed-response" => Results.Text("{\"subscription\": {\"id\": 599909", "application/json"), // malformed JSON, HTTP 200
+    _ => null
+};
+
 // Product handles that simulate a payment/card validation failure on create-subscription -> 422 carrying
 // card/payment validation messages. Each message contains at least one keyword the Plugin's
 // ContainsPaymentKeyword matches (card / payment / 3-d secure / 3d secure / 3ds), so the Plugin classifies
@@ -149,6 +189,34 @@ app.MapGet("/customers/lookup.json",
                     "application/json");
         }
 
+        // --- Persistent server-fault injection on the find-or-create lookup GET (robustness suite) --------
+        // Every attempt fails (unlike retry_/ratelimit_/connbreak_), so the fault survives the client's retries
+        // and the integration must surface it. malformed_/emptybody_ return a 200 the client cannot parse.
+        if (reference.StartsWith("fault500_", StringComparison.Ordinal))
+        {
+            return Results.Json(new { errors = new[] { "Internal server error." } }, statusCode: StatusCodes.Status500InternalServerError);
+        }
+
+        if (reference.StartsWith("fault503_", StringComparison.Ordinal))
+        {
+            return Results.Json(new { errors = new[] { "The billing service is temporarily unavailable." } }, statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+
+        if (reference.StartsWith("fault429_", StringComparison.Ordinal))
+        {
+            return RateLimited(ctx, "Too many requests. Please retry later.");
+        }
+
+        if (reference.StartsWith("malformed_", StringComparison.Ordinal))
+        {
+            return Results.Text("{\"customer\": {\"id\": 9876", "application/json"); // malformed JSON, HTTP 200
+        }
+
+        if (reference.StartsWith("emptybody_", StringComparison.Ordinal))
+        {
+            return Results.Text(string.Empty, "application/json"); // empty body, HTTP 200
+        }
+
         return mocks.KnownCustomerReferences.Contains(reference)
             ? Results.Text(mocks.CustomerJson, "application/json")
             : Errors(StatusCodes.Status404NotFound, "Customer not found.");
@@ -160,9 +228,18 @@ app.MapGet("/customers/lookup.json",
 //    to the fallback 404 below.
 app.MapGet("/customers/{customer_id:int}/subscriptions.json",
     (int customer_id, MockStore mocks) =>
-        mocks.KnownCustomerIds.Contains(customer_id)
+    {
+        // A known customer with no subscriptions returns an empty array (a valid success-payload variant the
+        // flattener must tolerate without choking) — see ../MaxioPassthroughApiTests SubscriptionTests.
+        if (customer_id == 98700)
+        {
+            return Results.Text("[]", "application/json");
+        }
+
+        return mocks.KnownCustomerIds.Contains(customer_id)
             ? Results.Text(mocks.SubscriptionsJson, "application/json")
-            : Errors(StatusCodes.Status404NotFound, "Customer not found."));
+            : Errors(StatusCodes.Status404NotFound, "Customer not found.");
+    });
 
 // 4. Create (or reject a duplicate) customer -----------------------------------
 //    POST /customers.json
@@ -179,6 +256,17 @@ app.MapPost("/customers.json",
         if (string.IsNullOrWhiteSpace(email))
         {
             return Errors(StatusCodes.Status422UnprocessableEntity, "Email address: cannot be blank.");
+        }
+
+        // Object-map error shape: Customer-Error-Response's oneOf allows `{ "errors": { "customer": "..." } }`
+        // as an alternative to the string-array form (see openAPI/components/schemas/errors/
+        // Customer-Error-Response.yaml). A reserved reference reproduces it so the integration's error reader is
+        // exercised against BOTH documented create-customer error shapes — see FindOrCreateCustomerTests.
+        if (!string.IsNullOrWhiteSpace(reference) && reference.StartsWith("objmaperr_", StringComparison.Ordinal))
+        {
+            return Results.Json(
+                new { errors = new { customer = "Reference has already been taken." } },
+                statusCode: StatusCodes.Status422UnprocessableEntity);
         }
 
         // A "concurrent" request created this reference between the caller's lookup (which missed, see the
@@ -202,17 +290,18 @@ app.MapPost("/customers.json",
 // 5. Read a subscription --------------------------------------------------------
 //    GET /subscriptions/{subscription_id}.json
 app.MapGet("/subscriptions/{subscription_id:int}.json",
-    (int subscription_id, MockStore mocks) =>
-        mocks.SubscriptionsById.TryGetValue(subscription_id, out var json)
-            ? Results.Text(json, "application/json")
-            : SubscriptionNotFound());
+    (HttpContext ctx, int subscription_id, MockStore mocks) =>
+        SubscriptionFault(ctx, subscription_id)
+            ?? (mocks.SubscriptionsById.TryGetValue(subscription_id, out var json)
+                ? Results.Text(json, "application/json")
+                : SubscriptionNotFound()));
 
 // 6. Create a subscription -------------------------------------------------------
 //    POST /subscriptions.json
 //    Known customer (98765) + known product handle -> 201 Created. Unknown customer or product handle
 //    -> 422 (matches Maxio's validation-style errors, not a 404 - the resource being created doesn't exist yet).
 app.MapPost("/subscriptions.json",
-    (SubscriptionEnvelope body, MockStore mocks) =>
+    (HttpContext ctx, SubscriptionEnvelope body, MockStore mocks) =>
     {
         var subscription = body.Subscription;
         var productHandle = subscription?.ProductHandle;
@@ -273,6 +362,14 @@ app.MapPost("/subscriptions.json",
             return Errors(StatusCodes.Status422UnprocessableEntity, "Customer: must exist");
         }
 
+        // Persistent upstream fault injection (robustness suite): a reserved product handle makes Maxio return
+        // a 5xx / malformed body, so the integration's create path is tested against a faulty provider. Kept
+        // before the payment/known-handle checks so these reserved handles short-circuit.
+        if (ProductHandleFault(ctx, productHandle) is { } productFault)
+        {
+            return productFault;
+        }
+
         // A product whose activation requires a verified payment method the caller didn't supply. Maxio
         // returns a 422 carrying card/payment validation messages (see paymentFailureHandles above). Kept
         // BEFORE the known-product-handle check so these non-product handles short-circuit to the payment 422
@@ -298,8 +395,13 @@ app.MapPost("/subscriptions.json",
 //    POST /subscriptions/{subscription_id}/hold.json
 //    Only the active canned subscription (15100121) is eligible to be held.
 app.MapPost("/subscriptions/{subscription_id:int}/hold.json",
-    (int subscription_id, MockStore mocks) =>
+    (HttpContext ctx, int subscription_id, MockStore mocks) =>
     {
+        if (SubscriptionFault(ctx, subscription_id) is { } fault)
+        {
+            return fault;
+        }
+
         if (!mocks.SubscriptionsById.TryGetValue(subscription_id, out var json))
         {
             return SubscriptionNotFound();
@@ -314,8 +416,13 @@ app.MapPost("/subscriptions/{subscription_id:int}/hold.json",
 //    POST /subscriptions/{subscription_id}/resume.json
 //    Only the on-hold canned subscription (15100210) can be resumed.
 app.MapPost("/subscriptions/{subscription_id:int}/resume.json",
-    (int subscription_id, MockStore mocks) =>
+    (HttpContext ctx, int subscription_id, MockStore mocks) =>
     {
+        if (SubscriptionFault(ctx, subscription_id) is { } fault)
+        {
+            return fault;
+        }
+
         if (!mocks.SubscriptionsById.TryGetValue(subscription_id, out var json))
         {
             return SubscriptionNotFound();
@@ -330,8 +437,13 @@ app.MapPost("/subscriptions/{subscription_id:int}/resume.json",
 //    PUT /subscriptions/{subscription_id}/reactivate.json
 //    Only the canceled canned subscription (15100299) can be reactivated.
 app.MapPut("/subscriptions/{subscription_id:int}/reactivate.json",
-    (int subscription_id, MockStore mocks) =>
+    (HttpContext ctx, int subscription_id, MockStore mocks) =>
     {
+        if (SubscriptionFault(ctx, subscription_id) is { } fault)
+        {
+            return fault;
+        }
+
         if (!mocks.SubscriptionsById.TryGetValue(subscription_id, out var json))
         {
             return SubscriptionNotFound();
@@ -347,8 +459,13 @@ app.MapPut("/subscriptions/{subscription_id:int}/reactivate.json",
 //    POST /subscriptions/{subscription_id}/migrations.json
 //    Only the active canned subscription (15100121) is eligible; the target product handle must be known.
 app.MapPost("/subscriptions/{subscription_id:int}/migrations.json",
-    (int subscription_id, MigrationEnvelope body, MockStore mocks) =>
+    (HttpContext ctx, int subscription_id, MigrationEnvelope body, MockStore mocks) =>
     {
+        if (SubscriptionFault(ctx, subscription_id) is { } fault)
+        {
+            return fault;
+        }
+
         if (!mocks.SubscriptionsById.TryGetValue(subscription_id, out var json))
         {
             return SubscriptionNotFound();
@@ -360,6 +477,11 @@ app.MapPost("/subscriptions/{subscription_id:int}/migrations.json",
         }
 
         var productHandle = body.Migration?.ProductHandle;
+        if (ProductHandleFault(ctx, productHandle) is { } productFault)
+        {
+            return productFault;
+        }
+
         if (string.IsNullOrWhiteSpace(productHandle) || !mocks.KnownProductHandles.Contains(productHandle))
         {
             return Errors(StatusCodes.Status422UnprocessableEntity, "Invalid Product");
@@ -374,8 +496,13 @@ app.MapPost("/subscriptions/{subscription_id:int}/migrations.json",
 //    Cancel-Subscription-Error-Response, which (unlike every other error here) uses the SINGULAR
 //    "error" key, not "errors".
 app.MapDelete("/subscriptions/{subscription_id:int}.json",
-    (int subscription_id, MockStore mocks) =>
+    (HttpContext ctx, int subscription_id, MockStore mocks) =>
     {
+        if (SubscriptionFault(ctx, subscription_id) is { } fault)
+        {
+            return fault;
+        }
+
         if (!mocks.SubscriptionsById.TryGetValue(subscription_id, out var json))
         {
             return SubscriptionNotFound();
@@ -394,10 +521,11 @@ app.MapDelete("/subscriptions/{subscription_id:int}.json",
 //    component_id is accepted but not validated (both integrations always send the one configured
 //    metered component); only the subscription id needs to be known.
 app.MapPost("/subscriptions/{subscription_id:int}/components/{component_id}/usages.json",
-    (int subscription_id, string component_id, UsageEnvelope body, MockStore mocks) =>
-        mocks.SubscriptionsById.ContainsKey(subscription_id)
-            ? Results.Text(MockStore.NewUsageJson(138522957, subscription_id, body.Usage?.Quantity ?? 0m, body.Usage?.Memo), "application/json")
-            : SubscriptionNotFound());
+    (HttpContext ctx, int subscription_id, string component_id, UsageEnvelope body, MockStore mocks) =>
+        SubscriptionFault(ctx, subscription_id)
+            ?? (mocks.SubscriptionsById.ContainsKey(subscription_id)
+                ? Results.Text(MockStore.NewUsageJson(138522957, subscription_id, body.Usage?.Quantity ?? 0m, body.Usage?.Memo), "application/json")
+                : SubscriptionNotFound()));
 
 // 13. Read the configured metered component ----------------------------------------------
 //    GET /product_families/{product_family_id}/components/{component_id}.json
@@ -452,10 +580,11 @@ app.MapPost("/subscriptions/{subscription_id:int}/migrations/preview.json",
 //    not validated (Direct sends handle:api-calls, Plugin sends the numeric id); only the subscription must
 //    be known.
 app.MapGet("/subscriptions/{subscription_id:int}/components/{component_id}.json",
-    (int subscription_id, string component_id, MockStore mocks) =>
-        mocks.SubscriptionsById.ContainsKey(subscription_id)
-            ? Results.Text(MockStore.SubscriptionComponentJson(subscription_id, 42), "application/json")
-            : SubscriptionNotFound());
+    (HttpContext ctx, int subscription_id, string component_id, MockStore mocks) =>
+        SubscriptionFault(ctx, subscription_id)
+            ?? (mocks.SubscriptionsById.ContainsKey(subscription_id)
+                ? Results.Text(MockStore.SubscriptionComponentJson(subscription_id, 42), "application/json")
+                : SubscriptionNotFound()));
 
 // 16. Look up a component by handle -----------------------------------------------------
 //    GET /components/lookup.json?handle=...

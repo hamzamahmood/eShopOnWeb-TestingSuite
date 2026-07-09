@@ -23,6 +23,7 @@ public class ReactivateSubscriptionTests : BlackBoxTest
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
+            "The response returns the updated subscription with a non-blank unique subscription identifier.",
             "The subscription's lifecycle state is active."
         ]);
         Expect.AiPassed(report, intent);

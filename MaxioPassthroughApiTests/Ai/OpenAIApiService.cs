@@ -85,9 +85,13 @@ public sealed class OpenAIApiService
     private static string BuildPrompt(string payload, IReadOnlyList<string> rules) => $"""
         You are a precise API-response verifier. You receive a JSON payload and a numbered list of rules. For
         EACH rule, decide whether the payload satisfies THE RULE'S INTENT, matching on MEANING — never on exact
-        key names, casing, nesting, or units. Treat these as equivalent when the meaning matches: camelCase vs
-        snake_case, renamed or duplicated keys, values nested at any depth, monetary amounts in cents vs dollars,
-        and ids as strings vs numbers.
+        key names, casing, nesting, units, or serialization format. Treat these as equivalent when the meaning
+        matches: camelCase vs snake_case, renamed or duplicated keys, values nested at any depth, monetary
+        amounts in cents vs dollars (or as a number vs a formatted string like "$10.00"), ids as strings vs
+        numbers, booleans as true/false vs "true"/"false", and date/time values in ANY format or timezone
+        (ISO-8601, RFC-1123, epoch seconds/millis, date-only, with or without offset) as long as they denote the
+        same point in time or the same date. A field expressed in a different but semantically equivalent
+        representation still SATISFIES a rule that asks for it.
 
         Be lenient about wording. If the payload reasonably fulfills what the rule asks, mark it passed. Only mark
         a rule failed when the payload genuinely CONTRADICTS it or OMITS the required information. Do not fail a

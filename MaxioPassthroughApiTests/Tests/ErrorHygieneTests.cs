@@ -23,18 +23,13 @@ public class ErrorHygieneTests : BlackBoxTest
 {
     public ErrorHygieneTests(ITestOutputHelper output) : base(output) { }
 
-    // Substrings that would betray an internal detail leaking into a response body.
-    private static readonly string[] ForbiddenSubstrings =
-    {
-        "System.", "   at ", "Exception", "MaxioAdvancedBilling", "HttpRequestException", "Polly", "StackTrace"
-    };
-
     [SkippableTheory]
     [InlineData("read-unknown-subscription")]
     [InlineData("pause-on-hold-subscription")]
     [InlineData("create-unknown-product")]
     [InlineData("cancel-already-canceled")]
     [InlineData("migrate-unknown-product")]
+    [InlineData("create-customer-object-map-error")]
     public async Task Error_responses_never_leak_internal_details(string scenario)
     {
         var intent = $"Error hygiene: {scenario} response never leaks internal details";
@@ -47,11 +42,7 @@ public class ErrorHygieneTests : BlackBoxTest
         Expect.NotSuccess(response, intent);
 
         Expect.ContentType(response, "application/json", intent);
-
-        foreach (var forbidden in ForbiddenSubstrings)
-        {
-            Expect.NoLeak(response, forbidden, intent);
-        }
+        Expect.NoInternalLeak(response, intent);
     }
 
     private static Task<ApiResponse> SendFailingRequest(ApiClient client, string scenario) => scenario switch
@@ -84,6 +75,19 @@ public class ErrorHygieneTests : BlackBoxTest
             {
                 migration = new { product_handle = TestSettings.UnknownProductHandle },
                 timing = "Immediate"
+            }),
+
+        // Provider returns the object-map error shape ({errors:{customer:…}}) — verify it too is sanitized.
+        "create-customer-object-map-error" =>
+            client.PostAsync(TestSettings.CustomersPath, new
+            {
+                customer = new
+                {
+                    reference = TestSettings.NewObjectMapErrorReference(),
+                    email = "objmap.hygiene@example.com",
+                    first_name = "Obj",
+                    last_name = "Map"
+                }
             }),
 
         _ => throw new ArgumentOutOfRangeException(nameof(scenario), scenario, "Unknown error-hygiene scenario.")

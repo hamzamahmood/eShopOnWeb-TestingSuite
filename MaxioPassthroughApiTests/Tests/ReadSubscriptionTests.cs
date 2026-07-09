@@ -21,14 +21,20 @@ public class ReadSubscriptionTests : BlackBoxTest
 
         Expect.Status(response, HttpStatusCode.OK, intent);
 
-        // Body verification is AI-judged and matches on MEANING, not exact key names/casing: the customer
-        // reference and plan handle may be exposed under camelCase or snake_case keys — all treated as equivalent.
+        // This is the canonical "does the flattening preserve the subscription contract" case: it asserts the
+        // full set of fields Maxio's spec Subscription example carries. Body verification is AI-judged and
+        // matches on MEANING, not exact key names/casing/units: the customer reference and plan handle may be
+        // under camelCase or snake_case keys, the price in cents or dollars, and dates in any format — all
+        // treated as equivalent. (Fields the integration drops during flattening surface here as failures — a
+        // deliberate robustness signal, not a regression.)
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
-            $"The subscription is for the product/plan with handle '{TestSettings.KnownProductHandle}'.",
-            $"The subscription belongs to the customer with reference '{TestSettings.KnownCustomerReference}'.",
+            "The response contains a non-blank unique subscription identifier.",
             "The subscription's lifecycle state is active.",
-            "The response contains a non-blank unique subscription identifier."
+            $"The subscription is for the product/plan with handle '{TestSettings.KnownProductHandle}'.",
+            "The subscription conveys a recurring product/plan price (any units — cents or dollars).",
+            $"The subscription belongs to the customer with reference '{TestSettings.KnownCustomerReference}'.",
+            "The subscription conveys when the current billing period ends (a date/time, any format)."
         ]);
         Expect.AiPassed(report, intent);
     }
@@ -62,8 +68,9 @@ public class ReadSubscriptionTests : BlackBoxTest
 
         var response = await client.GetAsync(TestSettings.SubscriptionPath(TestSettings.UnknownSubscriptionId));
 
-        // A direct read of a missing subscription is a REST-correct, bodied 404 on both integrations.
-        Expect.Status(response, HttpStatusCode.NotFound, intent);
+        // Reading a missing subscription is a caller mistake — it must surface as a 4xx client error (both
+        // integrations return a bodied 404; the status is gated loosely per the contract-driven design).
+        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [

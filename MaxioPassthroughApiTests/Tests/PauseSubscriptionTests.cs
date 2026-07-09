@@ -23,8 +23,8 @@ public class PauseSubscriptionTests : BlackBoxTest
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
-            "The response returns the updated subscription (a subscription object with a non-blank identifier) " +
-            "for the pause/hold operation. Any representation of its lifecycle state is acceptable."
+            "The response returns the updated subscription with a non-blank unique subscription identifier.",
+            "The subscription's lifecycle state indicates it is paused / on hold."
         ]);
         Expect.AiPassed(report, intent);
     }

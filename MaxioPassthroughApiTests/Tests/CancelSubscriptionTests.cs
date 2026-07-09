@@ -24,6 +24,7 @@ public class CancelSubscriptionTests : BlackBoxTest
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
+            "The response returns the subscription with a non-blank unique subscription identifier.",
             "The subscription's lifecycle state indicates it has been canceled."
         ]);
         Expect.AiPassed(report, intent);

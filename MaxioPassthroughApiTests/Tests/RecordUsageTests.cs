@@ -24,6 +24,7 @@ public class RecordUsageTests : BlackBoxTest
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
+            "The response contains a non-blank unique identifier for the recorded usage event.",
             "The recorded usage has a quantity of 42.",
             "The recorded usage has the memo 'black-box test run'."
         ]);

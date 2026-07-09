@@ -57,6 +57,27 @@ internal static class Expect
     }
 
     /// <summary>
+    /// Asserts the response is a server-side error (any <c>5xx</c>), skipping on an endpoint-missing 404. Used
+    /// by the robustness suite for a faulty upstream (Maxio returned 5xx, a rate limit, or a malformed/empty
+    /// body): the integration layer must translate every such condition into a clean server error rather than
+    /// crashing, hanging, or passing an unusable 2xx through. The returned error <b>body</b> is still checked
+    /// for cleanliness by <see cref="NoLeak"/> / the LLM verifier.
+    /// </summary>
+    public static void ServerError(ApiResponse response, string intent)
+    {
+        SkipIfEndpointMissing(response, intent);
+        var code = (int)response.StatusCode;
+        if (code is >= 500 and < 600)
+        {
+            Pass(intent, $"server error status {Describe(response.StatusCode)}");
+            return;
+        }
+
+        Assert.Fail($"[{intent}] Expected a 5xx server error (faulty upstream must surface as a server error), " +
+            $"got {Describe(response.StatusCode)}. Body: {response.Body}");
+    }
+
+    /// <summary>
     /// Asserts the response is NOT a 2xx success — i.e. any error status — skipping on an endpoint-missing
     /// 404 (route not exposed on this integration). Used for failure cases whose exact status legitimately
     /// differs between integrations (Direct maps 404/422/502; Plugin collapses to 422/404/400): the status
@@ -125,6 +146,36 @@ internal static class Expect
 
         Assert.Fail($"[{intent}] Missing identifier in response — expected a non-blank {idKind}, got " +
             $"'{id}'.");
+    }
+
+    /// <summary>
+    /// Canonical set of substrings that betray an internal implementation detail leaking into a response body:
+    /// framework/exception plumbing (stack traces, exception type names, SDK/library names) AND raw JSON
+    /// deserializer diagnostics (the parser messages .NET emits for a malformed/empty body — position/path
+    /// details a caller must never see). All are specific enough not to occur in a legitimate business-error
+    /// message. Used by <see cref="NoInternalLeak"/>.
+    /// </summary>
+    public static readonly string[] ForbiddenInternalSubstrings =
+    {
+        // Framework / exception / library plumbing.
+        "System.", "   at ", "Exception", "MaxioAdvancedBilling", "HttpRequestException", "Newtonsoft",
+        "Polly", "StackTrace",
+        // Raw System.Text.Json deserializer diagnostics (a malformed/empty upstream body must not leak these).
+        "BytePositionInLine", "LineNumber:", "does not contain any JSON", "valid JSON token",
+        "is an invalid end of", "invalid start of"
+    };
+
+    /// <summary>
+    /// Asserts the body leaks none of <see cref="ForbiddenInternalSubstrings"/> — a deterministic hygiene gate
+    /// (no framework plumbing, exception types, or raw JSON-parser diagnostics). Preferred over a hand-rolled
+    /// per-test list so every error/fault path is held to the same bar.
+    /// </summary>
+    public static void NoInternalLeak(ApiResponse response, string intent)
+    {
+        foreach (var forbidden in ForbiddenInternalSubstrings)
+        {
+            NoLeak(response, forbidden, intent);
+        }
     }
 
     /// <summary>Asserts the response body does NOT contain a forbidden internal-detail substring.</summary>

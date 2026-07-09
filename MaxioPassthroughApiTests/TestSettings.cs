@@ -126,6 +126,12 @@ public static class TestSettings
     /// <summary>A customer reference the mock knows (→ customer id 98765).</summary>
     public static string KnownCustomerReference => Get("KNOWN_CUSTOMER_REFERENCE", "cust_12345");
 
+    /// <summary>
+    /// The known customer's email (→ customer id 98765). A valid email address that the mock also accepts as a
+    /// lookup key, for an integration that treats the email as the provider reference.
+    /// </summary>
+    public static string KnownCustomerEmail => Get("KNOWN_CUSTOMER_EMAIL", "john.doe@example.com");
+
     /// <summary>The Maxio customer id the mock has subscriptions for.</summary>
     public static string KnownCustomerId => Get("KNOWN_CUSTOMER_ID", "98765");
 
@@ -243,6 +249,57 @@ public static class TestSettings
     public static IReadOnlyList<string> PaymentRequiredProductHandles =>
         Get("PAYMENT_REQUIRED_PRODUCT_HANDLES", "card-required,threeds-required,card-declined")
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    // --- Persistent server-fault injection (robustness suite) ----------------------------------------------
+    // Reserved subscription ids / product handles / customer-reference prefixes the mock answers with a
+    // PERSISTENT upstream fault (every attempt fails — unlike the transient retry_/ratelimit_/connbreak_
+    // references). They verify the integration layer turns a faulty Maxio (5xx, 429, malformed/empty body)
+    // into a clean server error without crashing or leaking internals. See MaxioMockServer Program.cs.
+
+    /// <summary>Subscription id the mock answers with a persistent <c>500</c> on every subscription-scoped route.</summary>
+    public static string ServerError500SubscriptionId => Get("SERVER_ERROR_500_SUBSCRIPTION_ID", "59990500");
+
+    /// <summary>Subscription id the mock answers with a persistent <c>503</c>.</summary>
+    public static string ServerError503SubscriptionId => Get("SERVER_ERROR_503_SUBSCRIPTION_ID", "59990503");
+
+    /// <summary>Subscription id the mock answers with a persistent <c>429</c> (rate limit, with Retry-After).</summary>
+    public static string RateLimited429SubscriptionId => Get("RATE_LIMITED_429_SUBSCRIPTION_ID", "59990429");
+
+    /// <summary>Subscription id the mock answers with a well-formed <c>200</c> carrying a MALFORMED (unparseable) JSON body.</summary>
+    public static string MalformedBodySubscriptionId => Get("MALFORMED_BODY_SUBSCRIPTION_ID", "59990900");
+
+    /// <summary>Subscription id the mock answers with a <c>200</c> and an EMPTY body.</summary>
+    public static string EmptyBodySubscriptionId => Get("EMPTY_BODY_SUBSCRIPTION_ID", "59990204");
+
+    /// <summary>Product handle the mock answers with a persistent <c>500</c> on create-subscription / migrate.</summary>
+    public static string ServerError500ProductHandle => Get("SERVER_ERROR_500_PRODUCT_HANDLE", "server-error-500");
+
+    /// <summary>Product handle the mock answers with a <c>200</c> carrying a MALFORMED body on create-subscription / migrate.</summary>
+    public static string MalformedResponseProductHandle => Get("MALFORMED_RESPONSE_PRODUCT_HANDLE", "malformed-response");
+
+    /// <summary>Builds a fresh customer reference the mock lookup answers with a persistent <c>500</c>.</summary>
+    public static string NewServerError500Reference() => $"fault500_{Guid.NewGuid():N}";
+
+    /// <summary>Builds a fresh customer reference the mock lookup answers with a persistent <c>503</c>.</summary>
+    public static string NewServerError503Reference() => $"fault503_{Guid.NewGuid():N}";
+
+    /// <summary>Builds a fresh customer reference the mock lookup answers with a persistent <c>429</c>.</summary>
+    public static string NewRateLimited429Reference() => $"fault429_{Guid.NewGuid():N}";
+
+    /// <summary>Builds a fresh customer reference the mock lookup answers with a <c>200</c> + malformed body.</summary>
+    public static string NewMalformedBodyReference() => $"malformed_{Guid.NewGuid():N}";
+
+    /// <summary>Builds a fresh customer reference the mock lookup answers with a <c>200</c> + empty body.</summary>
+    public static string NewEmptyBodyReference() => $"emptybody_{Guid.NewGuid():N}";
+
+    /// <summary>
+    /// Builds a fresh customer reference whose create the mock rejects with the object-map error shape
+    /// (<c>{ "errors": { "customer": "…" } }</c>), the alternate form in Customer-Error-Response's oneOf.
+    /// </summary>
+    public static string NewObjectMapErrorReference() => $"objmaperr_{Guid.NewGuid():N}";
+
+    /// <summary>A known customer id the mock answers with an EMPTY subscriptions array (a valid success variant).</summary>
+    public static string EmptySubscriptionsCustomerId => Get("EMPTY_SUBSCRIPTIONS_CUSTOMER_ID", "98700");
 
     // --- AI payload verification (content-comparison tests only) -------------------------------------------
     // Off by default so key-less / CI runs skip the AI-backed content tests instead of failing. See Ai/.

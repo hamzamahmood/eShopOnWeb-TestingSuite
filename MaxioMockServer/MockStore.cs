@@ -42,9 +42,15 @@ public sealed class MockStore
     public FrozenSet<string> KnownProductFamilyIds { get; } =
         new[] { "527890", "handle:acme-projects" }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Customer <c>reference</c> values that resolve to the canned customer.</summary>
+    /// <summary>
+    /// Customer <c>reference</c> values that resolve to the canned customer. Both the reference
+    /// (<c>cust_12345</c>, used by an integration that looks up by the <c>reference</c> field) and the
+    /// customer's email (<c>john.doe@example.com</c>, used by an integration that treats the email as the
+    /// provider reference) resolve to the same canned customer — so a find-or-create by known identifier
+    /// succeeds regardless of which field the integration keys on.
+    /// </summary>
     public FrozenSet<string> KnownCustomerReferences { get; } =
-        new[] { "cust_12345" }.ToFrozenSet(StringComparer.Ordinal);
+        new[] { "cust_12345", "john.doe@example.com" }.ToFrozenSet(StringComparer.Ordinal);
 
     /// <summary>Customer ids that return the canned subscription list.</summary>
     public FrozenSet<int> KnownCustomerIds { get; } =
@@ -57,7 +63,8 @@ public sealed class MockStore
     /// resolve a known reference to its id rather than requiring the numeric id.
     /// </summary>
     public FrozenDictionary<string, int> CustomerIdByReference { get; } =
-        new Dictionary<string, int> { ["cust_12345"] = 98765 }.ToFrozenDictionary(StringComparer.Ordinal);
+        new Dictionary<string, int> { ["cust_12345"] = 98765, ["john.doe@example.com"] = 98765 }
+            .ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary>Resolves a known customer reference to its id; returns false when the reference is unknown/blank.</summary>
     public bool TryResolveCustomerReference(string? reference, out int customerId)

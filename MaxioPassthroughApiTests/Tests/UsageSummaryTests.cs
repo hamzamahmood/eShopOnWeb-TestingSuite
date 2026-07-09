@@ -26,4 +26,22 @@ public class UsageSummaryTests : BlackBoxTest
         ]);
         Expect.AiPassed(report, intent);
     }
+
+    [SkippableFact]
+    public async Task Unknown_subscription_yields_an_error_status()
+    {
+        const string intent = "Read a usage summary / balance for an unknown subscription";
+        using var client = new ApiClient();
+
+        var response = await client.GetAsync(TestSettings.UsageSummaryPath(TestSettings.UnknownSubscriptionId));
+
+        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The response communicates that the usage summary/balance could not be read because the " +
+            "subscription was not found / does not exist."
+        ]);
+        Expect.AiPassed(report, intent);
+    }
 }

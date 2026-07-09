@@ -33,14 +33,15 @@ public class CreateSubscriptionTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.SubscriptionsPath, CreateBody(TestSettings.KnownProductHandle));
 
-        // Both integrations return 200 on a successful create (neither emits 201 in run_4).
+        // A successful create returns 200 on both integrations (neither emits 201).
         Expect.Status(response, HttpStatusCode.OK, intent);
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
-            $"The subscription is for the product/plan with handle '{TestSettings.KnownProductHandle}'.",
+            "The response contains a non-blank unique subscription identifier.",
             "The subscription's lifecycle state is active.",
-            "The response contains a non-blank unique subscription identifier."
+            $"The subscription is for the product/plan with handle '{TestSettings.KnownProductHandle}'.",
+            "The subscription conveys a recurring product/plan price (any units — cents or dollars)."
         ]);
         Expect.AiPassed(report, intent);
     }

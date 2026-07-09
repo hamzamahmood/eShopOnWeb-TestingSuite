@@ -56,15 +56,16 @@ public class FindOrCreateCustomerTests : BlackBoxTest
     {
         const string intent = "Find an already-existing customer by a known reference (no duplicate created)";
         using var client = new ApiClient();
-        // The reference is carried in BOTH `reference` and `email`: Direct looks the customer up by the
-        // `reference` field, whereas the Plugin uses the email as the provider reference. Setting both to the
-        // mock's known reference makes the lookup succeed on either integration.
+        // An integration may look the customer up by the `reference` field or by the email (used as the
+        // provider reference). The mock recognizes BOTH the known reference and the known email as resolving to
+        // the same customer, and the email is a valid address (an integration that validates email format
+        // accepts it), so the find succeeds regardless of which field the integration keys on.
         var body = new
         {
             customer = new
             {
                 reference = TestSettings.KnownCustomerReference,
-                email = TestSettings.KnownCustomerReference,
+                email = TestSettings.KnownCustomerEmail,
                 first_name = "John",
                 last_name = "Doe"
             }
@@ -126,6 +127,39 @@ public class FindOrCreateCustomerTests : BlackBoxTest
         var report = await ai.VerifyAsync(response.Body, [
             "The response communicates a client/validation error — the customer details (e.g. email) were " +
             "missing or invalid."
+        ]);
+        Expect.AiPassed(report, intent);
+    }
+
+    [SkippableFact]
+    public async Task Provider_object_map_error_shape_is_surfaced_cleanly()
+    {
+        const string intent = "Surface a provider object-map error ({errors:{customer:…}}) as a clean client error";
+        using var client = new ApiClient();
+        // A reference whose create the mock rejects with the OBJECT-MAP error shape
+        // ({ "errors": { "customer": "…" } }) — the alternate form in the spec's Customer-Error-Response oneOf.
+        // The lookup misses first (unknown reference), so the controller proceeds to create, which is rejected.
+        // Verifies the integration's error reader handles this shape (not just the {errors:[…]} array form) and
+        // the middleware still emits a clean, bodied client error rather than crashing or leaking internals.
+        var body = new
+        {
+            customer = new
+            {
+                reference = TestSettings.NewObjectMapErrorReference(),
+                email = "objmap.error@example.com",
+                first_name = "Obj",
+                last_name = "Map"
+            }
+        };
+
+        var response = await client.PostAsync(TestSettings.CustomersPath, body);
+
+        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
+
+        var ai = OpenAIApiService.Require(intent);
+        var report = await ai.VerifyAsync(response.Body, [
+            "The response communicates that the customer could not be created — for example the reference was " +
+            "already taken / a validation problem. Any wording conveying the create was rejected satisfies this rule."
         ]);
         Expect.AiPassed(report, intent);
     }

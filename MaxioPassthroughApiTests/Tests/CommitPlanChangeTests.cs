@@ -24,7 +24,9 @@ public class CommitPlanChangeTests : BlackBoxTest
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
-            $"The subscription is now on the product/plan with handle '{TestSettings.AlternateProductHandle}'."
+            "The response returns the subscription with a non-blank unique subscription identifier.",
+            $"The subscription is now on the product/plan with handle '{TestSettings.AlternateProductHandle}'.",
+            "The subscription conveys a recurring product/plan price (any units — cents or dollars)."
         ]);
         Expect.AiPassed(report, intent);
     }
