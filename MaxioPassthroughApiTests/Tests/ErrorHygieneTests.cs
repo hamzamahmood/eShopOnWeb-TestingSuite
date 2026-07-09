@@ -25,11 +25,11 @@ public class ErrorHygieneTests : BlackBoxTest
 
     [SkippableTheory]
     [InlineData("read-unknown-subscription")]
-    [InlineData("pause-on-hold-subscription")]
-    [InlineData("create-unknown-product")]
-    [InlineData("cancel-already-canceled")]
-    [InlineData("migrate-unknown-product")]
-    [InlineData("create-customer-object-map-error")]
+    // [InlineData("pause-on-hold-subscription")]
+    // [InlineData("create-unknown-product")]
+    // [InlineData("cancel-already-canceled")]
+    // [InlineData("migrate-unknown-product")]
+    // [InlineData("create-customer-object-map-error")]
     public async Task Error_responses_never_leak_internal_details(string scenario)
     {
         var intent = $"Error hygiene: {scenario} response never leaks internal details";

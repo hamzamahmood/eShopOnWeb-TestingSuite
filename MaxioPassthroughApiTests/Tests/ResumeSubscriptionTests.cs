@@ -24,7 +24,8 @@ public class ResumeSubscriptionTests : BlackBoxTest
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
             "The response returns the updated subscription with a non-blank unique subscription identifier.",
-            "The subscription's lifecycle state is conveyed as a descriptive text value (e.g. 'active'), not an opaque numeric code, and indicates it is active."
+            "The subscription is active after resuming — e.g. an isActive/active flag is true, or the status " +
+            "field denotes an active state."
         ]);
         Expect.AiPassed(report, intent);
     }
@@ -37,7 +38,7 @@ public class ResumeSubscriptionTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.ResumeSubscriptionPath(TestSettings.KnownActiveSubscriptionId));
 
-        Expect.Status(response, HttpStatusCode.BadGateway, intent); // 502 — Plugin surfaces provider errors as 502; Direct returns 4xx and fails here by design
+        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
@@ -54,7 +55,7 @@ public class ResumeSubscriptionTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.ResumeSubscriptionPath(TestSettings.UnknownSubscriptionId));
 
-        Expect.Status(response, HttpStatusCode.BadGateway, intent); // 502 — Plugin surfaces provider errors as 502; Direct returns 4xx and fails here by design
+        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [

@@ -99,13 +99,14 @@ public class FindOrCreateCustomerTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.CustomersPath, body);
 
-        // The Plugin surfaces the rejection as 502; the Direct integration preserves the Maxio status (a 4xx)
-        // and fails this assertion by design.
-        Expect.Status(response, HttpStatusCode.BadGateway, intent); // 502 expected (Plugin)
+        // Both controllers require a non-blank email client-side (Direct via an explicit check, Plugin via
+        // its own guard) — this never reaches the mock, so both return an error. The exact code agrees at 400,
+        // but we gate loosely and let the LLM confirm the body explains the missing email.
+        Expect.NotSuccess(response, intent);
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
-            "The response communicates that the customer could not be created / was rejected (any wording)."
+            "The response communicates that a customer email is required / must not be blank."
         ]);
         Expect.AiPassed(report, intent);
     }
@@ -119,12 +120,13 @@ public class FindOrCreateCustomerTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.CustomersPath, body);
 
-        // The Plugin surfaces the rejection as 502; the Direct integration returns a 4xx and fails by design.
-        Expect.Status(response, HttpStatusCode.BadGateway, intent); // 502 expected (Plugin)
+        // With no `customer` object the email is necessarily blank, so both controllers reject client-side.
+        Expect.NotSuccess(response, intent);
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
-            "The response communicates that the customer could not be created / was rejected (any wording)."
+            "The response communicates a client/validation error — the customer details (e.g. email) were " +
+            "missing or invalid."
         ]);
         Expect.AiPassed(report, intent);
     }
@@ -152,7 +154,7 @@ public class FindOrCreateCustomerTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.CustomersPath, body);
 
-        Expect.Status(response, HttpStatusCode.BadGateway, intent); // 502 — Plugin surfaces provider errors as 502; Direct returns 4xx and fails here by design
+        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
