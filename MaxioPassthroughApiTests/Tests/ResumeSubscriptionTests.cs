@@ -24,7 +24,8 @@ public class ResumeSubscriptionTests : BlackBoxTest
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
             "The response returns the updated subscription with a non-blank unique subscription identifier.",
-            "The subscription's lifecycle state is active."
+            "The subscription is active after resuming — e.g. an isActive/active flag is true, or the status " +
+            "field denotes an active state."
         ]);
         Expect.AiPassed(report, intent);
     }

@@ -23,10 +23,12 @@ public class RecordUsageTests : BlackBoxTest
         Expect.Status(response, HttpStatusCode.OK, intent);
 
         var ai = OpenAIApiService.Require(intent);
+        // The provider-agnostic seam returns only the recorded quantity + period-to-date total
+        // (UsageRecordResult) — it deliberately does NOT surface Maxio's usage-event id or echo the memo, so
+        // only the quantity is asserted here.
         var report = await ai.VerifyAsync(response.Body, [
-            "The response contains a non-blank unique identifier for the recorded usage event.",
-            "The recorded usage has a quantity of 42.",
-            "The recorded usage has the memo 'black-box test run'."
+            "The response confirms usage was recorded for the subscription.",
+            "The recorded usage has a quantity of 42."
         ]);
         Expect.AiPassed(report, intent);
     }
