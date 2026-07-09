@@ -26,8 +26,6 @@ public class MalformedResponseTests : BlackBoxTest
 {
     public MalformedResponseTests(ITestOutputHelper output) : base(output) { }
 
-    // TEMPORARILY DISABLED: Plugin leaks raw JSON-parser diagnostics on malformed/empty bodies; commented out pending a client-side fix.
-    /*
     [SkippableFact]
     public Task Read_subscription_malformed_body_surfaces_a_clean_server_error() =>
         AssertCleanServerError(
@@ -84,5 +82,4 @@ public class MalformedResponseTests : BlackBoxTest
         Expect.ServerError(response, intent);
         Expect.NoInternalLeak(response, intent);
     }
-    */
 }
