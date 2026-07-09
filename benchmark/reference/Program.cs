@@ -32,8 +32,12 @@ app.Use(async (ctx, next) =>
 });
 
 // ---- the 11 /api/billing endpoints ----
-app.MapGet("/api/billing/plans", async (MaxioClient c, CancellationToken ct)
-    => Results.Ok(await c.ListPlansAsync(ct)));
+app.MapGet("/api/billing/plans", async (MaxioClient c, Breaks bk, CancellationToken ct) =>
+{
+    if (bk.Hardcode)   // BREAK: return canned plans WITHOUT calling upstream -> must fail the anti-hardcoding check
+        return Results.Ok(new[] { new { id = 700001, name = "Pro Plan", priceInCents = 29900 }, new { id = 700002, name = "Basic Plan", priceInCents = 2900 } });
+    return Results.Ok(await c.ListPlansAsync(ct));
+});
 
 app.MapPost("/api/billing/customers", async (CreateCustomerReq req, MaxioClient c, CancellationToken ct) =>
 {

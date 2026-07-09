@@ -17,13 +17,13 @@ public sealed class MaxioSettings
 }
 
 /// <summary>Deliberate-defect toggles (env BREAK=...), used to prove the gate discriminates.</summary>
-public sealed record Breaks(bool Leak, bool RetryWrite, bool NoTimeout, bool Raw500, bool NoAuth, bool LogSecret)
+public sealed record Breaks(bool Leak, bool RetryWrite, bool NoTimeout, bool Raw500, bool NoAuth, bool LogSecret, bool Hardcode)
 {
     public static Breaks From(string? env)
     {
         var s = (env ?? "").ToLowerInvariant();
         bool H(string k) => s.Contains(k);
-        return new Breaks(H("leak"), H("retrywrite"), H("notimeout"), H("raw500"), H("noauth"), H("logsecret"));
+        return new Breaks(H("leak"), H("retrywrite"), H("notimeout"), H("raw500"), H("noauth"), H("logsecret"), H("hardcode"));
     }
 }
 

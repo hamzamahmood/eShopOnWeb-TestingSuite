@@ -41,7 +41,7 @@ try
 
     Console.WriteLine("• starting app …");
     var env = Cfg(); env["ASPNETCORE_URLS"] = appUrl; if (brk != null) env["BREAK"] = brk;
-    app = Start($"run --project \"{appProject}\" --no-build", env, appLog);
+    app = Start($"run --project \"{appProject}\" --no-build --no-launch-profile", env, appLog);
     if (!await WaitHttp(appUrl + "/", () => app!.HasExited, 90)) { Console.WriteLine("[FAIL] BOOT — app did not start / crashed at startup"); return 1; }
 
     var ctx = new GateContext(new AppClient(appUrl), new MockClient(mockUrl), () => { lock (appLog) { return appLog.ToString(); } });
@@ -81,7 +81,7 @@ async Task<bool> S3Check()
     var url2 = $"{u.Scheme}://{u.Host}:{u.Port + 1}";
     var env = Cfg(); env.Remove("Maxio__ApiKey"); env["ASPNETCORE_URLS"] = url2;
     Process? p = null;
-    try { p = Start($"run --project \"{appProject}\" --no-build", env, null); return !await WaitHttp(url2 + "/", () => p!.HasExited, 25); }
+    try { p = Start($"run --project \"{appProject}\" --no-build --no-launch-profile", env, null); return !await WaitHttp(url2 + "/", () => p!.HasExited, 25); }
     finally { try { p?.Kill(true); } catch { } }
 }
 
