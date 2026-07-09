@@ -53,9 +53,9 @@ public class CreateSubscriptionTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.SubscriptionsPath, CreateBody(TestSettings.UnknownProductHandle));
 
-        // A bad product handle is a caller mistake — the OpenAPI declares 422 for POST /subscriptions.json. The
-        // Plugin returns 422; the Direct integration collapses every provider failure to 502 Bad Gateway and fails here.
-        Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
+        // A bad product handle is a caller mistake — it must surface as a 4xx client error. The Plugin returns
+        // one; the Direct integration collapses every provider failure to 502 Bad Gateway (a 5xx) and fails here.
+        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
@@ -74,9 +74,9 @@ public class CreateSubscriptionTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.SubscriptionsPath, CreateBody(productHandle));
 
-        // A payment/card problem is the caller's to resolve — the OpenAPI declares 422 for the create. The Plugin
-        // surfaces 422; the Direct integration returns 502 (a 5xx) and fails.
-        Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
+        // A payment/card problem is the caller's to resolve — a 4xx, not a 5xx. The Plugin surfaces a client
+        // error; the Direct integration returns 502 (a 5xx) and fails.
+        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [

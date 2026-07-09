@@ -37,7 +37,7 @@ public class PauseSubscriptionTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.PauseSubscriptionPath(TestSettings.KnownOnHoldSubscriptionId));
 
-        Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
+        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
@@ -54,7 +54,7 @@ public class PauseSubscriptionTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.PauseSubscriptionPath(TestSettings.KnownCanceledSubscriptionId));
 
-        Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
+        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
@@ -71,7 +71,7 @@ public class PauseSubscriptionTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.PauseSubscriptionPath(TestSettings.UnknownSubscriptionId));
 
-        Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
+        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [

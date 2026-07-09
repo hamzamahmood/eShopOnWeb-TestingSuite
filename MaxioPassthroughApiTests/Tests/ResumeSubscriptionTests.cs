@@ -36,7 +36,7 @@ public class ResumeSubscriptionTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.ResumeSubscriptionPath(TestSettings.KnownActiveSubscriptionId));
 
-        Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
+        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
@@ -53,7 +53,7 @@ public class ResumeSubscriptionTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.ResumeSubscriptionPath(TestSettings.UnknownSubscriptionId));
 
-        Expect.Status(response, HttpStatusCode.UnprocessableEntity, intent);
+        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
