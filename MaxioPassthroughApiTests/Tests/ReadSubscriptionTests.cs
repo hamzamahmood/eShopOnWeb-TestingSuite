@@ -30,7 +30,7 @@ public class ReadSubscriptionTests : BlackBoxTest
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
             "The response contains a non-blank unique subscription identifier.",
-            "The subscription's lifecycle state is active.",
+            "The subscription's lifecycle state is conveyed as a descriptive text value (e.g. 'active'), not an opaque numeric code, and indicates it is active.",
             $"The subscription is for the product/plan with handle '{TestSettings.KnownProductHandle}'.",
             "The subscription conveys a recurring product/plan price (any units — cents or dollars).",
             $"The subscription belongs to the customer with reference '{TestSettings.KnownCustomerReference}'.",
@@ -55,7 +55,7 @@ public class ReadSubscriptionTests : BlackBoxTest
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
             "The response is a single subscription with a non-blank unique subscription identifier.",
-            "The response conveys some lifecycle state for the subscription (any state value is acceptable)."
+            "The subscription's lifecycle state is conveyed as a descriptive text value (e.g. 'assessing'), not an opaque numeric code."
         ]);
         Expect.AiPassed(report, intent);
     }

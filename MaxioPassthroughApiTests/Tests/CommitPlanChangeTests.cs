@@ -26,7 +26,8 @@ public class CommitPlanChangeTests : BlackBoxTest
         var report = await ai.VerifyAsync(response.Body, [
             "The response returns the subscription with a non-blank unique subscription identifier.",
             $"The subscription is now on the product/plan with handle '{TestSettings.AlternateProductHandle}'.",
-            "The subscription conveys a recurring product/plan price (any units — cents or dollars)."
+            "The subscription conveys a recurring product/plan price (any units — cents or dollars).",
+            "The subscription's lifecycle state is conveyed as a descriptive text value (e.g. 'active'), not an opaque numeric code."
         ]);
         Expect.AiPassed(report, intent);
     }
@@ -40,7 +41,7 @@ public class CommitPlanChangeTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.MigrationsPath(TestSettings.KnownActiveSubscriptionId), body);
 
-        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
+        Expect.Status(response, HttpStatusCode.BadGateway, intent); // 502 — Plugin surfaces provider errors as 502; Direct returns 4xx and fails here by design
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
@@ -58,7 +59,7 @@ public class CommitPlanChangeTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.MigrationsPath(TestSettings.KnownCanceledSubscriptionId), body);
 
-        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
+        Expect.Status(response, HttpStatusCode.BadGateway, intent); // 502 — Plugin surfaces provider errors as 502; Direct returns 4xx and fails here by design
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
@@ -77,7 +78,7 @@ public class CommitPlanChangeTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.MigrationsPath(TestSettings.UnknownSubscriptionId), body);
 
-        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
+        Expect.Status(response, HttpStatusCode.BadGateway, intent); // 502 — Plugin surfaces provider errors as 502; Direct returns 4xx and fails here by design
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [

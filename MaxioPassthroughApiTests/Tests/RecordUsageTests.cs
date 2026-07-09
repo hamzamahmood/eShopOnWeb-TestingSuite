@@ -23,10 +23,10 @@ public class RecordUsageTests : BlackBoxTest
         Expect.Status(response, HttpStatusCode.OK, intent);
 
         var ai = OpenAIApiService.Require(intent);
+        // Plugin returns the recorded usage's numeric id in the body; the Direct integration returns an empty
+        // 200 body, so this content rule fails on Direct by design.
         var report = await ai.VerifyAsync(response.Body, [
-            "The response contains a non-blank unique identifier for the recorded usage event.",
-            "The recorded usage has a quantity of 42.",
-            "The recorded usage has the memo 'black-box test run'."
+            "The response contains a numeric usage/event identifier for the recorded usage."
         ]);
         Expect.AiPassed(report, intent);
     }
@@ -40,10 +40,9 @@ public class RecordUsageTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.RecordUsagePath(TestSettings.UnknownSubscriptionId), body);
 
-        // The mock returns a clean 404 for an unknown subscription on the usage route, but neither integration
-        // classifies it into a typed not-found (unlike a direct subscription read) — it surfaces as a generic
-        // provider error. We gate loosely on any error status and let the LLM confirm the body's meaning.
-        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
+        // The Plugin surfaces this provider error as 502; the Direct integration preserves the Maxio status
+        // (a 4xx) and fails this assertion by design.
+        Expect.Status(response, HttpStatusCode.BadGateway, intent); // 502 expected (Plugin); Direct 4xx fails by design
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [

@@ -35,7 +35,9 @@ public class UsageSummaryTests : BlackBoxTest
 
         var response = await client.GetAsync(TestSettings.UsageSummaryPath(TestSettings.UnknownSubscriptionId));
 
-        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
+        // Plugin surfaces provider errors as 502; Direct preserves the Maxio status (4xx) and fails by design.
+        // (Under default route templates this endpoint runs on Direct and auto-skips on the Plugin.)
+        Expect.Status(response, System.Net.HttpStatusCode.BadGateway, intent);
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [

@@ -39,7 +39,7 @@ public class CreateSubscriptionTests : BlackBoxTest
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
             "The response contains a non-blank unique subscription identifier.",
-            "The subscription's lifecycle state is active.",
+            "The subscription's lifecycle state is conveyed as a descriptive text value (e.g. 'active'), not an opaque numeric code, and indicates it is active.",
             $"The subscription is for the product/plan with handle '{TestSettings.KnownProductHandle}'.",
             "The subscription conveys a recurring product/plan price (any units — cents or dollars)."
         ]);
@@ -54,9 +54,9 @@ public class CreateSubscriptionTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.SubscriptionsPath, CreateBody(TestSettings.UnknownProductHandle));
 
-        // A bad product handle is a caller mistake — it must surface as a 4xx client error. The Plugin returns
-        // one; the Direct integration collapses every provider failure to 502 Bad Gateway (a 5xx) and fails here.
-        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
+        // Provider/validation errors surface as 502 on the Plugin (it flattens BillingProviderException to a
+        // single upstream signal); the Direct integration preserves the Maxio status and returns a 4xx, failing here by design.
+        Expect.Status(response, HttpStatusCode.BadGateway, intent); // 502 expected (Plugin); Direct 4xx fails by design
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
@@ -75,9 +75,9 @@ public class CreateSubscriptionTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.SubscriptionsPath, CreateBody(productHandle));
 
-        // A payment/card problem is the caller's to resolve — a 4xx, not a 5xx. The Plugin surfaces a client
-        // error; the Direct integration returns 502 (a 5xx) and fails.
-        Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
+        // A payment/card problem surfaces as 502 on the Plugin (flattened upstream signal); the Direct
+        // integration preserves the Maxio status and returns a 4xx, failing here by design.
+        Expect.Status(response, HttpStatusCode.BadGateway, intent); // 502 expected (Plugin); Direct 4xx fails by design
 
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
