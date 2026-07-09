@@ -5,3 +5,7 @@ obj/
 # run artifacts
 runs/
 *.tmp
+
+# IDE / auto-generated
+.vs/
+launchSettings.json
