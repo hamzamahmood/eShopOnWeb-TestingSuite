@@ -50,6 +50,22 @@ public sealed class MockStore
     public FrozenSet<int> KnownCustomerIds { get; } =
         new[] { 98765 }.ToFrozenSet();
 
+    /// <summary>
+    /// Maps a known customer <c>reference</c> to its customer id (mirrors <c>MockData/customer.json</c>).
+    /// The real Maxio create-subscription accepts <c>customer_reference</c> as an alternative to
+    /// <c>customer_id</c> (see <c>openAPI/components/schemas/Create-Subscription.yaml</c>), so the mock must
+    /// resolve a known reference to its id rather than requiring the numeric id.
+    /// </summary>
+    public FrozenDictionary<string, int> CustomerIdByReference { get; } =
+        new Dictionary<string, int> { ["cust_12345"] = 98765 }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    /// <summary>Resolves a known customer reference to its id; returns false when the reference is unknown/blank.</summary>
+    public bool TryResolveCustomerReference(string? reference, out int customerId)
+    {
+        customerId = 0;
+        return !string.IsNullOrWhiteSpace(reference) && CustomerIdByReference.TryGetValue(reference, out customerId);
+    }
+
     /// <summary>Product handles known to the configured product family (see <c>MockData/products.json</c>).</summary>
     public FrozenSet<string> KnownProductHandles { get; } =
         new[] { "zero-dollar-product", "gold" }.ToFrozenSet(StringComparer.Ordinal);
@@ -61,6 +77,22 @@ public sealed class MockStore
             ["gold"] = (3858146, "Gold Plan", 1000),
             ["zero-dollar-product"] = (3801242, "Free product", 0)
         }.ToFrozenDictionary();
+
+    /// <summary>
+    /// Maps a known product id to its handle. Create-Subscription accepts <c>product_id</c> as an alternative
+    /// to <c>product_handle</c> (<c>product_handle</c> is "Required, unless a <c>product_id</c> is given" — see
+    /// <c>openAPI/components/schemas/Create-Subscription.yaml</c>), so the mock must resolve a known id rather
+    /// than requiring the handle.
+    /// </summary>
+    public FrozenDictionary<int, string> ProductHandleById { get; } =
+        new Dictionary<int, string> { [3858146] = "gold", [3801242] = "zero-dollar-product" }.ToFrozenDictionary();
+
+    /// <summary>Resolves a known product id to its handle; returns false when the id is unknown/absent.</summary>
+    public bool TryResolveProductId(int? productId, out string productHandle)
+    {
+        productHandle = string.Empty;
+        return productId is int id && ProductHandleById.TryGetValue(id, out productHandle!);
+    }
 
     /// <summary>Route tokens (id or <c>handle:</c>-prefixed handle) that resolve to the one configured metered component.</summary>
     public FrozenSet<string> KnownComponentTokens { get; } =

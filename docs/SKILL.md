@@ -61,12 +61,56 @@ this is. Read the files below and treat them as ground truth.
   parameters, and id types in THIS repo.
 - **The controller endpoints must expose the *exact behaviour* of the methods in
   `MaxioBillingClient`** — one controller endpoint per client method, surfacing
-  what each method actually does verbatim.
+  what each method actually does verbatim. The controller adds nothing of its own: it is a
+  **pure proxy** (see *The controller is a pure proxy of `MaxioBillingClient`* above) —
+  request params pass straight through, and the client's typed result/exception passes
+  straight back. Any behaviour a test checks must come from the client, not the controller.
 - `docs/maxio-billing-service-route-map.md` — the authoritative route table.
 - The compiled **verification test suite (a prebuilt DLL)**. Its exact filename is
   provided in the invoking prompt; do not assume a fixed name — use the one given. Its
   JUnit logger and dependency assemblies ship alongside it in the same folder.
 
+
+---
+
+## The controller is a pure proxy of `MaxioBillingClient` — logic and fixes live in the client
+
+The suite is a behavioural contract for the **client**, exercised over HTTP. The
+`MaxioBillingController` exists only to make each client method reachable — it is a
+**thin pass-through proxy and nothing more**. This is the rule that decides where every
+line of code and every fix belongs:
+
+- **Request side — pass-through only.** Each action binds its request DTO / route /
+  query params and forwards those parameters straight to the one client method it fronts.
+  Model binding and route constraints (e.g. `{id:int}`) are fine — they are the
+  framework's job. Beyond binding, the controller does **no** input work: no validation,
+  no coercion, no defaulting, no id/reference resolution, no extra lookups, and no
+  deciding which client method to call based on the input.
+- **Response side — proxy the client's typed result.** Return exactly what the client
+  method returns. Where the method's contract returns `null` to mean "absent", surface
+  that as a not-found response — that is representing the client's own result, not adding
+  logic. Do **not** reshape, rename, re-nest, filter, enrich, or recompute the response,
+  and do **not** synthesize status codes or error bodies from controller-side rules.
+- **Fixes go into `MaxioBillingClient`, never the controller.** Because the tests assert
+  **real Maxio behaviour** and the controller only relays it, any failing case is a fact
+  about the client. Fix it in the client (its request building, response mapping, or
+  typed error translation). The *only* controller edits ever justified are pure
+  generation defects: a wrong/missing route, or a request DTO that fails to bind and
+  reach the client method. Never add controller code — a validation check, a lookup, a
+  hand-set status, a massaged body — to make a test pass. If you are tempted to, the fix
+  belongs in the client.
+
+**Typed responses and typed errors — never raw HTTP pass-through.** The client returns
+the provider-agnostic typed read models and raises **typed exceptions** carrying
+structured data (e.g. an upstream status code as a field, not buried in a message
+string). Neither the client nor the controller may forward Maxio's raw HTTP response —
+its status, body, or headers — verbatim. A provider failure is translated by the client
+into a typed exception; the controller maps that typed exception to the HTTP response. The
+controller must never read a raw provider status/body off the wire and echo it, and the
+client must never leak the raw upstream response through its return type or its exception
+message. When status semantics must survive to the caller (e.g. a provider 422 has to
+surface as 422), carry the status as typed data on the exception — do not string-parse it
+back out of a message.
 
 ---
 
@@ -140,7 +184,7 @@ Expose one controller endpoint per `IBillingClient` / `MaxioBillingClient` metho
 2. Find the table row whose *Maxio endpoint route* matches that upstream call and
    expose its *Controller endpoint route* verbatim (HTTP verb + path).
 3. Wire only rows that correspond to a method present in this repo's `IBillingClient`.
-4. The Controller endpoints should accurately expose the exact MaxioBillingClient behavior as endpoints.
+4. The Controller endpoints should accurately expose the exact MaxioBillingClient behavior as endpoints, including its error behaviour (see 1d).
 
 When more than one row could serve one method, prefer the route that most fully mirrors
 the underlying Maxio API operation (consistent with 1b). Two concrete cases, then a
@@ -172,6 +216,12 @@ envelope wrappers, snake_case field names) — NOT merely whatever the current
 stable for microservice callers. Map the DTO onto the method's parameters for the
 fields the client actually supports. Fields present in the Maxio API but unused by
 the client may be accepted and ignored, but must not break binding.
+
+This mapping is the **only** request-side work an action may do (see the pure-proxy rule):
+bind the DTO, map its fields onto the client method's parameters, call the method. No
+validation, coercion, defaulting, id/reference resolution, or lookups — those belong in
+the client if they are needed at all. If a request that should reach the client is being
+rejected or mishandled, the fix is in the client, not a controller-side guard.
 
 ### 1c. Configuration and wiring (point the service at the mock)
 
@@ -220,9 +270,27 @@ with a quick live call before running the suite: the response must contain the
 mock's canned data, not a connection error or a call that escaped to a real Maxio
 host.
 
-**Phase 1 exit criteria:** the new project builds, and every method in this repo's
+### 1d. Error surfacing (propagate the client's typed errors, do not mask or re-derive them)
+
+Every controller endpoint must surface all the error types a client method produces,
+including any exceptions it can throw. Errors reach the controller as the client's
+**typed exceptions**, and the controller maps those to HTTP responses through a single
+generic mapping (exception type → status) — it contains **no** per-endpoint or per-case
+error rules. The controller never inspects or forwards Maxio's raw HTTP status/body: any
+status semantics it needs must arrive as **typed data on the exception** (e.g. an upstream
+status-code field), not string-parsed out of a message.
+
+If a failure mode is wrong — an incorrect status, a leaked raw provider body, an untyped
+or mis-typed error — that is a **client defect**. Fix the client's error translation so it
+throws the right typed exception carrying the data the mapping needs; do not patch the
+controller to compensate.
+
+**Phase 1 exit criteria:** the new project builds; every method in this repo's
 `IBillingClient` resolves to exactly one controller action whose route matches the
-corresponding table row.
+corresponding table row; and every action is a **pure proxy** — it binds, forwards request
+params to its client method, and returns the typed result / surfaces the client's typed
+exception, with no controller-side validation, resolution, response reshaping, or raw-HTTP
+echo.
 
 ---
 

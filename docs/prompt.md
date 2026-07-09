@@ -18,8 +18,9 @@ re-runs. You are the caller that reads the results and drives the fix-to-green l
 This is a loop, not a single pass. You do not stop while the failure count is greater
 than zero. Each round is:
 
-run the suite (via the skill) → read the failures → fix the MaxioBillingClient and/or
-MaxioBillingController → rebuild → run again.
+run the suite (via the skill) → read the failures → fix the MaxioBillingClient (the
+MaxioBillingController is a pure proxy — touch it only for a generation defect, never to
+make a test pass) → rebuild → run again.
 
 After every run, if even one exposed-route test is failing, start another round:
 re-diagnose, fix, rebuild, re-run. There is no round limit.
@@ -65,10 +66,24 @@ Because the results are authoritative, they must stay trustworthy. You may **nev
   when you can infer the expected outcome from the test's purpose. Knowing the
   intended behaviour is there to help you implement it for real, never to fabricate a
   matching response.
+- add controller-side logic to make a test pass — validation, input coercion,
+  id/reference resolution, extra lookups, hand-set status codes, or reshaped/enriched
+  response bodies. The `MaxioBillingController` is a **pure proxy**: it binds a request,
+  forwards those parameters to one `MaxioBillingClient` method, and returns that method's
+  typed result or surfaces its typed exception. The suite exercises **real Maxio
+  behaviour through the client**, so every case it catches is a fact about the client;
+  moving behaviour into the controller tests the proxy instead of the client and is a
+  gamed pass.
 
-All fixes go into the real `MaxioBillingClient` and/or `MaxioBillingController` — the
-actual behavior under test — and nowhere else. Zero failures must come from real fixes
-to real behavior.
+All behavioural fixes go into the real `MaxioBillingClient` — the actual code under test.
+The controller is edited **only** for a pure generation defect: a wrong or missing route,
+or a request DTO that fails to bind and reach the client method. It is never the place to
+correct a status code, an error shape, or a response body — those live in the client's
+request building, response mapping, and **typed** error translation. The client must
+return typed read models and throw typed exceptions carrying structured data (e.g. an
+upstream status as a field); it must never forward Maxio's raw HTTP response — status,
+body, or headers — verbatim, and neither may the controller. Zero failures must come from
+real fixes to real client behavior.
 
 ## Inputs
 - The repo containing the completed Maxio integration (this working directory).
@@ -188,9 +203,18 @@ failing test:
   knowledge source, the route map, and the real `MaxioBillingClient` method body — so the
   fix reflects what Maxio and the test's intent actually require, not a shape
   reverse-engineered to satisfy the runner.
-- **Make the fix in the real `MaxioBillingClient` and/or `MaxioBillingController`** so the
-  behaviour the intent describes genuinely holds. Fix causes, not symptoms.
-- Make any controller changes needed to expose routes for tests wrongly skipped in Step 2.
+- **Make the fix in the real `MaxioBillingClient`** so the behaviour the intent describes
+  genuinely holds. Fix causes, not symptoms. The controller is a pure proxy: a status
+  code, an error shape, a response body, a missing validation or resolution — all of these
+  are client concerns and are fixed in the client (its request building, response mapping,
+  or typed error translation), never patched into the controller. If a provider error must
+  surface with specific semantics (e.g. a 422), the client must throw a typed exception
+  carrying that data — do not let the controller read or echo Maxio's raw HTTP response.
+- The **only** controller edits permitted are pure generation defects: exposing a route
+  for a test wrongly skipped in Step 2 (a client method exists but no action fronts it),
+  correcting a wrong route, or fixing a request DTO that fails to bind and reach the client
+  method. If you find yourself adding logic to the controller to turn a test green, stop —
+  the fix belongs in the client.
 - Rebuild the affected projects.
 
 **No trial-and-error.** Repeatedly mutating the payload, field names, or status code and
@@ -215,6 +239,10 @@ fresh report. Compare to the previous round:
 
 Repeat Steps 2–4 for as many rounds as it takes. The only exit is a full run with
 **Failed = 0**, reached entirely through real behavior fixes.
+
+IMPORTANT: Run the suite at most ONCE per code change. Never re-run an unchanged build:
+- no batch runs, no repeat runs to "confirm," or chase a pass.
+- If a test still fails, change the code — not the run count.
 
 ## Final deliverable
 A single markdown report containing:

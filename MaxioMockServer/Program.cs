@@ -214,10 +214,61 @@ app.MapGet("/subscriptions/{subscription_id:int}.json",
 app.MapPost("/subscriptions.json",
     (SubscriptionEnvelope body, MockStore mocks) =>
     {
-        var customerId = body.Subscription?.CustomerId;
-        var productHandle = body.Subscription?.ProductHandle;
+        var subscription = body.Subscription;
+        var productHandle = subscription?.ProductHandle;
 
-        if (customerId is null || !mocks.KnownCustomerIds.Contains(customerId.Value))
+        // Product identification mirrors the real Maxio API: product_handle OR product_id (product_handle is
+        // "Required, unless a product_id is given" — see openAPI/components/schemas/Create-Subscription.yaml).
+        // Resolve a known product_id to its handle so a client that legitimately identifies the plan by id is
+        // not wrongly rejected with "Product doesn't exist".
+        if (string.IsNullOrWhiteSpace(productHandle) &&
+            mocks.TryResolveProductId(subscription?.ProductId, out var handleFromId))
+        {
+            productHandle = handleFromId;
+        }
+
+        // Resolve the customer the way the real Maxio API does: by customer_id, OR customer_reference (an
+        // existing customer), OR customer_attributes (inline-create a new one). Each is "Required, unless
+        // [one of the others] is given" — see openAPI/components/schemas/Create-Subscription.yaml. Only
+        // reading customer_id (as the mock previously did) diverges from the real API and rejects a client
+        // that legitimately identifies the customer by reference/attributes.
+        int resolvedCustomerId;
+        if (subscription?.CustomerId is int customerId)
+        {
+            if (!mocks.KnownCustomerIds.Contains(customerId))
+            {
+                return Errors(StatusCodes.Status422UnprocessableEntity, "Customer: must exist");
+            }
+            resolvedCustomerId = customerId;
+        }
+        else if (!string.IsNullOrWhiteSpace(subscription?.CustomerReference))
+        {
+            // A customer_reference must resolve to an existing customer, else Maxio rejects the create.
+            if (!mocks.TryResolveCustomerReference(subscription!.CustomerReference, out resolvedCustomerId))
+            {
+                return Errors(StatusCodes.Status422UnprocessableEntity, "Customer: must exist");
+            }
+        }
+        else if (subscription?.CustomerAttributes is { } attributes)
+        {
+            // customer_attributes inline-creates a brand-new customer. Creating a customer via attributes
+            // REQUIRES first_name, last_name, AND email — see
+            // openAPI/components/schemas/Customer-Attributes.yaml (all three are "Required when creating a
+            // customer via attributes"). Mirror the same validation the standalone POST /customers.json path
+            // enforces rather than accepting an email-only body the real API would reject.
+            var missing = new List<string>();
+            if (string.IsNullOrWhiteSpace(attributes.FirstName)) missing.Add("First name: cannot be blank.");
+            if (string.IsNullOrWhiteSpace(attributes.LastName)) missing.Add("Last name: cannot be blank.");
+            if (string.IsNullOrWhiteSpace(attributes.Email)) missing.Add("Email: cannot be blank.");
+            if (missing.Count > 0)
+            {
+                return Errors(StatusCodes.Status422UnprocessableEntity, missing.ToArray());
+            }
+
+            // Use the same fresh-create id POST /customers.json returns (98766).
+            resolvedCustomerId = 98766;
+        }
+        else
         {
             return Errors(StatusCodes.Status422UnprocessableEntity, "Customer: must exist");
         }
@@ -238,7 +289,7 @@ app.MapPost("/subscriptions.json",
         }
 
         return Results.Text(
-            mocks.NewSubscriptionJson(15100300, customerId.Value, productHandle),
+            mocks.NewSubscriptionJson(15100300, resolvedCustomerId, productHandle),
             "application/json",
             statusCode: StatusCodes.Status201Created);
     });
@@ -488,6 +539,9 @@ internal sealed record SubscriptionEnvelope([property: JsonPropertyName("subscri
 
 internal sealed record SubscriptionAttributes(
     [property: JsonPropertyName("customer_id")] int? CustomerId,
+    [property: JsonPropertyName("customer_reference")] string? CustomerReference,
+    [property: JsonPropertyName("customer_attributes")] CustomerAttributes? CustomerAttributes,
+    [property: JsonPropertyName("product_id")] int? ProductId,
     [property: JsonPropertyName("product_handle")] string? ProductHandle);
 
 internal sealed record MigrationEnvelope([property: JsonPropertyName("migration")] MigrationAttributes? Migration);
