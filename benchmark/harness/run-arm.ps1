@@ -17,8 +17,10 @@ param(
     [string]$Effort       = '',   # low|medium|high|xhigh|max; empty => CLI default
     [double]$MaxBudgetUsd = 0,    # safety backstop via --max-budget-usd; 0 => no cap
     [switch]$DryRun,
-    [switch]$Lean                 # Arm A only: leaner delivery — maxio-sdk-lean plugin + in-tree
-                                  # maxio-api-reference.md, NO full-source clone (tests delivery overhead)
+    [switch]$Lean,                # Arm A only: leaner delivery — maxio-sdk-lean plugin + in-tree
+                                  # maxio-api-reference.md (one monolith), NO full-source clone
+    [switch]$Split                # Arm A only: split delivery — maxio-sdk-split plugin + in-tree
+                                  # maxio-sdk-reference/ (compact INDEX.md + one small file per op)
 )
 $ErrorActionPreference = 'Stop'
 
@@ -28,7 +30,7 @@ $Baseline = Join-Path $Repo 'eShopOnWeb'
 $SpecDir  = Join-Path $Repo 'openAPI'
 $Gate     = Join-Path $Bench 'gate\Gate.csproj'
 $Mock     = Join-Path $Bench 'mock\MaxioMock.csproj'
-$Plugin   = if ($Lean) { 'C:\repos\v4-plugins\plugins\maxio-sdk-lean' } else { 'C:\repos\v4-plugins\plugins\maxio-sdk' }
+$Plugin   = if ($Split) { 'C:\repos\v4-plugins\plugins\maxio-sdk-split' } elseif ($Lean) { 'C:\repos\v4-plugins\plugins\maxio-sdk-lean' } else { 'C:\repos\v4-plugins\plugins\maxio-sdk' }
 $RunDir   = Join-Path $Bench "runs\$RunId-arm$Arm"
 $Ws       = Join-Path $RunDir 'workspace'
 $PubApi   = Join-Path $Ws 'src\PublicApi\PublicApi.csproj'
@@ -43,7 +45,16 @@ if ($LASTEXITCODE -ge 8) { throw "robocopy failed ($LASTEXITCODE)" }
 $global:LASTEXITCODE = 0
 
 # 2) arm material (+ spec placement for Arm B)
-$armMaterial = if ($Arm -eq 'A' -and $Lean) {
+$armMaterial = if ($Arm -eq 'A' -and $Split) {
+@'
+The Maxio Advanced Billing SDK is available via the `maxio-sdk` plugin (its skills are loaded in this
+session) and is installed as the NuGet package `AsadAli.AdvancedBilling.Sdk`. A split API reference for the SDK
+is provided in your working tree under `./maxio-sdk-reference/`: grep `INDEX.md` (one line per operation) for
+the operation/resource you need, then open ONLY that operation's small file under `./maxio-sdk-reference/ops/`.
+Use the package + the plugin skills + that reference. Do NOT clone or grep the SDK's GitHub source, and do NOT
+decompile/reflect the installed package.
+'@
+} elseif ($Arm -eq 'A' -and $Lean) {
 @'
 The Maxio Advanced Billing SDK is available via the `maxio-sdk` plugin (its skills are loaded in this
 session) and is installed as the NuGet package `AsadAli.AdvancedBilling.Sdk`. A compact API reference for the
@@ -72,6 +83,9 @@ if ($Arm -eq 'B') {
 }
 if ($Arm -eq 'A' -and $Lean) {
     Copy-Item (Join-Path $Bench 'harness\lean\maxio-api-reference.md') (Join-Path $Ws 'maxio-api-reference.md')
+}
+if ($Arm -eq 'A' -and $Split) {
+    Copy-Item (Join-Path $Bench 'harness\lean\ref-split') (Join-Path $Ws 'maxio-sdk-reference') -Recurse
 }
 
 # 3) compose the prompt (only ARM_MATERIAL differs between arms)
