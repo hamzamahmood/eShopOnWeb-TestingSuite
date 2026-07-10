@@ -16,7 +16,7 @@ The report describes an **older** suite. Its rows 1–4 are *deterministic* chec
 is `Response does not expose the expected camelCase property '<name>'`. **That mechanism no longer
 exists.**
 
-The current `MaxioPassthroughApiTests` has **zero** deterministic property-name assertions. Every
+The current `MaxioApiTests` has **zero** deterministic property-name assertions. Every
 response-body check is delegated to an AI judge (`Ai/OpenAIApiService.VerifyAsync` →
 `Expect.AiPassed`) that matches on **meaning** and explicitly treats as equivalent:
 
@@ -180,7 +180,7 @@ the predicted deltas:
 
 1. Start the mock: `cd MaxioMockServer && dotnet run` → `http://localhost:8080`.
 2. Boot **one** PublicApi at a time (in-memory DB, routed at the mock) using the CLAUDE.md recipe.
-3. Run `MaxioPassthroughApiTests` against each (`PUBLICAPI_BASEURL=…`; set
+3. Run `MaxioApiTests` against each (`PUBLICAPI_BASEURL=…`; set
    `RECORD_USAGE_PATH_TEMPLATE` for the Direct run).
 4. Confirm the intended deltas: rows 5–9 & 11 **pass on Plugin**; rows 2 & 4 concept-gaps and
    row 10's 400 remain **Direct-only failures**.

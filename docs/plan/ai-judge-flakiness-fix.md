@@ -2,7 +2,7 @@
 
 ## Context
 
-The black-box suite (`MaxioPassthroughApiTests`) verifies response **bodies** with an LLM
+The black-box suite (`MaxioApiTests`) verifies response **bodies** with an LLM
 judge (`Ai/OpenAIApiService.VerifyAsync` → `Expect.AiPassed`) so it can match on *meaning*
 across the two integrations' differing shapes (camelCase vs snake_case, nesting, cents vs
 dollars, id string vs number). We want to **keep** that AI judge — it is the right tool for
@@ -55,7 +55,7 @@ Key properties that make this safe and cheap:
   `CreateOrNull` / `Require` is left untouched — that is a config error and must stay a hard
   fail.
 
-## Changes — all inside `MaxioPassthroughApiTests/Ai/OpenAIApiService.cs`
+## Changes — all inside `MaxioApiTests/Ai/OpenAIApiService.cs`
 
 No call sites change (`Expect.AiPassed`, `Require`, the tests, `VerificationReport` all stay
 as-is). Replace the single `VerifyAsync` with a consensus wrapper over a resilient single call.
@@ -131,7 +131,7 @@ Notes:
   positional arg before `useJsonSchemaResponseFormat`; the current code passes it by named
   args). Add `using System.Net.Http;` if `HttpRequestException` isn't already in scope.
 
-### 3. Optional knob — `MaxioPassthroughApiTests/TestSettings.cs`
+### 3. Optional knob — `MaxioApiTests/TestSettings.cs`
 
 Add an env-overridable attempt count alongside the existing AI settings, defaulting to 3:
 
@@ -153,7 +153,7 @@ public static int AiVerifyAttempts =>
 - `Expect.AiPassed`, `VerificationReport`, and all `Tests/*.cs` are untouched.
 
 ## Verification (per CLAUDE.md — confirm live, not compile-only)
-1. Build `MaxioPassthroughApiTests`.
+1. Build `MaxioApiTests`.
 2. Boot the mock (`:8080`) + one integration (Plugin `:5199`) routed at the mock.
 3. Confirm the `RecordUsage` response body is still byte-stable (curl ×5, identical sha256).
 4. Loop `RecordUsageTests.Known_subscription_records_usage_...` ~30–45× with the real AI key
@@ -165,6 +165,6 @@ public static int AiVerifyAttempts =>
    unless a verdict fails).
 
 ## Files to modify
-- `MaxioPassthroughApiTests/Ai/OpenAIApiService.cs` — replace `VerifyAsync`; add
+- `MaxioApiTests/Ai/OpenAIApiService.cs` — replace `VerifyAsync`; add
   `VerifyOnceAsync` + `IsTransient`.
-- `MaxioPassthroughApiTests/TestSettings.cs` — optional `AiVerifyAttempts` knob.
+- `MaxioApiTests/TestSettings.cs` — optional `AiVerifyAttempts` knob.

@@ -37,7 +37,7 @@ Spec (`readCustomerByReference`): documents **200 only** — the 404/429/503/con
 are all undocumented in the spec. The 503/429/connbreak behaviors are comparison-harness-only
 simulations (not modeling anything Maxio documents for this specific operation) used to prove both
 integrations' retry logic recovers idempotent GETs; see `RetrySafetyTests` /
-`ResilientRetryRecoveryTests` in `MaxioPassthroughApiTests`.
+`ResilientRetryRecoveryTests` in `MaxioApiTests`.
 
 ## 3. `GET /customers/{customer_id}/subscriptions.json`
 

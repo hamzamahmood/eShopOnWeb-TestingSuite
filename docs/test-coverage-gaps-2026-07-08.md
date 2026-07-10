@@ -1,6 +1,6 @@
-# Test coverage gaps — MaxioPassthroughApiTests
+# Test coverage gaps — MaxioApiTests
 
-_Analysis date: 2026-07-08. Reviewed: `MaxioPassthroughApiTests/` (38 cases, 16 files),
+_Analysis date: 2026-07-08. Reviewed: `MaxioApiTests/` (38 cases, 16 files),
 `MaxioMockServer/` (13 routes), `openAPI/openapi.yaml`, and both integration controllers
 (`eShopOnWeb-Plugin` / `eShopOnWeb-Direct` `MaxioBillingController.cs`)._
 

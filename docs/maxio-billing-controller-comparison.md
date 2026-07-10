@@ -109,6 +109,6 @@ the method set differs:
 ## Response shapes
 
 Both return flattened domain DTOs, not Maxio's raw envelopes; the two DTO sets differ (casing, dollars vs
-cents, raw vs mapped `state`). The `MaxioPassthroughApiTests` suite compares response **bodies** with an AI
+cents, raw vs mapped `state`). The `MaxioApiTests` suite compares response **bodies** with an AI
 verifier that matches by meaning, so field/shape drift doesn't break tests — only the HTTP status is asserted
 deterministically.

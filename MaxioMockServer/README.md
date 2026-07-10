@@ -60,7 +60,7 @@ duplicate (`422`).
 
 ### Comparison-harness behaviors
 
-A few prefixed/named inputs drive scenarios the `../MaxioPassthroughApiTests` suite uses to contrast the
+A few prefixed/named inputs drive scenarios the `../MaxioApiTests` suite uses to contrast the
 two integrations:
 
 | Input | Behavior |

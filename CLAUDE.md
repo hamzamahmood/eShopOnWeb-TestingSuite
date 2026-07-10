@@ -18,12 +18,12 @@ integrations are **intentional signal**, not accidental drift.
 | `eShopOnWeb-Direct/src/MaxioBillingTestApi/` | **Standalone Web API host** exposing Direct's `MaxioBillingClient` over `api/maxio` (no DB) | `net8.0` |
 | `eShopOnWeb-Plugin/MaxioBillingTestApi/` | **Standalone Web API host** exposing Plugin's `MaxioBillingClient` over `api/maxio` (no DB) — at the **repo root**, not under `src/` | `net8.0` |
 | `MaxioMockServer/` | Minimal-API mock of the Maxio API (generated from its OpenAPI spec), for local testing without real Maxio | `net10.0` |
-| `MaxioPassthroughApiTests/` | Standalone xUnit black-box suite hitting the `/api/maxio` surface of **whichever** `MaxioBillingTestApi` host is running | `net9.0` |
+| `MaxioApiTests/` | Standalone xUnit black-box suite hitting the `/api/maxio` surface of **whichever** `MaxioBillingTestApi` host is running | `net9.0` |
 | `docs/maxio-billing-controller-comparison.md` | Endpoint-by-endpoint Direct-vs-Plugin comparison | — |
 
 Both integration repos are near-identical forks of eShopOnWeb; only the Maxio feature differs.
 The two `.sln` files are `eShopOnWeb-Direct/eShopOnWeb.sln` and `eShopOnWeb-Plugin/eShopOnWeb.sln`.
-`MaxioMockServer` and `MaxioPassthroughApiTests` are **outside** both solutions (no project references).
+`MaxioMockServer` and `MaxioApiTests` are **outside** both solutions (no project references).
 
 > **Structural change (important).** The `api/maxio` HTTP surface no longer lives in
 > `PublicApi/MaxioBilling/` — that folder/controller was **removed from both repos**. Each integration now
@@ -231,7 +231,7 @@ Tiny ASP.NET Core **Minimal API** (`Program.cs`, no controllers) that stands in 
 - **Strict request-body validation** (`Middleware/StrictValidationMiddleware.cs`): validates mutating bodies
   against the OpenAPI contract (required wrapper key + required attrs; only `createCustomer` requires
   first_name/last_name/email), returning a spec-shaped `{"errors":[...]}` **422**. Permissive on unknown fields.
-- **Fault-injection fixtures** the contract-robustness suite relies on (see `MaxioPassthroughApiTests/TestSettings.cs`
+- **Fault-injection fixtures** the contract-robustness suite relies on (see `MaxioApiTests/TestSettings.cs`
   for the authoritative list):
   - **Persistent** faults: subscription ids `59990500`→500, `59990503`→503, `59990429`→429,
     `59990900`→200-with-malformed-body, `59990204`→200-with-empty-body; product handles `server-error-500`,
@@ -243,7 +243,7 @@ Tiny ASP.NET Core **Minimal API** (`Program.cs`, no controllers) that stands in 
 
 ---
 
-## MaxioPassthroughApiTests
+## MaxioApiTests
 
 Standalone **xUnit** black-box HTTP suite (no project references, not in either solution). It runs against
 whichever `MaxioBillingTestApi` host is up — point `PUBLICAPI_BASEURL` at it. This is the **contract-driven
@@ -299,7 +299,7 @@ ASPNETCORE_URLS=http://localhost:5223 dotnet run --project <the host csproj>
 ```
 (No DB, no Maxio__* env vars needed — the host reads its own appsettings.json.)
 
-**3. Run the suite** (from `MaxioPassthroughApiTests/`):
+**3. Run the suite** (from `MaxioApiTests/`):
 ```
 PUBLICAPI_BASEURL=http://localhost:5223 dotnet test
 ```

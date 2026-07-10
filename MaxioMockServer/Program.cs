@@ -77,7 +77,7 @@ static IResult? ProductHandleFault(HttpContext ctx, string? productHandle) => pr
 // card/payment validation messages. Each message contains at least one keyword the Plugin's
 // ContainsPaymentKeyword matches (card / payment / 3-d secure / 3d secure / 3ds), so the Plugin classifies
 // every case as a typed PaymentVerificationRequiredException with a user-actionable message; the Direct
-// client surfaces the raw messages generically. See ../MaxioPassthroughApiTests PluginAdvantageTests.
+// client surfaces the raw messages generically. See ../MaxioApiTests PluginAdvantageTests.
 var paymentFailureHandles = new Dictionary<string, string[]>(StringComparer.Ordinal)
 {
     ["card-required"] = new[]
@@ -156,7 +156,7 @@ app.MapGet("/customers/lookup.json",
         // Simulate a transport-level connection interruption (the client's HttpClient sees a reset ->
         // HttpRequestException) on every 4th attempt across ALL connbreak_ references - a stable 25% failure
         // rate, spaced 4 attempts apart so a single retry always recovers it. Deliberately mirrors the old
-        // white-box FlakyHttpMessageHandler (see ../MaxioPassthroughApiTests ResilientRetryRecoveryTests),
+        // white-box FlakyHttpMessageHandler (see ../MaxioApiTests ResilientRetryRecoveryTests),
         // which used the SAME ratio/spacing for the SAME reason: a per-reference one-shot break (fresh
         // reference always fails its first attempt) makes EVERY call in a multi-call loop fail at least once,
         // which is enough consecutive transport failures to trip Direct's Polly circuit breaker even though
@@ -175,7 +175,7 @@ app.MapGet("/customers/lookup.json",
             return Results.Text(mocks.CustomerJson, "application/json");
         }
 
-        // --- Concurrent-create race demonstration (see ../MaxioPassthroughApiTests PluginAdvantageTests) ---
+        // --- Concurrent-create race demonstration (see ../MaxioApiTests PluginAdvantageTests) ---
         // The FIRST lookup for a race_ reference misses, so the caller proceeds to create. The create loses to
         // a "concurrent" create (POST /customers.json below returns 422), after which the customer genuinely
         // exists - so this re-lookup (which only the Plugin performs, after catching the create conflict)
@@ -230,7 +230,7 @@ app.MapGet("/customers/{customer_id:int}/subscriptions.json",
     (int customer_id, MockStore mocks) =>
     {
         // A known customer with no subscriptions returns an empty array (a valid success-payload variant the
-        // flattener must tolerate without choking) — see ../MaxioPassthroughApiTests SubscriptionTests.
+        // flattener must tolerate without choking) — see ../MaxioApiTests SubscriptionTests.
         if (customer_id == 98700)
         {
             return Results.Text("[]", "application/json");
@@ -246,7 +246,7 @@ app.MapGet("/customers/{customer_id:int}/subscriptions.json",
 //    The mock is stateless: any reference NOT already in KnownCustomerReferences always "creates"
 //    successfully with the same fixed, deterministic id (98766) - repeat calls for the same fresh
 //    reference are therefore idempotent, matching Maxio's real per-reference uniqueness guarantee that
-//    FindOrCreateCustomerAsync relies on (see ../MaxioPassthroughApiTests CLAUDE.md).
+//    FindOrCreateCustomerAsync relies on (see ../MaxioApiTests CLAUDE.md).
 app.MapPost("/customers.json",
     (CustomerEnvelope body, MockStore mocks) =>
     {
