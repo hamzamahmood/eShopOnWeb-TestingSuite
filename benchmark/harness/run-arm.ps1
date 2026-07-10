@@ -16,7 +16,9 @@ param(
     [string]$Model        = '',   # pin at pilot; empty => CLI default
     [string]$Effort       = '',   # low|medium|high|xhigh|max; empty => CLI default
     [double]$MaxBudgetUsd = 0,    # safety backstop via --max-budget-usd; 0 => no cap
-    [switch]$DryRun
+    [switch]$DryRun,
+    [switch]$Lean                 # Arm A only: leaner delivery — maxio-sdk-lean plugin + in-tree
+                                  # maxio-api-reference.md, NO full-source clone (tests delivery overhead)
 )
 $ErrorActionPreference = 'Stop'
 
@@ -26,7 +28,7 @@ $Baseline = Join-Path $Repo 'eShopOnWeb'
 $SpecDir  = Join-Path $Repo 'openAPI'
 $Gate     = Join-Path $Bench 'gate\Gate.csproj'
 $Mock     = Join-Path $Bench 'mock\MaxioMock.csproj'
-$Plugin   = 'C:\repos\v4-plugins\plugins\maxio-sdk'
+$Plugin   = if ($Lean) { 'C:\repos\v4-plugins\plugins\maxio-sdk-lean' } else { 'C:\repos\v4-plugins\plugins\maxio-sdk' }
 $RunDir   = Join-Path $Bench "runs\$RunId-arm$Arm"
 $Ws       = Join-Path $RunDir 'workspace'
 $PubApi   = Join-Path $Ws 'src\PublicApi\PublicApi.csproj'
@@ -41,7 +43,16 @@ if ($LASTEXITCODE -ge 8) { throw "robocopy failed ($LASTEXITCODE)" }
 $global:LASTEXITCODE = 0
 
 # 2) arm material (+ spec placement for Arm B)
-$armMaterial = if ($Arm -eq 'A') {
+$armMaterial = if ($Arm -eq 'A' -and $Lean) {
+@'
+The Maxio Advanced Billing SDK is available via the `maxio-sdk` plugin (its skills are loaded in this
+session) and is installed as the NuGet package `AsadAli.AdvancedBilling.Sdk`. A compact API reference for the
+SDK is provided in your working tree at `./maxio-api-reference.md` (every endpoint's signature, thrown error
+type, and a usage snippet). Use the package + the plugin skills + that reference. Do NOT clone or grep the
+SDK's GitHub source, and do NOT decompile/reflect the installed package — the compact reference already carries
+the full SDK surface.
+'@
+} elseif ($Arm -eq 'A') {
 @'
 The Maxio Advanced Billing SDK is available via the `maxio-sdk` plugin (its skills are loaded in this
 session). Use it — it guides installing the NuGet package, navigating the SDK source, authentication,
@@ -58,6 +69,9 @@ if ($Arm -eq 'B') {
     New-Item -ItemType Directory -Force $specDst | Out-Null
     Copy-Item (Join-Path $SpecDir 'openapi.yaml') $specDst          # APIMATIC-META.json deliberately excluded
     Copy-Item (Join-Path $SpecDir 'components')  $specDst -Recurse
+}
+if ($Arm -eq 'A' -and $Lean) {
+    Copy-Item (Join-Path $Bench 'harness\lean\maxio-api-reference.md') (Join-Path $Ws 'maxio-api-reference.md')
 }
 
 # 3) compose the prompt (only ARM_MATERIAL differs between arms)
