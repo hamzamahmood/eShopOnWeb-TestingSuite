@@ -4,30 +4,8 @@ using Xunit.Abstractions;
 namespace MaxioApiTests.Tests;
 
 /// <summary>
-/// Robustness suite: when Maxio returns a genuine server-side fault (a persistent 5xx, or a 429 rate limit),
-/// the integration's infrastructure layer must surface it as a clean <b>error</b> — never a crash, a hang, or
-/// a passed-through 2xx — with a body that leaks no internals. Contract, independent of either integration's
-/// response shape:
-/// <list type="bullet">
-///   <item>a Maxio server fault → a non-2xx error (this integration collapses provider failures to a bodied
-///   4xx via its exception middleware; the exact class is not pinned here — see
-///   <see cref="Expect.NotSuccess"/>);</item>
-///   <item>the error body leaks no framework/exception/parser internals
-///   (<see cref="Expect.NoInternalLeak"/>).</item>
-/// </list>
-///
-/// <para>Faults are <b>persistent</b> (every attempt fails), so they survive the client's idempotent-GET
-/// retries. The genuine-5xx GET cases here deliberately trip a real integration's shared circuit breaker
-/// (e.g. Direct's Polly pipeline), which is why this whole collection is ordered to run <b>last</b> (see
-/// <c>AssemblyInfo.cs</c>) — so the open-breaker window never bleeds into a green test.</para>
-///
-/// <para>Malformed / empty-body responses (which exercise the client's deserialization path, not its
-/// status handling) live in <see cref="MalformedResponseTests"/> instead — that suite must run with the
-/// breaker CLOSED, so it is deliberately NOT part of this ordered-last collection.</para>
-///
-/// <para>Status is asserted deterministically (<see cref="Expect.ServerError"/> / <see cref="Expect.NotSuccess"/>)
-/// plus the mechanical leak sweep; no AI body check — a faulty upstream has no meaningful payload to verify
-/// beyond "a clean, non-leaking error", and the AI judgment on such bodies proved non-deterministic.</para>
+/// When the billing provider returns a server-side fault (a persistent 5xx, or a 429 rate limit), the response
+/// must surface as a clean non-2xx error with a body that leaks no internals.
 /// </summary>
 [Trait(MaxioTraits.Category, MaxioTraits.CategorySafetyNet)]
 [Trait(MaxioTraits.Api, MaxioTraits.ReadSubscription)]
@@ -39,8 +17,6 @@ public class ServerFaultTests : BlackBoxTest
 {
     public ServerFaultTests(ITestOutputHelper output) : base(output) { }
 
-    // A valid create-subscription body carrying the given product handle (all three customer identifiers are
-    // present so either integration resolves the known customer; see CreateSubscriptionTests).
     private static object CreateBody(string productHandle) => new
     {
         subscription = new
@@ -72,8 +48,6 @@ public class ServerFaultTests : BlackBoxTest
 
         var response = await client.GetAsync(TestSettings.SubscriptionPath(TestSettings.RateLimited429SubscriptionId));
 
-        // A rate limit may be surfaced as-is (429, a 4xx) or translated to service-unavailable (5xx). Either is
-        // acceptable — gate on any non-2xx error, and require the body stays clean.
         Expect.NotSuccess(response, intent);
         Expect.NoInternalLeak(response, intent);
     }
@@ -106,10 +80,6 @@ public class ServerFaultTests : BlackBoxTest
             "Find-or-create a customer when the Maxio lookup returns a persistent 500",
             c => c.PostAsync(TestSettings.CustomersPath, LookupFaultBody(TestSettings.NewServerError500Reference())));
 
-    // The fault prefix must reach the mock's lookup whether the integration keys the lookup on the `reference`
-    // field or on the email — so both carry it. The email is a syntactically valid address that still starts
-    // with the fault prefix (e.g. "fault500_ab@example.com"), so an integration that validates email format
-    // accepts it and the fault still triggers on the mock's StartsWith check.
     private static object LookupFaultBody(string reference) => new
     {
         customer = new
@@ -127,10 +97,6 @@ public class ServerFaultTests : BlackBoxTest
 
         var response = await act(client);
 
-        // A faulty upstream must surface as a clean non-2xx error with no internal leak. This integration
-        // collapses provider failures to a bodied 4xx (its exception middleware maps every provider exception to
-        // one status), so the class is not pinned — only that it is an error and the body stays clean. Status +
-        // hygiene are both deterministic; no AI body check (see class summary).
         Expect.NotSuccess(response, intent);
         Expect.NoInternalLeak(response, intent);
     }

@@ -5,13 +5,7 @@ using Xunit.Abstractions;
 namespace MaxioApiTests.Tests;
 
 /// <summary>
-/// Encodes the middleware's "never leak raw exception text" contract as an executable check: every failure
-/// response must be a clean JSON error body — no stack traces, exception type names, or library internals.
-/// This is a <b>safety-net</b> test: it passes on BOTH integrations today (Direct via its hand-written
-/// <c>MaxioErrorReader</c> sanitizing, Plugin via its <c>ExceptionMiddleware</c> curated messages). Only the
-/// provider-error paths are exercised here — all already backed by the mock, so no mock change is needed.
-/// (The transport-failure path — provider completely down — is out of scope for this batch; it needs the
-/// Plugin transport-error fix and connection-drop simulation.)
+/// Verifies that failure responses are always clean JSON error bodies with no leaked internal details.
 /// </summary>
 [Trait(MaxioTraits.Category, MaxioTraits.CategorySafetyNet)]
 [Trait(MaxioTraits.Api, MaxioTraits.ReadSubscription)]
@@ -25,11 +19,6 @@ public class ErrorHygieneTests : BlackBoxTest
 
     [SkippableTheory]
     [InlineData("read-unknown-subscription")]
-    // [InlineData("pause-on-hold-subscription")]
-    // [InlineData("create-unknown-product")]
-    // [InlineData("cancel-already-canceled")]
-    // [InlineData("migrate-unknown-product")]
-    // [InlineData("create-customer-object-map-error")]
     public async Task Error_responses_never_leak_internal_details(string scenario)
     {
         var intent = $"Error hygiene: {scenario} response never leaks internal details";
@@ -37,8 +26,6 @@ public class ErrorHygieneTests : BlackBoxTest
 
         var response = await SendFailingRequest(client, scenario);
 
-        // Safety-net parity check: this asserts only that the error body is clean (below), not its status class,
-        // so it passes on BOTH integrations regardless of the 4xx-vs-502 divergence the endpoint suite pins.
         Expect.NotSuccess(response, intent);
 
         Expect.ContentType(response, "application/json", intent);
@@ -77,7 +64,6 @@ public class ErrorHygieneTests : BlackBoxTest
                 timing = "Immediate"
             }),
 
-        // Provider returns the object-map error shape ({errors:{customer:…}}) — verify it too is sanitized.
         "create-customer-object-map-error" =>
             client.PostAsync(TestSettings.CustomersPath, new
             {

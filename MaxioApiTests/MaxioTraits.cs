@@ -1,28 +1,12 @@
 namespace MaxioApiTests;
 
-/// <summary>
-/// Single source of truth for the xUnit <c>[Trait]</c> keys/values this suite attaches to every test, so an
-/// executor (human, CI, or agent) can read which Maxio API operation a test targets straight from the run
-/// results — without the suite losing its black-box character (it still only calls the PublicApi over HTTP).
-///
-/// <para>
-/// xUnit traits do NOT appear in the default console output and are not reliably serialized to <c>.trx</c>.
-/// They are filterable (<c>dotnet test --filter "Category=endpoint"</c>) and are reliably emitted as
-/// <c>&lt;properties&gt;</c> by the <c>JunitXml.TestLogger</c> package — see the README for the exact command.
-/// </para>
-/// </summary>
+/// <summary>Test trait constants for categorizing and filtering tests.</summary>
 public static class MaxioTraits
 {
-    // Trait keys
     public const string Api = "MaxioApi";
     public const string Category = "Category";
-
-    // Category values — mirror the grouping in docs/test-cases-by-integration-*.md
     public const string CategoryEndpoint = "endpoint";
-    public const string CategoryPluginAdvantage = "plugin-advantage";
     public const string CategorySafetyNet = "safety-net";
-
-    // Maxio API operation signatures — verbatim "METHOD /path" from openAPI/openapi.yaml.
     public const string ListProducts = "GET /product_families/{product_family_id}/products.json";
     public const string LookupCustomer = "GET /customers/lookup.json";
     public const string CreateCustomer = "POST /customers.json";

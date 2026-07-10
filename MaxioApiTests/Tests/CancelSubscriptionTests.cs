@@ -39,7 +39,6 @@ public class CancelSubscriptionTests : BlackBoxTest
 
         var response = await client.DeleteAsync(TestSettings.SubscriptionPath(TestSettings.KnownCanceledSubscriptionId), body);
 
-        // Note: the mock returns this particular error with a singular {"error":…} key (not {"errors":[…]}).
         Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
 
         var ai = OpenAIApiService.Require(intent);

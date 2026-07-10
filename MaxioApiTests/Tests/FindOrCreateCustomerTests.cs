@@ -32,10 +32,6 @@ public class FindOrCreateCustomerTests : BlackBoxTest
         var first = await client.PostAsync(TestSettings.CustomersPath, body);
         Expect.Status(first, HttpStatusCode.OK, intent);
 
-        // Same fresh reference again: find-or-create must be idempotent — it resolves to the SAME provider
-        // customer id rather than creating a duplicate (IBillingClient.FindOrCreateCustomerAsync's documented
-        // AC-03 guarantee). Status 200 alone can't prove that, so we compare the customer id ACROSS both
-        // responses — via the AI verifier, so the check is robust to whatever the id field is named.
         var second = await client.PostAsync(TestSettings.CustomersPath, body);
         Expect.Status(second, HttpStatusCode.OK, intent);
 
@@ -56,10 +52,6 @@ public class FindOrCreateCustomerTests : BlackBoxTest
     {
         const string intent = "Find an already-existing customer by a known reference (no duplicate created)";
         using var client = new ApiClient();
-        // An integration may look the customer up by the `reference` field or by the email (used as the
-        // provider reference). The mock recognizes BOTH the known reference and the known email as resolving to
-        // the same customer, and the email is a valid address (an integration that validates email format
-        // accepts it), so the find succeeds regardless of which field the integration keys on.
         var body = new
         {
             customer = new
@@ -99,9 +91,6 @@ public class FindOrCreateCustomerTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.CustomersPath, body);
 
-        // Both controllers require a non-blank email client-side (Direct via an explicit check, Plugin via
-        // its own guard) — this never reaches the mock, so both return an error. The exact code agrees at 400,
-        // but we gate loosely and let the LLM confirm the body explains the missing email.
         Expect.NotSuccess(response, intent);
 
         var ai = OpenAIApiService.Require(intent);
@@ -120,7 +109,6 @@ public class FindOrCreateCustomerTests : BlackBoxTest
 
         var response = await client.PostAsync(TestSettings.CustomersPath, body);
 
-        // With no `customer` object the email is necessarily blank, so both controllers reject client-side.
         Expect.NotSuccess(response, intent);
 
         var ai = OpenAIApiService.Require(intent);
@@ -136,11 +124,6 @@ public class FindOrCreateCustomerTests : BlackBoxTest
     {
         const string intent = "Surface a provider object-map error ({errors:{customer:…}}) as a clean client error";
         using var client = new ApiClient();
-        // A reference whose create the mock rejects with the OBJECT-MAP error shape
-        // ({ "errors": { "customer": "…" } }) — the alternate form in the spec's Customer-Error-Response oneOf.
-        // The lookup misses first (unknown reference), so the controller proceeds to create, which is rejected.
-        // Verifies the integration's error reader handles this shape (not just the {errors:[…]} array form) and
-        // the middleware still emits a clean, bodied client error rather than crashing or leaking internals.
         var body = new
         {
             customer = new

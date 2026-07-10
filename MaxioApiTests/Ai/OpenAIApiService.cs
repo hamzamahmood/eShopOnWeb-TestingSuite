@@ -5,21 +5,7 @@ using Xunit.Sdk;
 
 namespace MaxioApiTests.Ai;
 
-/// <summary>
-/// AI-backed payload verifier used by the content-comparison tests. It sends a raw response body plus a list of
-/// plain-English rules to an OpenAI (or OpenAI-compatible) chat model and gets back a schema-constrained
-/// <see cref="VerificationReport"/> stating, per rule, whether the payload satisfies it — matching on MEANING,
-/// not on exact JSON key names. This lets the suite assert response contents without hard-coding the
-/// (non-deterministic) field names a generated integration happens to use.
-///
-/// <para>The model judges the <b>body</b> only; the tests keep their deterministic <c>Expect.Status</c> checks
-/// as the hard gate for HTTP status codes.</para>
-///
-/// <para>Constructed lazily and shared for the whole run via <see cref="Shared"/>; content-comparison tests
-/// obtain it through <see cref="Require"/>, which <b>fails</b> the test when the verifier is unavailable
-/// (no API key resolved, or <c>AI_COMPARISON_ENABLED=false</c>) rather than skipping — a response-content
-/// assertion that cannot run is a hard failure, not a silent pass.</para>
-/// </summary>
+/// <summary>AI payload verifier for response content validation.</summary>
 public sealed class OpenAIApiService
 {
     /// <summary>Process-wide instance, or <c>null</c> when AI comparison is disabled / unconfigured.</summary>
@@ -39,7 +25,6 @@ public sealed class OpenAIApiService
         var options = new OpenAIClientOptions();
         if (!string.IsNullOrWhiteSpace(TestSettings.AiEndpoint))
         {
-            // OpenAI-compatible base URL override (Azure OpenAI, a local model, a proxy, …).
             options.Endpoint = new Uri(TestSettings.AiEndpoint);
         }
 
@@ -50,14 +35,7 @@ public sealed class OpenAIApiService
         return new OpenAIApiService(chat);
     }
 
-    /// <summary>
-    /// Returns the shared verifier for a content-comparison test, or <b>fails the test</b> when it is
-    /// unavailable — response-content assertions are performed by the model, so a missing verifier means the
-    /// assertion cannot run, which is a hard failure rather than a skip. The verifier is unavailable when no
-    /// API key is resolved (<c>AI_API_KEY</c>, or its fallback <c>OPENAI_API_KEY</c>) or when it was turned
-    /// off with <c>AI_COMPARISON_ENABLED=false</c> (it is ON by default). <paramref name="intent"/> is the
-    /// test's one-line description, prefixed onto the failure message to match the rest of <see cref="Expect"/>.
-    /// </summary>
+    /// <summary>Gets the shared verifier or fails the test if unavailable.</summary>
     public static OpenAIApiService Require(string intent) =>
         Shared.Value ?? throw new XunitException(
             $"[{intent}] AI payload verification is unavailable, so this test's response-content checks cannot " +
@@ -65,15 +43,10 @@ public sealed class OpenAIApiService
             "OPENAI_API_KEY), or it was disabled via AI_COMPARISON_ENABLED=false. Provide a key (and optionally " +
             "AI_MODEL — default gpt-5.5) to run these tests.");
 
-    /// <summary>
-    /// Verifies <paramref name="payloadJson"/> against <paramref name="rules"/> and returns the model's
-    /// structured verdict. Throws only on transport/model errors; a payload that fails the rules returns a
-    /// report with <see cref="VerificationReport.Passed"/> == false (the caller asserts on it).
-    /// </summary>
+    /// <summary>Verifies payload against rules and returns verification report.</summary>
     public async Task<VerificationReport> VerifyAsync(
         string payloadJson, IReadOnlyList<string> rules, CancellationToken ct = default)
     {
-        // Note: no Temperature override — the GPT-5 family only supports the default (1); setting 0 → HTTP 400.
         var response = await _chat.GetResponseAsync<VerificationReport>(
             BuildPrompt(payloadJson, rules),
             useJsonSchemaResponseFormat: TestSettings.AiUseJsonSchema,

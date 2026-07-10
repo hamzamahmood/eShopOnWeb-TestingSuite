@@ -4,19 +4,7 @@ using Xunit.Abstractions;
 namespace MaxioApiTests.Tests;
 
 /// <summary>
-/// Robustness suite: when Maxio returns a well-formed HTTP <b>200</b> whose body the client cannot parse
-/// (truncated/malformed JSON, or an empty body), the integration must fail gracefully — surface a clean
-/// <b>server error</b> (5xx) and leak no internals — rather than crash, hang, or echo the raw deserializer
-/// diagnostic (byte position / JSON path / "invalid token") back to the caller.
-///
-/// <para>These 200-status responses do NOT count as pipeline failures, so they neither trip nor are masked by
-/// a circuit breaker on their own — but a breaker left open by another suite WOULD mask them (short-circuit
-/// before the body is ever fetched). So, unlike <see cref="ServerFaultTests"/>, this collection is deliberately
-/// NOT ordered last: it runs in the normal window with the breaker closed, so it genuinely exercises the
-/// deserialization path.</para>
-///
-/// <para>Status + hygiene are asserted deterministically; no AI body check (a body the client failed to parse
-/// has no payload to verify — the only contract is "clean 5xx, no leaked parser internals").</para>
+/// Verifies that an unparseable or empty success body surfaces as a clean server error with no leaked internals.
 /// </summary>
 [Trait(MaxioTraits.Category, MaxioTraits.CategorySafetyNet)]
 [Trait(MaxioTraits.Api, MaxioTraits.ReadSubscription)]
@@ -77,8 +65,6 @@ public class MalformedResponseTests : BlackBoxTest
 
         var response = await act(client);
 
-        // An unparseable upstream body must surface as a clean 5xx that leaks no raw parser diagnostics
-        // (byte position / JSON path / "invalid token" / "does not contain any JSON tokens").
         Expect.ServerError(response, intent);
         Expect.NoInternalLeak(response, intent);
     }

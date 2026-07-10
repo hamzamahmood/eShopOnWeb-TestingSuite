@@ -21,12 +21,6 @@ public class ReadSubscriptionTests : BlackBoxTest
 
         Expect.Status(response, HttpStatusCode.OK, intent);
 
-        // This is the canonical "does the flattening preserve the subscription contract" case: it asserts the
-        // full set of fields Maxio's spec Subscription example carries. Body verification is AI-judged and
-        // matches on MEANING, not exact key names/casing/units: the customer reference and plan handle may be
-        // under camelCase or snake_case keys, the price in cents or dollars, and dates in any format — all
-        // treated as equivalent. (Fields the integration drops during flattening surface here as failures — a
-        // deliberate robustness signal, not a regression.)
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
             "The response contains a non-blank unique subscription identifier.",
@@ -47,9 +41,6 @@ public class ReadSubscriptionTests : BlackBoxTest
 
         var response = await client.GetAsync(TestSettings.SubscriptionPath(TestSettings.UnknownStateSubscriptionId));
 
-        // A readable subscription in an unusual state must still return successfully — the integration should
-        // surface a state rather than choke on an unrecognized value (Direct forwards the raw string; the
-        // Plugin maps it to a safe status plus a rawState).
         Expect.Status(response, HttpStatusCode.OK, intent);
 
         var ai = OpenAIApiService.Require(intent);
@@ -68,8 +59,6 @@ public class ReadSubscriptionTests : BlackBoxTest
 
         var response = await client.GetAsync(TestSettings.SubscriptionPath(TestSettings.UnknownSubscriptionId));
 
-        // Reading a missing subscription is a caller mistake — it must surface as a 4xx client error (both
-        // integrations return a bodied 404; the status is gated loosely per the contract-driven design).
         Expect.StatusInRange(response, 400, 500, intent, "a 4xx client error");
 
         var ai = OpenAIApiService.Require(intent);
@@ -87,9 +76,6 @@ public class ReadSubscriptionTests : BlackBoxTest
 
         var response = await client.GetAsync(TestSettings.SubscriptionPath(TestSettings.NonNumericSubscriptionId));
 
-        // Both return a bodied client error: the integration that parses the id itself emits a 400 with a
-        // custom message; the one that binds the id as `int` emits ASP.NET's 400 problem+json ("The value
-        // 'abc' is not valid."). Either way it is a non-2xx with a body the LLM can check.
         Expect.NotSuccess(response, intent);
 
         var ai = OpenAIApiService.Require(intent);

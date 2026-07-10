@@ -4,11 +4,7 @@ using Xunit.Sdk;
 
 namespace MaxioApiTests;
 
-/// <summary>
-/// Thin HTTP client for calling the PublicApi over the wire (the curl equivalent, including
-/// <c>-k</c> / accept-any-TLS-cert for the local dev certificate). Turns a connection failure into a clear
-/// assertion message so a not-running server doesn't look like a mysterious crash.
-/// </summary>
+/// <summary>HTTP client for calling the API under test.</summary>
 public sealed class ApiClient : IDisposable
 {
     private readonly HttpClient _http;
@@ -17,7 +13,6 @@ public sealed class ApiClient : IDisposable
     {
         var handler = new HttpClientHandler
         {
-            // Equivalent to `curl -k`: trust the local dev HTTPS certificate.
             ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
         };
 
@@ -44,10 +39,6 @@ public sealed class ApiClient : IDisposable
     {
         return SendAsync(async () =>
         {
-            // The `using` must wrap the await, not just the SendAsync call: SendAsync returns before the
-            // request body has necessarily finished being read, so disposing `request` (and its Content)
-            // synchronously right after invoking it — rather than after it completes — races the in-flight
-            // send and previously surfaced as a spurious HttpRequestException on every DELETE-with-body call.
             using var request = new HttpRequestMessage(HttpMethod.Delete, path);
             if (body is not null)
             {
@@ -70,8 +61,7 @@ public sealed class ApiClient : IDisposable
         catch (HttpRequestException ex)
         {
             throw new XunitException(
-                $"Could not {method} {TestSettings.BaseUrl}{path}. Is the PublicApi running and routed to the " +
-                $"Maxio mock (http://localhost:8080)? See README.md. Underlying error: {ex.Message}");
+                $"Could not {method} {TestSettings.BaseUrl}{path}. Is the API running? Underlying error: {ex.Message}");
         }
 
         using (response)

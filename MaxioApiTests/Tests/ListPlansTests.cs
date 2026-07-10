@@ -22,9 +22,6 @@ public class ListPlansTests : BlackBoxTest
         Expect.Status(response, HttpStatusCode.OK, intent);
         Expect.ContentType(response, "application/json", intent);
 
-        // Body verification is AI-judged and matches on MEANING, not exact key names/casing: the price may be
-        // exposed as camelCase or snake_case, and in cents or dollars — all treated as equivalent. The asserted
-        // fields are those the Maxio spec's Product example carries (id, handle, name, interval, price).
         var ai = OpenAIApiService.Require(intent);
         var report = await ai.VerifyAsync(response.Body, [
             "The response is a list of exactly 2 plans.",

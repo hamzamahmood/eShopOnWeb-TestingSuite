@@ -17,8 +17,6 @@ public class MeteredComponentTests : BlackBoxTest
 
         var response = await client.GetAsync(TestSettings.MeteredComponentPath);
 
-        // Success status diverges by integration (verify → 204 no body; read → 200 + data), so assert 2xx.
-        // There is no common body to verify (one variant returns none), so this is a status-only check.
         Expect.StatusInRange(response, 200, 300, intent, "a 2xx success");
     }
 }

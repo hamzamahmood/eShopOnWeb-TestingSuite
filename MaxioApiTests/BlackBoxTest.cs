@@ -4,11 +4,7 @@ namespace MaxioApiTests;
 
 /// <summary>
 /// Base class for every black-box test class in the suite. Its constructor captures the xUnit-injected
-/// <see cref="ITestOutputHelper"/> into the ambient <see cref="TestOutput"/>, so the static <see cref="Expect"/>
-/// helpers can emit a PASS line for each passing assertion (see <see cref="TestOutput"/>).
-///
-/// <para>xUnit constructs the test class once per test method, immediately before invoking that method, so the
-/// captured helper is always the one belonging to the test about to run.</para>
+/// output helper into the ambient TestOutput so the assertion helpers can emit a line per assertion.
 /// </summary>
 public abstract class BlackBoxTest
 {
