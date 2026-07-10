@@ -229,6 +229,107 @@ app.MapPost("/subscriptions/{sid}/components/{cid}/usages.json", async (HttpCont
     return J(new { usage = MockStore.Usage(MockStore.UsageId, quantity, MockStore.MeteredComponentId, int.Parse(sid), Str(u, "memo")) });
 });
 
+// ---- extended billing surface: 11 more Maxio wire routes ----------------------------------------
+
+// 12. List product-family components → bare array of {component}
+app.MapGet("/product_families/{pfId}/components.json", (string pfId) =>
+    pfId != MockStore.ProductFamilyId.ToString()
+        ? J("A valid product_family_id is required", 404)
+        : J(MockStore.ComponentsList()));
+
+// 13. Read a component (component_id numeric or handle:xxx)
+app.MapGet("/product_families/{pfId}/components/{cid}.json", (string pfId, string cid) =>
+{
+    if (pfId != MockStore.ProductFamilyId.ToString()) return Results.StatusCode(404);
+    var c = MockStore.ComponentById(cid);
+    return c is null ? Results.StatusCode(404) : J(new { component = c });
+});
+
+// 14. Create a metered component (201 Created)
+app.MapPost("/product_families/{pfId}/metered_components.json", async (HttpContext ctx, string pfId) =>
+{
+    if (pfId != MockStore.ProductFamilyId.ToString()) return Results.StatusCode(404);
+    var root = await ReadBody(ctx);
+    if (!TryProp(root, "metered_component", out var m) || m.ValueKind != JsonValueKind.Object)
+        return Errors422("Metered component: cannot be blank.");
+    var name = Str(m, "name");
+    var unit = Str(m, "unit_name");
+    if (string.IsNullOrWhiteSpace(name)) return Errors422("Name: cannot be blank.");
+    if (string.IsNullOrWhiteSpace(unit)) return Errors422("Unit name: cannot be blank.");
+    return J(new { component = MockStore.Component(MockStore.CreatedComponentId, name!, "created-metered", "metered_component", unit!, "1.0") }, 201);
+});
+
+// 15. List a component's price points → { price_points: [...] } (spec labels this 201)
+app.MapGet("/components/{cid}/price_points.json", (string cid) =>
+    MockStore.ComponentById(cid) is null
+        ? Results.StatusCode(404)
+        : J(MockStore.PricePointsList(int.Parse(cid))));
+
+// 16. Create a component price point (spec labels this 200)
+app.MapPost("/components/{cid}/price_points.json", async (HttpContext ctx, string cid) =>
+{
+    if (MockStore.ComponentById(cid) is null) return Results.StatusCode(404);
+    var root = await ReadBody(ctx);
+    if (!TryProp(root, "price_point", out var p) || p.ValueKind != JsonValueKind.Object)
+        return Errors422("Price point: cannot be blank.");
+    var name = Str(p, "name");
+    if (string.IsNullOrWhiteSpace(name)) return Errors422("Name: cannot be blank.");
+    return J(new { price_point = MockStore.PricePoint(MockStore.CreatedPricePointId, name!, int.Parse(cid)) });
+});
+
+// 17. List a subscription's components → bare array of {component}
+app.MapGet("/subscriptions/{sid}/components.json", (string sid) =>
+{
+    var found = MockStore.SubscriptionById(sid);
+    return found is null ? Results.StatusCode(404) : J(MockStore.SubscriptionComponentsList(int.Parse(sid)));
+});
+
+// 18. List allocations for a subscription component → bare array of {allocation}
+app.MapGet("/subscriptions/{sid}/components/{cid}/allocations.json", (string sid, string cid) =>
+{
+    var found = MockStore.SubscriptionById(sid);
+    if (found is null) return Results.StatusCode(404);
+    if (MockStore.ComponentById(cid) is null) return Results.StatusCode(404);
+    return J(MockStore.AllocationsList(int.Parse(sid)));
+});
+
+// 19. Create an allocation
+app.MapPost("/subscriptions/{sid}/components/{cid}/allocations.json", async (HttpContext ctx, string sid, string cid) =>
+{
+    var found = MockStore.SubscriptionById(sid);
+    if (found is null) return Results.StatusCode(404);
+    if (MockStore.ComponentById(cid) is null) return Results.StatusCode(404);
+    var root = await ReadBody(ctx);
+    if (!TryProp(root, "allocation", out var a) || a.ValueKind != JsonValueKind.Object)
+        return Errors422("Allocation: cannot be blank.");
+    object qty = TryProp(a, "quantity", out var q) && q.ValueKind == JsonValueKind.Number ? q.GetInt64() : 0L;
+    return J(new { allocation = MockStore.Allocation(MockStore.CreatedAllocationId, int.Parse(cid), int.Parse(sid), qty, Str(a, "memo")) });
+});
+
+// 20. List a subscription's invoices via GET /invoices.json?subscription_id= → { invoices: [...] }
+app.MapGet("/invoices.json", (string? subscription_id) =>
+    string.IsNullOrEmpty(subscription_id) || MockStore.SubscriptionById(subscription_id) is null
+        ? J(new { invoices = Array.Empty<object>() })
+        : J(MockStore.InvoicesList(int.Parse(subscription_id))));
+
+// 21. List product-family coupons → bare array of {coupon}
+app.MapGet("/product_families/{pfId}/coupons.json", (string pfId) =>
+    pfId != MockStore.ProductFamilyId.ToString()
+        ? J("A valid product_family_id is required", 404)
+        : J(MockStore.CouponsList()));
+
+// 22. Create a coupon (201 Created)
+app.MapPost("/product_families/{pfId}/coupons.json", async (HttpContext ctx, string pfId) =>
+{
+    if (pfId != MockStore.ProductFamilyId.ToString()) return Results.StatusCode(404);
+    var root = await ReadBody(ctx);
+    if (!TryProp(root, "coupon", out var c) || c.ValueKind != JsonValueKind.Object)
+        return Errors422("Coupon: cannot be blank.");
+    var code = Str(c, "code");
+    if (string.IsNullOrWhiteSpace(code)) return Errors422("Code: cannot be blank.");
+    return J(new { coupon = MockStore.Coupon(MockStore.CreatedCouponId, code!, Str(c, "name") ?? code!, Str(c, "percentage") ?? "10") }, 201);
+});
+
 app.Run();
 
 // ---- mutable mock state (toggled by the gate via /__mock/config) --------------------------------

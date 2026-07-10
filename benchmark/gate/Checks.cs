@@ -74,6 +74,30 @@ public static class Checks
         new("C1.usage", async () => { await c.Mock.Reset(); var r = await c.App.Post($"/api/billing/subscriptions/{SubActive}/usage", "{\"quantity\":5,\"memo\":\"m\"}"); var up = await c.Mock.Count("POST", "/usages.json");
             return Ok(r) && Has(r, "990001") && up >= 1 ? P() : F($"status={r.Status} upstream={up} body={Trunc(r.Body)}"); }),
 
+        // ---- extended billing surface (11 more ops): same C1 contract — 2xx + value-presence + genuine upstream call ----
+        new("C1.components", async () => { await c.Mock.Reset(); var r = await c.App.Get("/api/billing/components"); var up = await c.Mock.Count("GET", "/product_families/600001/components.json");
+            return Ok(r) && Has(r, "800001", "800002") && up >= 1 ? P() : F($"status={r.Status} upstream={up} body={Trunc(r.Body)}"); }),
+        new("C1.read-component", async () => { await c.Mock.Reset(); var r = await c.App.Get("/api/billing/components/800001"); var up = await c.Mock.Count("GET", "/components/800001.json");
+            return Ok(r) && Has(r, "800001") && up >= 1 ? P() : F($"status={r.Status} upstream={up} body={Trunc(r.Body)}"); }),
+        new("C1.create-component", async () => { await c.Mock.Reset(); var r = await c.App.Post("/api/billing/components", "{\"name\":\"Metered X\",\"unitName\":\"call\",\"pricingScheme\":\"per_unit\"}"); var up = await c.Mock.Count("POST", "/metered_components.json");
+            return Ok(r) && Has(r, "800010") && up >= 1 ? P() : F($"status={r.Status} upstream={up} body={Trunc(r.Body)}"); }),
+        new("C1.price-points", async () => { await c.Mock.Reset(); var r = await c.App.Get("/api/billing/components/800001/price-points"); var up = await c.Mock.Count("GET", "/price_points.json");
+            return Ok(r) && Has(r, "810001", "810002") && up >= 1 ? P() : F($"status={r.Status} upstream={up} body={Trunc(r.Body)}"); }),
+        new("C1.create-price-point", async () => { await c.Mock.Reset(); var r = await c.App.Post("/api/billing/components/800001/price-points", "{\"name\":\"Volume Tier\",\"pricingScheme\":\"per_unit\",\"unitPrice\":\"5\"}"); var up = await c.Mock.Count("POST", "/price_points.json");
+            return Ok(r) && Has(r, "810010") && up >= 1 ? P() : F($"status={r.Status} upstream={up} body={Trunc(r.Body)}"); }),
+        new("C1.sub-components", async () => { await c.Mock.Reset(); var r = await c.App.Get($"/api/billing/subscriptions/{SubActive}/components"); var up = await c.Mock.Count("GET", $"/subscriptions/{SubActive}/components.json");
+            return Ok(r) && Has(r, "800001") && up >= 1 ? P() : F($"status={r.Status} upstream={up} body={Trunc(r.Body)}"); }),
+        new("C1.allocations", async () => { await c.Mock.Reset(); var r = await c.App.Get($"/api/billing/subscriptions/{SubActive}/components/800001/allocations"); var up = await c.Mock.Count("GET", "/allocations.json");
+            return Ok(r) && Has(r, "830001") && up >= 1 ? P() : F($"status={r.Status} upstream={up} body={Trunc(r.Body)}"); }),
+        new("C1.create-allocation", async () => { await c.Mock.Reset(); var r = await c.App.Post($"/api/billing/subscriptions/{SubActive}/components/800001/allocations", "{\"quantity\":7,\"memo\":\"m\"}"); var up = await c.Mock.Count("POST", "/allocations.json");
+            return Ok(r) && Has(r, "830010") && up >= 1 ? P() : F($"status={r.Status} upstream={up} body={Trunc(r.Body)}"); }),
+        new("C1.invoices", async () => { await c.Mock.Reset(); var r = await c.App.Get($"/api/billing/subscriptions/{SubActive}/invoices"); var up = await c.Mock.Count("GET", "/invoices.json");
+            return Ok(r) && Has(r, "inv_abc001") && up >= 1 ? P() : F($"status={r.Status} upstream={up} body={Trunc(r.Body)}"); }),
+        new("C1.coupons", async () => { await c.Mock.Reset(); var r = await c.App.Get("/api/billing/coupons"); var up = await c.Mock.Count("GET", "/coupons.json");
+            return Ok(r) && Has(r, "SAVE10") && up >= 1 ? P() : F($"status={r.Status} upstream={up} body={Trunc(r.Body)}"); }),
+        new("C1.create-coupon", async () => { await c.Mock.Reset(); var r = await c.App.Post("/api/billing/coupons", "{\"code\":\"NEW20\",\"name\":\"New 20\",\"percentage\":\"20\"}"); var up = await c.Mock.Count("POST", "/coupons.json");
+            return Ok(r) && Has(r, "840010") && up >= 1 ? P() : F($"status={r.Status} upstream={up} body={Trunc(r.Body)}"); }),
+
         // ---- C2: tolerate unknown/extra upstream fields (mock returns many the app won't model) ----
         new("C2.extra-fields", async () => { await c.Mock.Reset(); var r = await c.App.Get($"/api/billing/subscriptions/{SubActive}");
             return Ok(r) ? P() : F($"status={r.Status}"); }),

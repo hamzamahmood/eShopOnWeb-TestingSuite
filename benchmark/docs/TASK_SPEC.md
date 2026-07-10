@@ -1,16 +1,24 @@
 # Task Specification — SDK-vs-Spec Token Benchmark
 
-> **Status:** LOCKED · v0.3 · 2026-07-09
-> **Companion to** `PRODUCTION_READINESS.md` (LOCKED v0.2). This document defines the *neutral
+> **Status:** LOCKED · v0.4 · 2026-07-10
+> **Companion to** `PRODUCTION_READINESS.md` (LOCKED v0.3). This document defines the *neutral
 > functional task* both arms receive: the exact routes to build, the per-operation semantics, the
 > environment, and the **identical prompt scaffold** whose only difference is the input material.
+>
+> **v0.4 (2026-07-10) — scope expansion.** Grew the task from **11 to 22 operations** (added
+> components, price points, subscription-components, allocations, invoices, coupons) for the
+> *larger-scope* investigation: testing whether the SDK's fixed "learn-the-SDK" cost amortizes over a
+> bigger integration. §3 routes/contracts below are updated; the gate (+11 C1 checks), mock (+11
+> routes), and known-good reference (+11 endpoints) were scaled in lockstep and re-self-tested
+> **green** on the reference (37/37 public + 5/5 holdout). Applies identically to both arms — this
+> raises the *task size* for both, not the *bar* for either.
 
 ---
 
 ## 1. What the agent builds
 
 A billing integration in the eShopOnWeb PublicApi that exposes **one HTTP endpoint per capability**
-(the 11 in §3) under the route prefix **`/api/billing`**, backed by a provider client that talks to
+(the 22 in §3) under the route prefix **`/api/billing`**, backed by a provider client that talks to
 the Maxio Advanced Billing REST API. The agent is **done** when the production-readiness gate is
 green (`PRODUCTION_READINESS.md` §4). The agent works **checklist + run-only** (§4.1 there): it is
 given the §6 properties as requirements and can run the gate, but cannot read the gate's source.
@@ -77,6 +85,17 @@ provider's returned values appear regardless of field name.
 | 9 | Commit plan change | `POST /subscriptions/{subscriptionId}/plan-change` | `POST /subscriptions/{id}/migrations.json` | 2xx + the updated subscription/plan | immediate; **billing side effect** → R5 |
 | 10 | Cancel | `DELETE /subscriptions/{subscriptionId}` | `DELETE /subscriptions/{id}.json` | 2xx + resulting **state** (canceled) | immediate |
 | 11 | Record usage | `POST /subscriptions/{subscriptionId}/usage` | `POST /subscriptions/{id}/components/{compId}/usages.json` | 2xx + the recorded usage **id/quantity** | `compId` from config; **billing side effect** → R5 |
+| 12 | List components | `GET /components` | `GET /product_families/{pfId}/components.json` | 2xx + each component's **id, name, kind** | `pfId` from config |
+| 13 | Read component | `GET /components/{componentId}` | `GET /product_families/{pfId}/components/{componentId}.json` | 2xx + the component **id, name, kind** | |
+| 14 | Create metered component | `POST /components` | `POST /product_families/{pfId}/metered_components.json` | 2xx + the new component **id** | **write** (catalog side effect) |
+| 15 | List price points | `GET /components/{componentId}/price-points` | `GET /components/{componentId}/price_points.json` | 2xx + each price point's **id, name** | response is `{ "price_points": [...] }` |
+| 16 | Create price point | `POST /components/{componentId}/price-points` | `POST /components/{componentId}/price_points.json` | 2xx + the new price point **id** | **write** (catalog side effect) |
+| 17 | List subscription components | `GET /subscriptions/{subscriptionId}/components` | `GET /subscriptions/{id}/components.json` | 2xx + each component's **id + allocated quantity** | |
+| 18 | List allocations | `GET /subscriptions/{subscriptionId}/components/{componentId}/allocations` | `GET /subscriptions/{id}/components/{compId}/allocations.json` | 2xx + each allocation's **id + quantity** | |
+| 19 | Create allocation | `POST /subscriptions/{subscriptionId}/components/{componentId}/allocations` | `POST /subscriptions/{id}/components/{compId}/allocations.json` | 2xx + the allocation **id + quantity** | **billing side effect** → R5 applies |
+| 20 | List subscription invoices | `GET /subscriptions/{subscriptionId}/invoices` | `GET /invoices.json?subscription_id={id}` | 2xx + each invoice's **uid/number, total, status** | list via query filter (no subpath GET) |
+| 21 | List coupons | `GET /coupons` | `GET /product_families/{pfId}/coupons.json` | 2xx + each coupon's **id + code** | `pfId` from config |
+| 22 | Create coupon | `POST /coupons` | `POST /product_families/{pfId}/coupons.json` | 2xx + the new coupon **id + code** | **write** (catalog side effect) |
 
 **Single record-usage route for both arms** (`POST /subscriptions/{id}/usage`) — the component id is
 resolved from config internally, not exposed in the app route.
@@ -88,6 +107,10 @@ wire shape (snake_case envelopes) internally — that mapping is part of the int
 - **`POST /subscriptions`** — `{ "customerReference": string, "productHandle": string }`
 - **`POST /subscriptions/{id}/plan-change`** — `{ "productHandle": string }`
 - **`POST /subscriptions/{id}/usage`** — `{ "quantity": number, "memo": string? }`
+- **`POST /components`** — `{ "name": string, "unitName": string, "pricingScheme": string }`
+- **`POST /components/{componentId}/price-points`** — `{ "name": string, "pricingScheme": string, "unitPrice": string }`
+- **`POST /subscriptions/{id}/components/{componentId}/allocations`** — `{ "quantity": number, "memo": string? }`
+- **`POST /coupons`** — `{ "code": string, "name": string, "percentage": string }`
 - Lifecycle actions (5, 6, 7, 10) take no request body beyond the path id.
 
 ## 4. Environment & configuration (identical for both arms)
@@ -126,7 +149,7 @@ Maxio Advanced Billing REST API. Surface Maxio's data and behavior; you choose y
 names and internal structure.
 
 ENDPOINTS
-<the §3 table: method, route, and the semantic success description for each of the 11 ops>
+<the §3 table: method, route, and the semantic success description for each of the 22 ops>
 
 PRODUCTION-READINESS REQUIREMENTS
 Your integration must satisfy every property below (these are the acceptance criteria):

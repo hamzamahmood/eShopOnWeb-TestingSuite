@@ -80,6 +80,52 @@ app.MapPost("/api/billing/subscriptions/{id:long}/usage", async (long id, UsageR
     return Results.Ok(await c.RecordUsageAsync(id, req.Quantity.Value, req.Memo, ct));
 });
 
+// ---- extended billing surface: 11 more /api/billing endpoints ----
+app.MapGet("/api/billing/components", async (MaxioClient c, CancellationToken ct)
+    => Results.Ok(await c.ListComponentsAsync(ct)));
+
+app.MapGet("/api/billing/components/{componentId:long}", async (long componentId, MaxioClient c, CancellationToken ct)
+    => Results.Ok(await c.ReadComponentAsync(componentId, ct)));
+
+app.MapPost("/api/billing/components", async (CreateComponentReq req, MaxioClient c, CancellationToken ct) =>
+{
+    Require(("name", req.Name), ("unitName", req.UnitName), ("pricingScheme", req.PricingScheme));
+    return Results.Ok(await c.CreateMeteredComponentAsync(req.Name!, req.UnitName!, req.PricingScheme!, ct));
+});
+
+app.MapGet("/api/billing/components/{componentId:long}/price-points", async (long componentId, MaxioClient c, CancellationToken ct)
+    => Results.Ok(await c.ListPricePointsAsync(componentId, ct)));
+
+app.MapPost("/api/billing/components/{componentId:long}/price-points", async (long componentId, CreatePricePointReq req, MaxioClient c, CancellationToken ct) =>
+{
+    Require(("name", req.Name), ("pricingScheme", req.PricingScheme), ("unitPrice", req.UnitPrice));
+    return Results.Ok(await c.CreatePricePointAsync(componentId, req.Name!, req.PricingScheme!, req.UnitPrice!, ct));
+});
+
+app.MapGet("/api/billing/subscriptions/{id:long}/components", async (long id, MaxioClient c, CancellationToken ct)
+    => Results.Ok(await c.ListSubscriptionComponentsAsync(id, ct)));
+
+app.MapGet("/api/billing/subscriptions/{id:long}/components/{componentId:long}/allocations", async (long id, long componentId, MaxioClient c, CancellationToken ct)
+    => Results.Ok(await c.ListAllocationsAsync(id, componentId, ct)));
+
+app.MapPost("/api/billing/subscriptions/{id:long}/components/{componentId:long}/allocations", async (long id, long componentId, CreateAllocationReq req, MaxioClient c, CancellationToken ct) =>
+{
+    if (req.Quantity is null) throw new ValidationFailedException(new[] { "quantity is required." });
+    return Results.Ok(await c.CreateAllocationAsync(id, componentId, req.Quantity.Value, req.Memo, ct));
+});
+
+app.MapGet("/api/billing/subscriptions/{id:long}/invoices", async (long id, MaxioClient c, CancellationToken ct)
+    => Results.Ok(await c.ListInvoicesAsync(id, ct)));
+
+app.MapGet("/api/billing/coupons", async (MaxioClient c, CancellationToken ct)
+    => Results.Ok(await c.ListCouponsAsync(ct)));
+
+app.MapPost("/api/billing/coupons", async (CreateCouponReq req, MaxioClient c, CancellationToken ct) =>
+{
+    Require(("code", req.Code), ("name", req.Name), ("percentage", req.Percentage));
+    return Results.Ok(await c.CreateCouponAsync(req.Code!, req.Name!, req.Percentage!, ct));
+});
+
 app.Run();
 
 // ---- helpers / DTOs ----
@@ -104,3 +150,7 @@ public sealed record CreateCustomerReq(string? Reference, string? FirstName, str
 public sealed record CreateSubscriptionReq(string? CustomerReference, string? ProductHandle);
 public sealed record PlanChangeReq(string? ProductHandle);
 public sealed record UsageReq(double? Quantity, string? Memo);
+public sealed record CreateComponentReq(string? Name, string? UnitName, string? PricingScheme);
+public sealed record CreatePricePointReq(string? Name, string? PricingScheme, string? UnitPrice);
+public sealed record CreateAllocationReq(double? Quantity, string? Memo);
+public sealed record CreateCouponReq(string? Code, string? Name, string? Percentage);

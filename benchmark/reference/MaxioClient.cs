@@ -37,6 +37,12 @@ public sealed record PlanDto(long Id, string Name, string Handle, int PriceInCen
 public sealed record CustomerDto(long Id, string? Reference);
 public sealed record SubscriptionDto(long Id, string State, string? PlanHandle);
 public sealed record UsageDto(long Id, double Quantity);
+public sealed record ComponentDto(long Id, string Name, string Handle, string Kind);
+public sealed record PricePointDto(long Id, string Name);
+public sealed record SubComponentDto(long ComponentId, string Name, long AllocatedQuantity);
+public sealed record AllocationDto(long Id, double Quantity);
+public sealed record InvoiceDto(string Uid, string Number, string Total, string Status);
+public sealed record CouponDto(long Id, string Code, string Name);
 
 /// <summary>
 /// A correct raw-HttpClient Maxio client: hand-rolled resilience (retry idempotent GETs only —
@@ -118,6 +124,130 @@ public sealed class MaxioClient(HttpClient http, MaxioSettings s, Breaks breaks)
         var u = doc.RootElement.GetProperty("usage");
         return new UsageDto(GetLong(u, "id"), GetDouble(u, "quantity"));
     }
+
+    // ---- extended billing surface: components / price points / allocations / invoices / coupons ----
+    public async Task<IReadOnlyList<ComponentDto>> ListComponentsAsync(CancellationToken ct)
+    {
+        var (status, body) = await Send(HttpMethod.Get, $"/product_families/{s.ProductFamilyId}/components.json", null, ct);
+        EnsureOk(status, body);
+        using var doc = JsonDocument.Parse(body);
+        var list = new List<ComponentDto>();
+        foreach (var item in doc.RootElement.EnumerateArray())
+            list.Add(MapComponent(item.GetProperty("component")));
+        return list;
+    }
+
+    public async Task<ComponentDto> ReadComponentAsync(long componentId, CancellationToken ct)
+    {
+        var (status, body) = await Send(HttpMethod.Get, $"/product_families/{s.ProductFamilyId}/components/{componentId}.json", null, ct);
+        EnsureOk(status, body);
+        using var doc = JsonDocument.Parse(body);
+        return MapComponent(doc.RootElement.GetProperty("component"));
+    }
+
+    public async Task<ComponentDto> CreateMeteredComponentAsync(string name, string unitName, string pricingScheme, CancellationToken ct)
+    {
+        var envelope = new { metered_component = new { name, unit_name = unitName, pricing_scheme = pricingScheme } };
+        var (status, body) = await Send(HttpMethod.Post, $"/product_families/{s.ProductFamilyId}/metered_components.json", envelope, ct);
+        EnsureOk(status, body);
+        using var doc = JsonDocument.Parse(body);
+        return MapComponent(doc.RootElement.GetProperty("component"));
+    }
+
+    public async Task<IReadOnlyList<PricePointDto>> ListPricePointsAsync(long componentId, CancellationToken ct)
+    {
+        var (status, body) = await Send(HttpMethod.Get, $"/components/{componentId}/price_points.json", null, ct);
+        EnsureOk(status, body);
+        using var doc = JsonDocument.Parse(body);
+        var list = new List<PricePointDto>();
+        foreach (var pp in doc.RootElement.GetProperty("price_points").EnumerateArray())
+            list.Add(new PricePointDto(GetLong(pp, "id"), GetStr(pp, "name") ?? ""));
+        return list;
+    }
+
+    public async Task<PricePointDto> CreatePricePointAsync(long componentId, string name, string pricingScheme, string unitPrice, CancellationToken ct)
+    {
+        var envelope = new { price_point = new { name, pricing_scheme = pricingScheme, prices = new[] { new { starting_quantity = 1, unit_price = unitPrice } } } };
+        var (status, body) = await Send(HttpMethod.Post, $"/components/{componentId}/price_points.json", envelope, ct);
+        EnsureOk(status, body);
+        using var doc = JsonDocument.Parse(body);
+        var pp = doc.RootElement.GetProperty("price_point");
+        return new PricePointDto(GetLong(pp, "id"), GetStr(pp, "name") ?? "");
+    }
+
+    public async Task<IReadOnlyList<SubComponentDto>> ListSubscriptionComponentsAsync(long subscriptionId, CancellationToken ct)
+    {
+        var (status, body) = await Send(HttpMethod.Get, $"/subscriptions/{subscriptionId}/components.json", null, ct);
+        EnsureOk(status, body);
+        using var doc = JsonDocument.Parse(body);
+        var list = new List<SubComponentDto>();
+        foreach (var item in doc.RootElement.EnumerateArray())
+        {
+            var comp = item.GetProperty("component");
+            list.Add(new SubComponentDto(GetLong(comp, "component_id"), GetStr(comp, "name") ?? "", GetLong(comp, "allocated_quantity")));
+        }
+        return list;
+    }
+
+    public async Task<IReadOnlyList<AllocationDto>> ListAllocationsAsync(long subscriptionId, long componentId, CancellationToken ct)
+    {
+        var (status, body) = await Send(HttpMethod.Get, $"/subscriptions/{subscriptionId}/components/{componentId}/allocations.json", null, ct);
+        EnsureOk(status, body);
+        using var doc = JsonDocument.Parse(body);
+        var list = new List<AllocationDto>();
+        foreach (var item in doc.RootElement.EnumerateArray())
+            list.Add(MapAllocation(item.GetProperty("allocation")));
+        return list;
+    }
+
+    public async Task<AllocationDto> CreateAllocationAsync(long subscriptionId, long componentId, double quantity, string? memo, CancellationToken ct)
+    {
+        var envelope = new { allocation = new { quantity, memo } };
+        var (status, body) = await Send(HttpMethod.Post, $"/subscriptions/{subscriptionId}/components/{componentId}/allocations.json", envelope, ct);
+        EnsureOk(status, body);
+        using var doc = JsonDocument.Parse(body);
+        return MapAllocation(doc.RootElement.GetProperty("allocation"));
+    }
+
+    public async Task<IReadOnlyList<InvoiceDto>> ListInvoicesAsync(long subscriptionId, CancellationToken ct)
+    {
+        var (status, body) = await Send(HttpMethod.Get, $"/invoices.json?subscription_id={subscriptionId}", null, ct);
+        EnsureOk(status, body);
+        using var doc = JsonDocument.Parse(body);
+        var list = new List<InvoiceDto>();
+        foreach (var inv in doc.RootElement.GetProperty("invoices").EnumerateArray())
+            list.Add(new InvoiceDto(GetStr(inv, "uid") ?? "", GetStr(inv, "number") ?? "", GetStr(inv, "total_amount") ?? "", GetStr(inv, "status") ?? ""));
+        return list;
+    }
+
+    public async Task<IReadOnlyList<CouponDto>> ListCouponsAsync(CancellationToken ct)
+    {
+        var (status, body) = await Send(HttpMethod.Get, $"/product_families/{s.ProductFamilyId}/coupons.json", null, ct);
+        EnsureOk(status, body);
+        using var doc = JsonDocument.Parse(body);
+        var list = new List<CouponDto>();
+        foreach (var item in doc.RootElement.EnumerateArray())
+        {
+            var cp = item.GetProperty("coupon");
+            list.Add(new CouponDto(GetLong(cp, "id"), GetStr(cp, "code") ?? "", GetStr(cp, "name") ?? ""));
+        }
+        return list;
+    }
+
+    public async Task<CouponDto> CreateCouponAsync(string code, string name, string percentage, CancellationToken ct)
+    {
+        var envelope = new { coupon = new { code, name, description = name, percentage } };
+        var (status, body) = await Send(HttpMethod.Post, $"/product_families/{s.ProductFamilyId}/coupons.json", envelope, ct);
+        EnsureOk(status, body);
+        using var doc = JsonDocument.Parse(body);
+        var cp = doc.RootElement.GetProperty("coupon");
+        return new CouponDto(GetLong(cp, "id"), GetStr(cp, "code") ?? "", GetStr(cp, "name") ?? "");
+    }
+
+    private static ComponentDto MapComponent(JsonElement c)
+        => new(GetLong(c, "id"), GetStr(c, "name") ?? "", GetStr(c, "handle") ?? "", GetStr(c, "kind") ?? "");
+    private static AllocationDto MapAllocation(JsonElement a)
+        => new(GetLong(a, "allocation_id"), GetDouble(a, "quantity"));
 
     private async Task<SubscriptionDto> OneSub(HttpMethod m, string path, object? env, CancellationToken ct)
     {
