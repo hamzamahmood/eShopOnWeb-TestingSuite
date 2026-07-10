@@ -23,13 +23,14 @@ public static class Checks
     // fixtures (mirror the mock)
     const string CustKnown = "cust_known";
     const long   CustKnownId = 900001;
-    const long   SubActive = 950001, SubOnHold = 950002, SubCanceled = 950003;
+    const long   SubActive = 950001, SubOnHold = 950002, SubCanceled = 950003, SubNovel = 950004, SubNovel2 = 950005;
     const string Pro = "pro-plan", Basic = "basic-plan";
 
     static readonly string[] Forbidden =
     {
         "System.", "Microsoft.", "   at ", ".cs:line", "StackTrace", "Traceback",
         "test-api-key", "price_in_cents", "product_family", "HttpRequestException", "NullReference",
+        "<html", "\"errors\":{",   // raw upstream error bodies (non-JSON HTML / field-map) must not be echoed
     };
 
     // state vocabularies — accept any faithful representation (raw wire, SDK enum name, plain English)
@@ -158,6 +159,32 @@ public static class Checks
             await c.Mock.Config("{\"requireAuth\":true}");
             var r = await c.App.Get("/api/billing/plans");
             return Ok(r) ? P() : F($"status={r.Status} (app's upstream call was rejected for missing/invalid auth)"); }),
+
+        // ---- E5-E8: provider error-SHAPE robustness (Maxio returns several 422 shapes + unexpected statuses + non-JSON bodies) ----
+        new("E5.err-fieldmap", async () => { await c.Mock.Reset();
+            await c.Mock.Config(Faults("{\"pathContains\":\"/migrations.json\",\"action\":\"errmap\",\"times\":1}"));
+            var r = await c.App.Post($"/api/billing/subscriptions/{SubActive}/plan-change", $"{{\"productHandle\":\"{Basic}\"}}");
+            return Is4xx(r) && Leak(r) is null ? P() : F($"status={r.Status} leak={Leak(r)} body={Trunc(r.Body)}"); }),
+        new("E6.err-unexpected-status", async () => { await c.Mock.Reset();
+            await c.Mock.Config(Faults("{\"pathContains\":\"/subscriptions.json\",\"method\":\"POST\",\"action\":\"status409\",\"times\":1}"));
+            var r = await c.App.Post("/api/billing/subscriptions", Sub(CustKnown, Pro));
+            return Is4xx(r) && Leak(r) is null ? P() : F($"status={r.Status} leak={Leak(r)} body={Trunc(r.Body)}"); }),
+        new("E7.err-nonjson-body", async () => { await c.Mock.Reset();
+            // persistent (times:99): a retriable GET must exhaust retries and then MAP the non-JSON 503 cleanly,
+            // not JSON-parse it (which crashes) — times:1 would just be retried past.
+            await c.Mock.Config(Faults($"{{\"pathContains\":\"/subscriptions/{SubActive}.json\",\"action\":\"htmlerror\",\"times\":99}}"));
+            var r = await c.App.Get($"/api/billing/subscriptions/{SubActive}");
+            return Is5xx(r) && r.Status != 0 && Leak(r) is null ? P() : F($"status={r.Status} leak={Leak(r)} body={Trunc(r.Body)}"); }),
+        new("E8.err-string", async () => { await c.Mock.Reset();
+            await c.Mock.Config(Faults("{\"pathContains\":\"/hold.json\",\"action\":\"errstring\",\"times\":1}"));
+            var r = await c.App.Post($"/api/billing/subscriptions/{SubActive}/pause");
+            return Is4xx(r) && Leak(r) is null ? P() : F($"status={r.Status} leak={Leak(r)} body={Trunc(r.Body)}"); }),
+
+        // ---- C4: model forward-compat — a subscription state outside the common set must be tolerated ----
+        new("C4.unknown-enum", async () => { await c.Mock.Reset();
+            var r = await c.App.Get($"/api/billing/subscriptions/{SubNovel}");
+            var up = await c.Mock.Count("GET", $"/subscriptions/{SubNovel}.json");
+            return Ok(r) && Has(r, "gamma_review") && up >= 1 ? P() : F($"status={r.Status} upstream={up} body={Trunc(r.Body)}"); }),
     };
 
     // ---- Holdout: same property classes, different concrete instances (never shown to the agent) ----
@@ -184,6 +211,13 @@ public static class Checks
             await c.App.Get("/api/billing/plans");
             var log = c.AppLog();
             return !System.Text.RegularExpressions.Regex.IsMatch(log, "\\bacme\\b") ? P() : F("subdomain leaked in app log"); }),
+        new("H.err-fieldmap", async () => { await c.Mock.Reset();
+            await c.Mock.Config(Faults("{\"pathContains\":\"/resume.json\",\"action\":\"errmap\",\"times\":1}"));
+            var r = await c.App.Post($"/api/billing/subscriptions/{SubOnHold}/resume");
+            return Is4xx(r) && Leak(r) is null ? P() : F($"status={r.Status} leak={Leak(r)} body={Trunc(r.Body)}"); }),
+        new("H.unknown-enum", async () => { await c.Mock.Reset();
+            var r = await c.App.Get($"/api/billing/subscriptions/{SubNovel2}");
+            return Ok(r) && Has(r, "delta_pending") ? P() : F($"status={r.Status} body={Trunc(r.Body)}"); }),
     };
 
     static string Cust(string reference) => $"{{\"reference\":\"{reference}\",\"firstName\":\"A\",\"lastName\":\"B\",\"email\":\"a@b.com\"}}";

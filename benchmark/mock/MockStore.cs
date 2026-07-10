@@ -25,6 +25,8 @@ public static class MockStore
     public const int    SubCanceledId          = 950003;
     public const int    NewSubscriptionId      = 950010;
     public const long   UsageId                = 990001;
+    public const int    SubNovelId             = 950004;   // forward-compat: a state outside the common set
+    public const int    SubNovel2Id            = 950005;   // holdout variant
 
     private const string Ts = "2026-01-01T00:00:00-05:00";
 
@@ -156,6 +158,8 @@ public static class MockStore
         if (id == SubActiveId.ToString())   return (ActiveSubscription(),   "active");
         if (id == SubOnHoldId.ToString())   return (OnHoldSubscription(),   "on_hold");
         if (id == SubCanceledId.ToString()) return (CanceledSubscription(), "canceled");
+        if (id == SubNovelId.ToString())    return (Subscription(SubNovelId,  "gamma_review",  ProProduct(), KnownCustomer()), "gamma_review");
+        if (id == SubNovel2Id.ToString())   return (Subscription(SubNovel2Id, "delta_pending", ProProduct(), KnownCustomer()), "delta_pending");
         return null;
     }
 

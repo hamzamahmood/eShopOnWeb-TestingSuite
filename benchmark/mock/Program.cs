@@ -77,6 +77,20 @@ app.Use(async (ctx, next) =>
             case "reset":
                 ctx.Abort();
                 return;
+            case "errmap":   // Maxio field-map 422: {"errors":{field:[...]}}
+                await Results.Json(new { errors = new Dictionary<string, string[]> { ["base"] = new[] { "is not permitted" }, ["target"] = new[] { "is invalid" } } }, webJson, statusCode: 422).ExecuteAsync(ctx);
+                return;
+            case "errstring":   // Maxio single-string 422: {"error":"..."}
+                await Results.Json(new { error = "the request could not be processed" }, webJson, statusCode: 422).ExecuteAsync(ctx);
+                return;
+            case "status409":   // unexpected/non-typed status -> exercises the raw-fallback error path
+                await Results.Json(new { errors = new[] { "resource already exists" } }, webJson, statusCode: 409).ExecuteAsync(ctx);
+                return;
+            case "htmlerror":   // non-JSON error body -> a naive JSON parser crashes on this
+                ctx.Response.StatusCode = 503;
+                ctx.Response.ContentType = "text/html";
+                await ctx.Response.WriteAsync("<html><body><h1>503 Service Unavailable</h1></body></html>");
+                return;
         }
     }
 
