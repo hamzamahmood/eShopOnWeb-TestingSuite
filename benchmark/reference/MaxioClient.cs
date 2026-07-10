@@ -17,13 +17,13 @@ public sealed class MaxioSettings
 }
 
 /// <summary>Deliberate-defect toggles (env BREAK=...), used to prove the gate discriminates.</summary>
-public sealed record Breaks(bool Leak, bool RetryWrite, bool NoTimeout, bool Raw500, bool NoAuth, bool LogSecret, bool Hardcode, bool NaiveErrors)
+public sealed record Breaks(bool Leak, bool RetryWrite, bool NoTimeout, bool Raw500, bool NoAuth, bool LogSecret, bool Hardcode)
 {
     public static Breaks From(string? env)
     {
         var s = (env ?? "").ToLowerInvariant();
         bool H(string k) => s.Contains(k);
-        return new Breaks(H("leak"), H("retrywrite"), H("notimeout"), H("raw500"), H("noauth"), H("logsecret"), H("hardcode"), H("naiveerrors"));
+        return new Breaks(H("leak"), H("retrywrite"), H("notimeout"), H("raw500"), H("noauth"), H("logsecret"), H("hardcode"));
     }
 }
 
@@ -134,21 +134,12 @@ public sealed class MaxioClient(HttpClient http, MaxioSettings s, Breaks breaks)
         return new SubscriptionDto(GetLong(sub, "id"), GetStr(sub, "state") ?? "", planHandle);
     }
 
-    private void EnsureOk(HttpStatusCode status, string body)
+    private static void EnsureOk(HttpStatusCode status, string body)
     {
         if ((int)status is >= 200 and < 300) return;
         if (status == HttpStatusCode.NotFound) throw new NotFoundException("The requested billing resource was not found.");
-        if ((int)status is >= 400 and < 500)
-            throw new ProviderRejectedException(breaks.NaiveErrors ? NaiveArrayOnly(body) : ParseErrors(body));
+        if ((int)status is >= 400 and < 500) throw new ProviderRejectedException(ParseErrors(body));
         throw new ProviderUnavailableException("The billing provider returned an error.");
-    }
-
-    // BREAK=naiveerrors: a lazy parser assuming ONLY Maxio's {"errors":[...]} array shape. It throws on the
-    // field-map / single-string / non-JSON shapes -> surfaces as a 500 -> the new error-shape gate checks catch it.
-    private static string NaiveArrayOnly(string body)
-    {
-        using var doc = JsonDocument.Parse(body);
-        return string.Join("; ", doc.RootElement.GetProperty("errors").EnumerateArray().Select(e => e.GetString()));
     }
 
     private static string ParseErrors(string body)

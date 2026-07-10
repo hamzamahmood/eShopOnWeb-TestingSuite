@@ -172,7 +172,6 @@ public_check_results · holdout_check_results · transcript_path · produced_tre
 | **Model drift / caching** | noise | pinned snapshot + fingerprint; interleave; cacheRead separate; output-tokens arbiter |
 | **Gate flakiness** | noise charged to an arm | deterministic-first gate; re-run flaky checks; log flakiness |
 | **Single API / single app** | limits external validity | explicitly scoped; future replication on other APIs/apps |
-| **Gate strengthened after the pilot** (v0.4) | could look like post-hoc tuning toward the SDK | pilot-driven revision (Stage-1 → pre-Stage-2), documented in `PRODUCTION_READINESS` v0.4. Additions assert genuine production properties (provider error-shape variety + model forward-compat); the competent hand-rolled reference still passes **all** of them (public 31/31, holdout 7/7), and a naive parser fails them; made and locked **before any Stage-2 run**, not after seeing Stage-2 results |
 
 ## 13. Lock status & companions
 

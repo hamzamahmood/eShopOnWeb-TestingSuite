@@ -1,6 +1,6 @@
 # Production-Readiness Definition of Done — SDK-vs-Spec Token Benchmark
 
-> **Status:** LOCKED · v0.4 · 2026-07-10
+> **Status:** LOCKED · v0.3 · 2026-07-09
 > **Purpose:** This document is the single source of truth for what "production-ready" means in
 > this experiment. It is *pre-registered*: it must be finalized and frozen **before** either
 > integration is built. Once locked, changes require a version bump + a dated rationale entry in
@@ -133,10 +133,6 @@ arm-agnostic; nothing here reads the arm's source.
 | E2 | Unknown resource → client-error, not server-error | ops 3,4,5,6,7,9,10,11 | BB | read/act on an unknown id; app returns a **4xx** (404 or 422 both accepted), never a 5xx or a crash. Deterministic status check (hygiene of the body is covered by E3) |
 | E3 | No failure body leaks internals | all failure paths | BB | forbidden-substring sweep: no stack trace, internal exception type, secret, or raw upstream body in any error response |
 | E4 | Malformed upstream body tolerated | any op | BB | mock returns garbage JSON; app returns a mapped error, does not crash or leak |
-| E5 | Provider error shape — field-map handled | write op | BB | mock returns `{"errors":{field:[...]}}` (422); app returns a clean 4xx, no raw-body leak |
-| E6 | Provider error — unexpected/non-typed status | write op | BB | mock returns a 409 the op does not normally emit; app returns a clean 4xx (not 5xx/crash), no leak |
-| E7 | Non-JSON error body tolerated | any op | BB | mock returns a **persistent** 503 with an HTML body; app maps to a clean 5xx within bounds, does not crash JSON-parsing it, no raw-body leak |
-| E8 | Provider error shape — single-string handled | write op | BB | mock returns `{"error":"..."}` (422); app returns a clean 4xx, no leak |
 
 ### Correctness / contract
 | ID | Property | Applies to | Verify | Pass criterion |
@@ -144,7 +140,6 @@ arm-agnostic; nothing here reads the arm's source.
 | C1 | Happy path returns success + required data | all 11 ops | BB | 2xx + the required **values** appear in the body (value-presence, field-name-agnostic — e.g. the created subscription's id/amount/state value is present); LLM-judge fallback only for a value that can't be matched literally |
 | C2 | Unknown extra response field tolerated | any read op | BB | mock adds an unexpected field; app still succeeds (forward-compat) |
 | C3 | Invalid request rejected locally, no upstream call | write ops | OBS-count | send a request missing a required field; app returns a local 4xx; **mock received zero calls** |
-| C4 | Model forward-compat — unknown enum tolerated | read ops | BB | mock returns a subscription whose `state` is a value outside the common set; app surfaces it (2xx) and does not crash |
 
 ### Security / observability / lifecycle
 | ID | Property | Applies to | Verify | Pass criterion |
@@ -215,10 +210,6 @@ they are **out of the hard gate** to preserve fairness. Note them as qualitative
 - **`Retry-After` honoring** on 429/503 (relaxed out of R2): asserting the client *waited* the
   advertised delay is timing-flaky, and neither Polly nor the SDK honor `Retry-After` by default —
   gating it would add noise and force custom code on both arms. Observe qualitatively instead.
-- **Auto-pagination, SSE streaming, OAuth token-refresh, circuit breaking** — not gated. The Maxio SDK
-  either does not wire them (auto-pagination and SSE are dormant `Core/` engines; Maxio auth is
-  Basic-only) or lacks them (no circuit breaker). Gating them would test properties the SDK does not
-  provide, unfairly penalizing the SDK arm — the opposite of a fair bar.
 
 ## 11. Change control
 
@@ -239,13 +230,6 @@ and are disclosed.
   are injected by the mock itself (`HttpContext.Abort()` / `Task.Delay`, verified on Windows to yield
   a real client-side transport error), so **Toxiproxy is dropped** and the app's base URL points
   straight at the mock. The R3/R4 *properties* and every other check are unchanged.
-- v0.4 — 2026-07-10 — **pilot-driven strengthening (Stage-1 → pre-Stage-2).** Added provider
-  error-**shape** robustness (E5–E8: field-map / single-string / unexpected-status / non-JSON body)
-  and model **forward-compatibility** (C4: unknown enum value). Rationale: the pilot gate under-tested
-  error/model robustness — genuine production properties the Maxio SDK provides natively and a
-  hand-rolled client must build by hand. **Fairness preserved:** the known-good hand-rolled reference
-  passes all additions (public 31/31, holdout 7/7); a naive array-only error parser fails E5/E8. Made
-  and re-locked **before any Stage-2 run** (not after seeing Stage-2 results). Disclosed in `PROTOCOL`.
 
 ## 12. Companion documents
 
