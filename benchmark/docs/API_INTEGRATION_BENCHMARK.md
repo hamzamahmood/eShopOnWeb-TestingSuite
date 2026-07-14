@@ -1,24 +1,23 @@
 # API Integration Benchmark — Criteria & Methodology
 
 > **What this is.** A single, reusable bar for judging the quality of *any* API integration —
-> whether an AI agent or a human wrote it, whether it was built from an SDK, a plugin, or a raw
-> OpenAPI spec. It answers two questions on one integration, standalone (no comparison arm required):
-> **(1) Is it production-ready?** (a pass/fail gate) and **(2) How good is it, in depth?** (a
+> whether an AI agent or a human wrote it, whether it was built from an SDK, a client library, or a raw
+> OpenAPI spec. It answers two questions about one integration, standalone (no comparison build
+> required): **(1) Is it production-ready?** (a pass/fail gate) and **(2) How good is it, in depth?** (a
 > seven-dimension quality scorecard).
 >
-> **Why it exists / how to aim it at SDK & plugin shortcomings.** The dimensions below are the axes on
-> which a generated SDK or an SDK-delivery plugin most often *underperforms* a lean hand-rolled
+> **Why it exists / how to aim it at SDK & client-library shortcomings.** The dimensions below are the
+> axes on which a generated SDK or an SDK-delivery plugin most often *underperforms* a lean hand-rolled
 > integration — drift brittleness, dependency surface, navigation/learning cost, error-surface
-> ergonomics. Run any SDK/plugin integration through this bar and the dimensions where it scores poorly
-> **are the shortcomings to fix.** §7 maps each known failure mode to the dimension that catches it and
-> the remediation lever. You do not need a baseline build to use it — but if you have one, every
+> ergonomics. Run any SDK-based integration through this bar and the dimensions where it scores poorly
+> **are the shortcomings to fix.** §7 maps each failure mode to the dimension that catches it and the
+> remediation lever. You do not need a baseline build to use the bar — but if you have one, every
 > dimension is comparative too.
 >
-> **Provenance.** Distilled from the SDK-vs-spec benchmark (Stage 1 token study + Stage 2Q quality
-> study). This document is the portable, forward-looking consolidation; the concrete instruments it
-> cites live under `benchmark/` and are reference implementations you can re-point at a new API.
-> Companions: `PRODUCTION_READINESS.md`, `TASK_SPEC.md`, `PROTOCOL.md`, `QUALITY_PROTOCOL.md`,
-> `FINDINGS.md`, `QUALITY_FINDINGS.md`.
+> **Self-contained.** This document is a complete methodology on its own. It describes each instrument
+> abstractly — what it must measure, its oracle, its pass bar — so you can implement it in any language
+> or toolchain and point it at any API. Nothing here depends on a particular provider, app, or prior
+> study.
 
 ---
 
@@ -29,7 +28,7 @@
 | Decide if an integration is shippable | **Part A** — the readiness gate (DONE / ROBUST) | deterministic, cheap |
 | Judge how good it is beyond "it passes" | **Part B** — the 7-dimension scorecard | mostly deterministic |
 | Run it rigorously / repeatably / at N | **Part C** — methodology, stats, instruments | scales with N |
-| Find what to fix in an SDK or plugin | **Part D / §7** — the shortcomings diagnostic | reads Parts A+B |
+| Find what to fix in an SDK or client library | **§7** — the shortcomings diagnostic | reads Parts A+B |
 
 **Minimum viable evaluation** (one integration, one afternoon): run Part A to green, then score D1–D4
 from Part B. That already tells you production-readiness + the four deterministic quality axes. D5–D7
@@ -56,36 +55,36 @@ language, and toolchain.
    | Unknown id returns **exactly 404** | Unknown resource returns a **4xx meaning "not found"**, never a 5xx |
    | Response field is named `subscriptionId` | Body **semantically contains a usable identifier** (any field name) |
    | State equals `"Active"` (one library's enum casing) | State **semantically equals "active"** (case/format-insensitive) |
-   | Retry policy calls `DisableForUnsafeHttpMethods()` | Under an injected 503 on a write, the server **received the POST exactly once** |
+   | Retry policy calls a specific method | Under an injected 503 on a write, the provider **received the POST exactly once** |
 
 2. **Verify behavior, not source — for the pass gate.** The readiness gate (Part A) inspects the
    running integration's *behavior* (status codes, recorded upstream calls, timing, logs, boot), never
    its code. Reading source for "did you call method X" is implementation-specific and unfair; a good
    integration can satisfy a property through a library's config instead of app code. **Source
    inspection is allowed only in Part B (quality)** — and there, only for *universal* properties
-   (complexity, coupling, dependency count), never "did you use the SDK."
+   (complexity, coupling, dependency count), never "did you use a particular library."
 
 3. **Deterministic-first; LLM judgment is a labelled, low-trust fallback.** Prefer status checks,
-   required/forbidden-substring sweeps, upstream-call counts (recording mock), timing-liveness, and
+   required/forbidden-substring sweeps, upstream-call counts (a recording mock), timing-liveness, and
    **value-presence matching** (assert the expected *value* appears in the body, regardless of field
-   name). An arm-blind LLM judge is used only where a value cannot be matched literally, and it is
+   name). An identity-blind LLM judge is used only where a value cannot be matched literally, and it is
    never the headline. Non-determinism in the oracle is a cost charged to whatever you're measuring.
 
 4. **Discrimination-validate every instrument — the "gate on the gate."** Before you trust a check,
    prove it scores a **known-good** reference **high** and a **deliberately-broken** variant **low**.
    An instrument that cannot separate good from bad is not shipped. Build a small library of injectable
-   defects (`BREAK=` toggles) for exactly this. If a metric doesn't move when you break the thing it
-   claims to measure, it measures nothing.
+   defects for exactly this. If a metric doesn't move when you break the thing it claims to measure, it
+   measures nothing.
 
 5. **Two-sided by construction.** An instrument that can only make one approach look good is biased.
    For every dimension, name a concrete case where the *other* kind of integration should win, and
-   confirm the instrument surfaces it. (In the source study the litmus was cancellation precision — the
-   hand-rolled build returned a precise HTTP 499 on client-abort where the SDK returned a blanket 504;
-   any quality instrument that couldn't show that hand-rolled win was reworked.)
+   confirm the instrument surfaces it. (Example: a hand-rolled string parser tolerating a value a typed
+   SDK rejects, or an SDK precisely surfacing an error a thin mapper flattens — a good drift/error
+   instrument must be able to show *either* winning.)
 
 6. **Pre-register and lock before you score.** Freeze the criteria, thresholds, normalization anchors,
-   and defect fixtures — git-commit and content-hash them — *before* measuring the integration under
-   test. Changes after seeing scores are disallowed unless they *loosen* a check symmetrically and are
+   and defect fixtures — commit and content-hash them — *before* measuring the integration under test.
+   Changes after seeing scores are disallowed unless they *loosen* a check symmetrically and are
    disclosed. This blocks metric-shopping / HARKing, which matters most when the evaluator authored the
    thing being evaluated.
 
@@ -181,10 +180,10 @@ Two mechanisms, both required, so a hardcoded happy-path can't pass:
    — an integration that fakes responses without calling the provider fails.
 2. **The hidden holdout** (§2) — gaming the visible checks reaches DONE but fails ROBUST.
 
-> **Reference implementation:** `benchmark/gate/` (hermetic .NET console — builds + boots the mock and
-> the app, runs public + holdout checks, exits 0/1) and `benchmark/mock/` (spec-faithful,
-> fault-injecting, request-recording provider mock). `benchmark/reference/` is a known-good integration
-> with `BREAK=` defect toggles used to discrimination-validate the gate.
+> **Reference instruments (Part C.1):** a **hermetic gate runner** (boots the mock + the app, runs the
+> public and holdout checks, exits pass/fail), a **recording, fault-injecting mock** standing in for the
+> provider, and a **known-good reference integration with injectable defects** used to
+> discrimination-validate the gate.
 
 ---
 
@@ -195,19 +194,19 @@ cheap (run them always). D5–D6 need agent runs or existing tests (conditional)
 lowest-trust (never the headline).
 
 For each dimension: **what it measures · oracle · the standalone reading (what "good" looks like) · the
-SDK/plugin shortcoming it exposes.** Thresholds are defaults calibrated from the source study — adjust
-per API, but *lock them before scoring* (§1.6).
+SDK/library shortcoming it exposes.** Thresholds are starting defaults — adjust per API, but *lock them
+before scoring* (§1.6).
 
 ### D1 — Correctness depth · Functional Suitability · Tier 1
 - **Measures:** not just "a required value appears somewhere" (that's gate C1) but that it sits in a
   **semantically-right place**, in the **right numeric units/magnitude**, with correct **list
   cardinality** and **empty/unknown** handling.
-- **Oracle:** deterministic. Value-in-right-position; units consistency (e.g. a cents fixture must
-  surface as the right dollar magnitude — neither raw cents nor double-divided); list returns the
-  expected count; empty list ≠ error; unknown id → right-shaped 4xx.
+- **Oracle:** deterministic. Value-in-right-position; units consistency (e.g. a value stored in cents
+  must surface as the right dollar magnitude — neither raw cents nor double-divided); a list returns the
+  expected count; an empty list ≠ an error; an unknown id → a right-shaped 4xx.
 - **Good looks like:** ~100%. This dimension usually shows **parity** — most integrations that pass the
   gate are genuinely correct — so a *dip* here is a real red flag, not noise.
-- **SDK/plugin lens:** rarely where an SDK wins or loses; if the SDK mis-maps a field or drops list
+- **SDK/library lens:** rarely where an SDK wins or loses; if the SDK mis-maps a field or drops list
   items despite its types, that's a generator bug worth catching.
 
 ### D2 — API-drift resilience · Reliability + Flexibility · Tier 1 · **crown jewel**
@@ -234,8 +233,8 @@ per API, but *lock them before scoring* (§1.6).
   deserialization scores higher Resilience (absorbs type/field drift) but risks SILENT-WRONG; strict
   typing scores higher Safety (fails loud) but lower Resilience (rejects drift it could have absorbed).
   Neither number alone is the verdict.
-- **SDK/plugin lens:** the SDK's pitch is "types absorb drift." **Test it — it is often the reverse:**
-  a strict typed deserializer 502s on an `int→string` retype or an envelope rename that a
+- **SDK/library lens:** the SDK's pitch is "types absorb drift." **Test it — it can be the reverse:**
+  a strict typed deserializer may 502 on an `int→string` retype or an envelope rename that a
   string-tolerant hand-rolled parser shrugs off. Where the SDK is *less* drift-resilient, that's a
   concrete shortcoming (see §7).
 
@@ -252,40 +251,41 @@ per API, but *lock them before scoring* (§1.6).
 | P8 | field-removal | drop a non-critical field | graceful degradation |
 
 > **Oracle limitation to disclose:** a whole-body value-presence oracle is *conservative* on renames —
-> if a renamed field's value survives elsewhere in the body, a rich pass-through/SDK response can score
-> CORRECT even if it dropped the primary field. This bias runs *toward* pass-through/SDK responses, so a
-> hand-rolled arm's drift win measured this way is a **floor**, not a ceiling.
+> if a renamed field's value survives elsewhere in the body, a rich pass-through response can score
+> CORRECT even if it dropped the primary field. This bias runs *toward* pass-through/SDK-style
+> responses, so a thin-mapper's drift win measured this way is a **floor**, not a ceiling.
 
 ### D3 — Maintainability · Maintainability · Tier 1
 - **Measures:** how hard the integration is to read and change. Over the **integration files only**, not
   the host app.
 - **Oracle:** deterministic static analysis —
-  - **Cyclomatic complexity + Maintainability Index** (Roslyn `Microsoft.CodeAnalysis.Metrics` /
-    Roslynator; CC flagged >10).
+  - **Cyclomatic complexity + Maintainability Index** (e.g. Roslyn `Microsoft.CodeAnalysis.Metrics` /
+    Roslynator for .NET, or the equivalent for your stack; CC flagged >10).
   - **Wire-coupling count** (the sharpest, most objective signal): a scripted count of hand-maintained
     wire artifacts — literal URL fragments, wire field-name string literals, query-param spellings,
     manual auth-string construction. This is what an SDK *removes* and a hand-rolled build *owns*.
   - **Integrator-owned LOC** of the integration layer.
-  - **Code-smell density** (Roslyn analyzers via a pinned `.editorconfig`; SonarScanner for .NET).
+  - **Code-smell density** (static analyzers via a pinned config; a hosted scanner if available).
 - **Good looks like:** low CC (mean < ~3, max nesting ≤ 5), low smell density. Wire-coupling and owned
   LOC are **directional/relative** (an SDK approaches 0; a hand-rolled build owns tens–hundreds) — track
   them, but read them as "how much wire contract am I on the hook for," not a pass/fail.
-- **SDK/plugin lens:** this is the SDK's **honest home win** — near-zero wire-coupling, less owned code,
-  often shallower nesting. When benchmarking an SDK/plugin, *confirm* it delivers this; if generated
-  call sites are noisy or deeply nested, the generator has a maintainability shortcoming even here.
+- **SDK/library lens:** this is the SDK's **honest home win** — near-zero wire-coupling, less owned code,
+  often shallower nesting. When benchmarking an SDK, *confirm* it delivers this; if generated call sites
+  are noisy or deeply nested, the generator has a maintainability shortcoming even here.
 
 ### D4 — Security depth · Security · Tier 1
 - **Measures:** supply-chain surface + code-level security, beyond the gate's S1–S3.
 - **Oracle:** deterministic scanners —
-  - **Supply-chain surface:** `dotnet list package --vulnerable --include-transitive` + **transitive
-    dependency count**. An SDK adds a dependency graph a hand-rolled build doesn't — a real, measurable
-    con.
-  - **Static security scan:** Security Code Scan / CodeQL (C#) for CWE patterns; SonarCloud hotspots.
+  - **Supply-chain surface:** a vulnerable-package scan (e.g. `dotnet list package --vulnerable
+    --include-transitive`, or the equivalent) + **transitive dependency count**. An SDK adds a
+    dependency graph a hand-rolled build doesn't — a real, measurable con.
+  - **Static security scan:** a CWE-pattern scanner (e.g. CodeQL, or an analyzer for your stack);
+    security hotspots from a hosted scanner if available.
   - **Expanded leak/auth:** a larger forbidden-substring set across more error paths than the gate's;
     assert the auth *scheme* is correct (e.g. Basic `Base64("{key}:x")`), not merely present.
 - **Good looks like:** **zero** source-level security findings (absolute pass bar); vulnerable-package
   count near zero (discount shared-baseline deps); dependency count as low as the approach allows.
-- **SDK/plugin lens:** dependency **bloat** is a recurring SDK shortcoming — every transitive package is
+- **SDK/library lens:** dependency **bloat** is a recurring SDK shortcoming — every transitive package is
   attack surface and an upgrade obligation. Count it explicitly.
 
 ### D5 — Modifiability / dev-speed · Maintainability (modifiability) · Tier 2 (expensive)
@@ -296,29 +296,25 @@ per API, but *lock them before scoring* (§1.6).
   extension task (add one endpoint that composes existing operations), and measure **cost / output
   tokens / turns / success** to make a small extension gate green. Same token rig as Part C.
 - **Good looks like:** low cost, high success, and — the mechanistic tell — **low context re-read**
-  (cacheRead), meaning the structure was already legible.
-- **SDK/plugin lens:** the amortization test. An SDK **front-loads** a learning cost and should
-  **discount** the next change (types/wiring already in place). In the source study the SDK arm was
-  cheaper to extend on every metric (−33% context re-read) even though it cost *more* to build — the one
-  axis it clearly won. If your SDK/plugin does *not* discount the next change, its structure isn't
-  earning its front-load. **Caveat:** measure a genuinely-new-resource extension too, not only
-  compose-what-exists (the SDK's best case).
+  (cache-read tokens), meaning the structure was already legible.
+- **SDK/library lens:** the amortization test. An SDK **front-loads** a learning cost and should
+  **discount** the next change (types/wiring already in place). If your SDK does *not* discount the next
+  change, its structure isn't earning its front-load. **Caveat:** measure a genuinely-new-resource
+  extension too, not only compose-what-exists (the SDK's best case).
 
 ### D6 — Test quality · Maintainability (testability) · Tier 2 (conditional)
 - **Measures:** did the builder test its own integration, and how well?
-- **Oracle:** if tests exist — **mutation score** (Stryker.NET) over the integration + line/branch
+- **Oracle:** if tests exist — **mutation score** (e.g. Stryker) over the integration + line/branch
   coverage. If none exist, report coverage = 0 as a **finding**, not a forced metric.
-- **Good looks like:** tests exist at all. (In the source study **neither** approach wrote any
-  integration tests — a finding that's orthogonal to SDK-vs-spec and worth flagging on any agent build:
-  agents ship untested integrations unless told to test.)
+- **Good looks like:** tests exist at all. (Agents frequently ship an *untested* integration unless
+  explicitly told to test — worth flagging on any agent build, independent of SDK-vs-hand-rolled.)
 
 ### D7 — Readability / idiomaticity / design · subjective · Tier 3 (low-trust)
 - **Measures:** what metrics can't — naming, cohesion, idiomatic style, comment quality.
 - **Oracle:** a **blind LLM-judge ensemble** with the full bias-control apparatus (Part C.6). Reported
   with inter-judge variance and wide error bars; **never** the headline.
-- **SDK/plugin lens:** judges can surface call-site noise, auth-passthrough mistakes, and awkward
-  generated ergonomics — useful signal, but treat it as a hypothesis to confirm deterministically, not a
-  verdict.
+- **SDK/library lens:** judges can surface call-site noise, auth mistakes, and awkward generated
+  ergonomics — useful signal, but treat it as a hypothesis to confirm deterministically, not a verdict.
 
 ### Scoring & normalization
 - **Normalize each dimension to [0,1] against pre-registered anchors:** the known-good reference = high
@@ -336,29 +332,30 @@ per API, but *lock them before scoring* (§1.6).
 
 How to run the above rigorously and repeatably.
 
-### C.1 Instruments (reference implementations under `benchmark/`)
-| Instrument | Role | Reference |
-|---|---|---|
-| Recording, fault-injecting mock | serves the provider contract; injects 429/503/malformed/reset/hang; records inbound method+path+body+count | `benchmark/mock/` |
-| Drift engine | mutates the mock's outgoing JSON per drift profile (D2); no-op unless installed | `benchmark/mock/DriftEngine.cs` |
-| Hermetic gate | boots mock+app, runs public+holdout checks, exits 0/1 | `benchmark/gate/` |
-| Quality tool | D1–D4 + the D5 extend-check, reusing the gate's boot + clients | `benchmark/quality/` |
-| Known-good reference + `BREAK=` toggles | discrimination-validation anchors | `benchmark/reference/` |
-| Run/extend harness | launches the agent headless, captures tokens, runs the gate | `benchmark/harness/` |
+### C.1 Instruments
+Build (or reuse) five instruments. Describe each abstractly so it ports to any stack:
 
-To re-point at a new API: rebuild the mock from that API's contract, restate the op table + pinned
-request contracts (Part A grouping is unchanged), re-anchor the reference, re-lock.
+| Instrument | Role |
+|---|---|
+| Recording, fault-injecting mock | serves the provider contract; injects 429/503/malformed/reset/hang; records inbound method + path + body + count |
+| Drift engine | mutates the mock's outgoing JSON per drift profile (D2); a no-op unless installed |
+| Hermetic gate runner | boots mock + app, runs public + holdout checks, exits pass/fail |
+| Quality tool | computes D1–D4 + the D5 extend-check, reusing the gate's boot + HTTP clients |
+| Known-good reference + injectable defects | the discrimination-validation anchors (§C.2) |
+
+To point the suite at a new API: build the mock from that API's contract, restate the op table + pinned
+request contracts, re-anchor the reference against the new fixtures, and re-lock (§1.6).
 
 ### C.2 Discrimination-validation (do this before trusting any score)
 For each deterministic instrument, prove **high on reference, low on the matching defect**:
 
-| Instrument | High anchor (≈1.0) | Low anchor (must drop) |
+| Instrument | High anchor (≈1.0) | Low anchor (a defect that must drop the score) |
 |---|---|---|
-| D1 deep-correctness | clean reference | `BREAK=shallowmap` (wrong field / dropped list items) |
-| D2 drift-survival | clean reference (ceiling) | `BREAK=brittlemap` (reads a renamed field by hardcoded key → SILENT-WRONG cells) |
-| D3 static-metrics | clean reference | `BREAK=complex` (artificially convoluted method) |
-| D4 security | clean reference (0 findings) | `BREAK=logsecret`, `BREAK=vulndep` (known-CVE package) |
-| Gate (Part A) | clean reference (all green) | `BREAK=leak/retrywrite/notimeout/raw500/noauth/hardcode` (each reddens its target check) |
+| D1 deep-correctness | clean reference | a variant that reads a wrong field / drops list items |
+| D2 drift-survival | clean reference (ceiling) | a variant that reads a renamed field by a hardcoded key (→ SILENT-WRONG cells) |
+| D3 static-metrics | clean reference | a variant with an artificially convoluted method |
+| D4 security | clean reference (0 findings) | a variant that logs a secret / pins a known-CVE dependency |
+| Readiness gate (Part A) | clean reference (all green) | variants that leak internals / resend an unsafe write / never time out / return a raw 500 / drop auth / hardcode responses (each reddens its target check) |
 
 Also run the **two-sidedness check** (§1.5): confirm the instruments can surface a win for *each* kind
 of integration on a case where it genuinely should win.
@@ -375,20 +372,20 @@ per condition and:
   trees, so they need the N-run set; D5/D7 carry their own run/judge variance.)
 
 ### C.4 Cost measurement (for agent builds) & honest accounting
-- **Never collapse token classes.** Report input / output / cacheRead / cacheCreation **separately**
-  (cacheRead bills ~0.1×, cacheCreation ~1.25× — collapsing distorts cost ~10×). **Output tokens** is
-  the least-gameable "work done" proxy and the cache-independent arbiter.
-- **Capture three ways and reconcile:** OpenTelemetry `claude_code.token.usage` (authoritative, split
-  by type + query_source) · the `-p --output-format json` result (`usage` + `total_cost_usd`) ·
-  `ccusage session --json`. >2% discrepancy on any class → investigate before including the run.
+- **Never collapse token classes.** Report input / output / cache-read / cache-creation **separately**
+  (cache-read bills a small fraction of input; cache-creation a premium — collapsing distorts cost by an
+  order of magnitude). **Output tokens** is the least-gameable "work done" proxy and the
+  cache-independent arbiter.
+- **Capture from more than one source and reconcile:** the runtime's telemetry (e.g. an OpenTelemetry
+  token-usage metric, split by class and by source), the run's structured result output, and an
+  independent usage-accounting tool. >2% discrepancy on any class → investigate before including the run.
 - **Cost-to-DONE = the whole session's cost**, verified green by the evaluator after the session ends —
-  not the agent's self-claim. Apply one fixed price table to both/all conditions; pin it in the
-  manifest.
+  not the agent's self-claim. Apply one fixed price table to every condition; pin it in the manifest.
 - **Effectiveness-aware cost-per-success = total tokens across ALL runs ÷ successful runs.** Report cost
   and success **jointly** (Pareto). Never average only the runs that reached green.
 
 ### C.5 Exclusion criteria (pre-register these)
-- **Infrastructure failure → excluded + re-run** (≤3, each logged): registry/network unreachable,
+- **Infrastructure failure → excluded + re-run** (bounded, each logged): registry/network unreachable,
   restore error, mock/collector crash, provider-API 429/5xx overload, or a **flaky** check (fails then
   passes on identical produced bytes).
 - **Task failure → counted:** the build doesn't compile, doesn't reach the bar within budget, or the
@@ -401,15 +398,15 @@ per condition and:
 - **Judge family ≠ builder family** (blunts self-preference bias); ensemble of ≥2 families; final =
   median across judges.
 - **Blind to which integration** produced the code; anonymize tell-tale package refs / namespaces /
-  using-directives where feasible (acknowledge residual structural tells).
+  imports where feasible (acknowledge residual structural tells).
 - **Swap-and-average** every pairwise comparison (position bias); report **length alongside** scores
   (verbosity bias); require a **chain-of-thought rubric** (justify each sub-score); **human-calibrate** a
   sample and report judge–human correlation.
 
 ### C.7 Manifest (record per run / per scored tree)
 > `id · condition · timestamp · tree_hash · model_id+fingerprint · effort · tool_versions ·
-> price_table_id · tokens{input,output,cacheRead,cacheCreation}×query_source · total_cost_usd ·
-> num_turns · wall_clock · DONE · ROBUST · public_results · holdout_results ·
+> price_table_id · tokens{input,output,cache_read,cache_creation}×source · total_cost · num_turns ·
+> wall_clock · DONE · ROBUST · public_results · holdout_results ·
 > D1{rate,defects[]} · D2{resilience,safety,confusion,cells[]} · D3{cc,mi,wire_coupling,loc,smells} ·
 > D4{vuln_by_severity,cwe,hotspots,dep_count} · D5{cost,output,turns,success}? · D6{mutation,coverage}? ·
 > D7{per_judge[],median,variance} · normalized{d1..d7} · composite{value,weight_sensitivity[]} ·
@@ -417,34 +414,34 @@ per condition and:
 
 ---
 
-## Part D / §7 — SDK & plugin shortcomings this benchmark surfaces
+## §7 — SDK & client-library shortcomings this benchmark surfaces
 
-The reason to run the bar against an SDK/plugin integration: the dimensions where it scores poorly are
-the shortcomings to fix. Each row below was observed **directionally** in the source study (n=1 per
-cell, large run-to-run variance — treat as hypotheses to re-confirm at N, not settled facts).
+The reason to run the bar against an SDK-based integration: the dimensions where it scores poorly are
+the shortcomings to fix. These are the failure modes a generated SDK / SDK-delivery plugin most commonly
+exhibits — each paired with the dimension that catches it and a remediation lever. Treat them as
+hypotheses to confirm on *your* integration at N (§C.3), not as givens.
 
-| # | Shortcoming | Caught by | Observed signal | Remediation lever (for the plugin/SDK author) |
+| # | Shortcoming | Caught by | How it shows up | Remediation lever (for the SDK/plugin author) |
 |---|---|---|---|---|
-| 1 | **Navigation / learning cost dominates one-shot build** | Part C cost (output tokens, cacheRead) | SDK build cost ~1.5–1.9× the hand-rolled build; cacheRead 2–4× | Reduce the surface pulled into context. **All three delivery formats tried (full-source clone / compact monolith ref / split per-op ref) cost *more*, not less** — so the fix is *not* repackaging; it's shrinking what must be read (tighter type surface, or type-server-assisted lookup instead of source grep). |
-| 2 | **Drift brittleness on retype/envelope change** | D2 (Resilience) | strict typed deserializer 502s on `int→string` and envelope-rename that string-tolerant code absorbs; Resilience 41% vs 54% | Tolerant deserialization for scalars (accept string-encoded numbers); union/fallback for unexpected shapes; don't hard-fail an unknown enum value. |
-| 3 | **Dependency / supply-chain bloat** | D4 (dep count) | SDK adds ~6 transitive deps a hand-rolled build doesn't (96 vs 90) | Trim transitive dependencies; prefer BCL over pulled-in helpers; document the graph. |
-| 4 | **Rich error system is heavier to navigate than to hand-roll** | Part C cost + D7 | mapping errors via a typed error hierarchy (many error types, unions, raw-error fallback) cost the agent *more* than shape-tolerant hand-parsing | Simplify the error surface; ship a one-call "classify this error" helper + an error-handling skill that doesn't require touring the type tree. |
-| 5 | **Noisy / awkward generated call sites; auth-passthrough mistakes** | D7 (blind judge), D3 (nesting) | judges preferred the hand-rolled error-mapping & call sites (4.75 vs 4.0); an auth-passthrough bug surfaced | Cleaner call-site ergonomics; sane auth defaults; idiomatic host-framework integration in the calling-code guidance. |
-| 6 | **Front-load not amortized** *(when it isn't)* | D5 (extend cost) | in the study the SDK *did* discount the next change (−33% context) — but only for compose-what-exists | Make the *first* use cheap (lever #1) and confirm the discount holds for genuinely-new resources, not just recomposition. |
+| 1 | **Navigation / learning cost dominates one-shot build** | Part C cost (output tokens, cache-read) | high build cost driven by reading/searching the SDK surface; cache-read scales with turns × context | Reduce the surface pulled into context. Repackaging the *same* surface (fuller vs. more compact references) tends **not** to help — the cost tracks how much must be read, so shrink and simplify the surface (tighter types, type-server-assisted lookup) rather than re-wrap it. |
+| 2 | **Drift brittleness on retype / envelope change** | D2 (Resilience) | a strict typed deserializer 5xxs on an `int→string` retype or an envelope rename that string-tolerant code absorbs | Tolerant deserialization for scalars (accept string-encoded numbers); union/fallback for unexpected shapes; don't hard-fail an unknown enum value. |
+| 3 | **Dependency / supply-chain bloat** | D4 (dep count) | the SDK pulls in a transitive dependency graph a hand-rolled build doesn't | Trim transitive dependencies; prefer the standard library over pulled-in helpers; document the graph. |
+| 4 | **Rich error system heavier to navigate than to hand-roll** | Part C cost + D7 | mapping errors via a typed error hierarchy (many error types, unions, raw-error fallback) costs the agent *more* than shape-tolerant hand-parsing | Simplify the error surface; ship a one-call "classify this error" helper + error-handling guidance that doesn't require touring the type tree. |
+| 5 | **Noisy / awkward generated call sites; auth mistakes** | D7 (blind judge), D3 (nesting) | judges flag call-site noise or awkward ergonomics; auth-passthrough or default-scheme bugs surface | Cleaner call-site ergonomics; sane auth defaults; idiomatic host-framework integration in the calling-code guidance. |
+| 6 | **Front-load not amortized** | D5 (extend cost) | the SDK cost more to build but does *not* make the next change cheaper | Make the *first* use cheap (lever #1) and confirm the discount holds for genuinely-new resources, not just recomposition. |
 
 **And the wins to protect (don't regress these while fixing the above):**
 - **D3 — cleaner surface:** near-zero wire-coupling, less owned code, shallower nesting. The SDK's
   honest, measurable home win.
-- **D5 — cheaper next change:** once learned, the SDK discounted the follow-up edit — the amortization
-  the pitch promises. Preserve it; the goal is to cut the front-load (lever #1) *without* losing the
-  discount.
+- **D5 — cheaper next change:** once the surface is learned, extending should be cheaper than
+  hand-rolled. Preserve it; the goal is to cut the front-load (lever #1) *without* losing the discount.
 
-**The through-line:** across the source study, a lean hand-rolled-from-spec integration reached the same
-production-ready bar for fewer agent tokens and matched or beat the SDK on correctness, drift resilience,
-and safety — while the SDK won on surface cleanliness and next-change cost. The SDK's cost is **intrinsic
-to consuming its surface** (learning the types/models/errors and re-reading them across a long session),
-not a packaging artifact — so the highest-leverage improvements shrink and simplify that surface, and cut
-the first-use cost, rather than re-wrapping the same surface.
+**The through-line:** an SDK's cost tends to be **intrinsic to consuming its surface** (learning the
+types/models/errors and re-reading them across a long session), not a packaging artifact — so the
+highest-leverage improvements shrink and simplify that surface and cut first-use cost, rather than
+re-wrapping the same surface. Its dependable advantages are structural (surface cleanliness, cheaper
+follow-on changes), not automatic robustness — so test drift, safety, and supply-chain explicitly rather
+than assuming the types deliver them.
 
 ---
 
@@ -460,20 +457,6 @@ the first-use cost, rather than re-wrapping the same surface.
   deferral. Read D3 alongside them.
 - **The judge (D7) is imperfect.** Anonymization leaks structural tells; deterministic D1–D6 are immune
   and carry the weight.
-- **Conflict of interest.** If you author the SDK/plugin *and* run the benchmark, §1 (pre-register, lock,
+- **Conflict of interest.** If you author the SDK *and* run the benchmark, §1 (pre-register, lock,
   two-sided, discrimination-validate, report-which-way-it-lands) is what makes the result credible —
   plus full artifact release. Invite independent replication.
-
----
-
-## §9 — Reference implementation index
-- **Method (pre-registered):** `PRODUCTION_READINESS.md` (gate/def-of-done), `TASK_SPEC.md` (task +
-  materials fairness), `PROTOCOL.md` (run mechanics + stats), `QUALITY_PROTOCOL.md` (quality dims +
-  drift + judge).
-- **Results (the study this distills):** `FINDINGS.md` (token cost), `QUALITY_FINDINGS.md` (quality +
-  D5).
-- **Runnable tooling:** `benchmark/{gate,mock,quality,reference,harness}/`.
-- **One-line runs:**
-  - Gate: `dotnet run --project benchmark/gate -- --app-project <PublicApi.csproj> --mock-project benchmark/mock/MaxioMock.csproj [--mode public|holdout]`
-  - Quality D1–D4 + extend-check: `dotnet run --project benchmark/quality -- --app-project <PublicApi.csproj> --mock-project benchmark/mock/MaxioMock.csproj --mode both`
-  - D5 extend run (paid): `pwsh benchmark/harness/run-extend.ps1 -Arm A|B -SourceRun <run>`
