@@ -4,7 +4,12 @@ public sealed record CheckResult(string Id, bool Pass, string Detail);
 public sealed record D1Report(int Pass, int Total, double Rate, IReadOnlyList<CheckResult> Checks);
 
 public sealed record Cell(string Op, string Drift, string Class, int Status, string Detail);
-public sealed record D2Report(double Survival, int Correct, int Graceful, int Broken, int SilentWrong, IReadOnlyList<Cell> Cells);
+
+/// <summary>Two orthogonal lenses on drift, plus the raw confusion matrix (the primary artifact).
+/// <para>Resilience = fraction that still delivered correct data (CORRECT=1, GRACEFUL=0.5, else 0).</para>
+/// <para>Safety = fraction that did NOT silently corrupt, i.e. worked or failed DETECTABLY
+/// ((N − SILENT-WRONG)/N). A loud 5xx is safer than a blank 2xx for a billing integration.</para></summary>
+public sealed record D2Report(double Resilience, double Safety, int Correct, int Graceful, int Broken, int SilentWrong, IReadOnlyList<Cell> Cells);
 
 public static class Runner
 {
@@ -79,8 +84,10 @@ public static class Runner
             g = cells.Count(x => x.Class == "GRACEFUL"),
             b = cells.Count(x => x.Class == "BROKEN"),
             s = cells.Count(x => x.Class == "SILENT-WRONG");
-        var survival = cells.Count == 0 ? 0 : (c * 1.0 + g * 0.5) / cells.Count;
-        return new D2Report(survival, c, g, b, s, cells);
+        int n = cells.Count == 0 ? 1 : cells.Count;
+        var resilience = (c * 1.0 + g * 0.5) / n;   // did it keep delivering correct data?
+        var safety = (n - s) * 1.0 / n;              // did it avoid SILENT corruption (fail detectably)?
+        return new D2Report(resilience, safety, c, g, b, s, cells);
     }
 
     static (string, string) Classify(QOp op, DriftCase dc, ApiResponse r)

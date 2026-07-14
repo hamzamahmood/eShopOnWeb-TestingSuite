@@ -130,9 +130,17 @@ the profile catalogue and per-op targets.
 | **BROKEN** | 5xx / crash / hang / internals leaked | 0.0 |
 | **SILENT-WRONG** | 2xx but blank/incorrect data (caught by D1's oracle) | 0.0 ⚠ |
 
-**Drift-survival score** = mean cell score. Always reported **with the full 4-way confusion matrix**;
-**SILENT-WRONG is the worst outcome** (a corrupt bill that looks fine) and is called out separately, not
-folded silently into 0.
+Reported as the **raw 4-way confusion matrix** (the primary artifact) plus **two orthogonal scalar
+lenses** — because a single "survival" number obscures the load-bearing distinction between a loud
+failure and a silent one:
+- **Resilience** = `(CORRECT + 0.5·GRACEFUL) / N` — did it keep delivering correct data?
+- **Safety** = `(N − SILENT-WRONG) / N` — did it avoid *silent* corruption, i.e. fail **detectably**? For
+  a billing integration a loud 5xx is materially safer than a blank 2xx, so this lens credits
+  fail-loud over fail-silent.
+
+**SILENT-WRONG is the worst outcome** (a corrupt bill that looks fine); the two lenses make the
+loud-vs-silent trade explicit rather than averaging it away. Neither lens is "the" score — both are
+reported beside the confusion matrix and per-cell table.
 **Discrimination fixture:** `BREAK=brittlemap` (a reference variant that reads one renamed field by a
 hardcoded key) must drop specific cells to SILENT-WRONG; clean reference sets the achievable ceiling.
 
@@ -347,6 +355,11 @@ arms and are disclosed. **Appendix A** (per-op × per-profile drift targets) and
 2 scoring**.
 
 - v0.1 — 2026-07-14 — initial pre-registration draft — pending Phase-1 appendices, then lock.
+- v0.2 — 2026-07-14 — Phase-1 instrument-build refinement (pre-lock, pre-formal-scoring): D2 now
+  reports **two lenses** (Resilience + Safety) beside the confusion matrix, after building the
+  instrument showed a single survival number hides the loud-vs-silent failure-mode distinction. This is
+  additive and symmetric across arms (a standard billing-safety principle: silent corruption > loud
+  failure), disclosed here. Formal per-arm scoring (Phase 2/4) has not yet been run against these lenses.
 
 ---
 

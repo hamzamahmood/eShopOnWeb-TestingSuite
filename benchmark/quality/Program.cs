@@ -32,7 +32,7 @@ if (d1 != null)
 }
 if (d2 != null)
 {
-    Console.WriteLine($"\n── D2 drift resilience: survival={d2.Survival:P0}  " +
+    Console.WriteLine($"\n── D2 drift: resilience={d2.Resilience:P0}  safety={d2.Safety:P0}  " +
                       $"(correct={d2.Correct} graceful={d2.Graceful} silent-wrong={d2.SilentWrong} broken={d2.Broken}) ──");
     foreach (var cell in d2.Cells)
     {
@@ -46,7 +46,7 @@ var report = new
 {
     label, mode,
     d1 = d1 is null ? null : new { d1.Pass, d1.Total, d1.Rate, checks = d1.Checks },
-    d2 = d2 is null ? null : new { d2.Survival, d2.Correct, d2.Graceful, d2.Broken, d2.SilentWrong, cells = d2.Cells },
+    d2 = d2 is null ? null : new { d2.Resilience, d2.Safety, d2.Correct, d2.Graceful, d2.Broken, d2.SilentWrong, cells = d2.Cells },
 };
 var json = JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true });
 if (outPath != null) { File.WriteAllText(outPath, json); Console.WriteLine($"\n• wrote {outPath}"); }
