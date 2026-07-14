@@ -32,11 +32,19 @@ public static class Runner
         return AppClient.Numbers(r.Body).Any(n => near(n, dollars) || near(n, dollars * 100));
     }
 
+    /// <summary>Detect the tree's task size: 11-op pilot trees never mapped the extended (components/…)
+    /// routes, so probing the components route with a valid id returns 404 there and 2xx on a 22-op tree.</summary>
+    public static async Task<int> DetectScope(Harness h)
+    {
+        var r = await h.App.Get("/api/billing/components");
+        return r.Status == 404 ? 11 : 22;
+    }
+
     // ---- D1: correctness depth ------------------------------------------------------------------
-    public static async Task<D1Report> RunDeep(Harness h)
+    public static async Task<D1Report> RunDeep(Harness h, int scope)
     {
         var checks = new List<CheckResult>();
-        foreach (var op in Ops.All)
+        foreach (var op in Ops.All.Where(o => o.Scope <= scope))
         {
             await h.Mock.Reset();
             var r = await h.App.Call(op.Method, op.AppPath, op.Body);
@@ -66,11 +74,23 @@ public static class Runner
         return new D1Report(pass, checks.Count, checks.Count == 0 ? 0 : (double)pass / checks.Count, checks);
     }
 
+    // ---- D5 extend-check: verifies the "add op #23" extension task (a composite summary endpoint that
+    //      reuses the existing read-subscription + list-invoices operations). Doubles as the agent's gate. ----
+    public static async Task<(bool ok, string detail)> RunExtendCheck(Harness h)
+    {
+        await h.Mock.Reset();
+        var r = await h.App.Get("/api/billing/subscriptions/950001/summary");
+        var subCall = await h.Mock.Count("GET", "/subscriptions/950001.json");
+        var invCall = await h.Mock.Count("GET", "/invoices.json");
+        var ok = r.Ok && r.Has("active") && r.Has("inv_abc001") && subCall >= 1 && invCall >= 1;
+        return (ok, $"status={r.Status} hasState={r.Has("active")} hasInvoice={r.Has("inv_abc001")} subCall={subCall} invCall={invCall}");
+    }
+
     // ---- D2: API-drift resilience ---------------------------------------------------------------
-    public static async Task<D2Report> RunDrift(Harness h)
+    public static async Task<D2Report> RunDrift(Harness h, int scope)
     {
         var cells = new List<Cell>();
-        foreach (var op in Ops.All)
+        foreach (var op in Ops.All.Where(o => o.Scope <= scope))
             foreach (var dc in op.Drifts)
             {
                 await h.Mock.Reset();

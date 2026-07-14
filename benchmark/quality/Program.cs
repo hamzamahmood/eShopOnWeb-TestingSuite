@@ -30,6 +30,18 @@ D1Report? d1 = null; D2Report? d2 = null; D3Report? d3 = null; D4Report? d4 = nu
 if (wantMetrics) { Console.WriteLine("• D3 static metrics …"); d3 = Metrics.Analyze(staticRoot); }
 if (wantSecurity) { Console.WriteLine("• D4 security scan …"); d4 = Security.Analyze(staticRoot); }
 
+// ---- D5 extend-check (own boot; exit code doubles as the agent's extend gate) ----
+if (mode == "extendcheck")
+{
+    await using var he = new Harness(appProject, mockProject, appUrl, mockUrl);
+    Console.WriteLine("• building + booting app + mock …");
+    var f = await he.Start();
+    if (f != null) { Console.WriteLine("[FAIL] " + f); return 2; }
+    var (ok, detail) = await Runner.RunExtendCheck(he);
+    Console.WriteLine((ok ? "[PASS] " : "[FAIL] ") + "extend.summary — " + detail);
+    return ok ? 0 : 1;
+}
+
 // ---- D1/D2 dynamic (boot app + mock) ----
 if (wantDeep || wantDrift)
 {
@@ -37,8 +49,10 @@ if (wantDeep || wantDrift)
     Console.WriteLine("• building + booting app + mock …");
     var fail = await h.Start();
     if (fail != null) { Console.WriteLine("[FAIL] " + fail); return 2; }
-    if (wantDeep) d1 = await Runner.RunDeep(h);
-    if (wantDrift) d2 = await Runner.RunDrift(h);
+    var scope = await Runner.DetectScope(h);
+    Console.WriteLine($"• detected task scope: {scope}-op");
+    if (wantDeep) d1 = await Runner.RunDeep(h, scope);
+    if (wantDrift) d2 = await Runner.RunDrift(h, scope);
 }
 
 // ---- human-readable summary ----
