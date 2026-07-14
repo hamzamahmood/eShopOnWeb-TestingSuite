@@ -160,6 +160,30 @@ this benchmark now lets you make on evidence rather than intuition.
   non-directional), but non-Claude confirmation and human calibration are deferred.
 - **Naming contamination & single model/harness** — inherited from Stage 1 (`FINDINGS.md` §6).
 
+### 5.1 Independent instrument audit
+
+The instruments were independently audited for correctness and A-vs-B bias before this write-up was
+finalized. It confirmed the core guarantees — drift is applied symmetrically at the mock/wire level and
+classified on each arm's own response; the drift middleware is genuinely a no-op when idle (Stage-1 gate
+unaffected); the headline wire-coupling signal is correctly measured and captures the SDK package on the
+right project. Two fixes were applied in response: **DetectScope** now probes several extended endpoints
+(a single broken endpoint can no longer misclassify a 22-op tree as 11-op), and **`price_in_cents` was
+removed** from the D1/D2 leak markers (a snake_case field name is a defensible naming choice, and
+forbidding it was asymmetric against a wire-style-naming arm). Re-scoring after both fixes reproduced the
+scorecard unchanged — neither arm triggered either issue.
+
+One residual limitation is worth stating precisely: **rename-drift detection is conservative.** Because
+the oracle uses whole-body value-presence, a renamed field whose value also survives elsewhere (e.g. the
+fixture's `previous_state="active"`, or `subtotal==total`) could be scored CORRECT even if the arm
+dropped the primary field — but only for an arm that **echoes upstream fields it wasn't asked for**, which
+a rich pass-through/SDK-model response is *more* likely to do than a thin hand-mapped one. So this latent
+bias runs **toward Arm A (SDK)** — yet Arm B (spec) still won drift resilience. The drift result is
+therefore **conservative**: correcting the limitation could only widen Arm B's lead, not reverse it.
+(Verified inert here: both arms use thin DTOs, so drops were correctly detected.) Two lower-severity,
+**symmetric** notes: `retype` drift cells measure crash-tolerance rather than value fidelity (the value
+text is unchanged), and the D4 dependency count is direct+transitive and baseline-dominated (low
+discriminating power; the SDK's added surface is a small fraction of the shared eShop closure).
+
 ---
 
 ## 6. What is deferred (honestly, as Stage 1 deferred its Stage 2)

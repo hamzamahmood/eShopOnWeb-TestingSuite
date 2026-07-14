@@ -13,11 +13,13 @@ public sealed record D2Report(double Resilience, double Safety, int Correct, int
 
 public static class Runner
 {
-    // failure-body markers that make any response BROKEN regardless of status
+    // failure-body markers that make any response BROKEN regardless of status. Only genuine internals /
+    // secrets — NOT provider wire field-names (a snake_case field like price_in_cents is a defensible
+    // naming choice, and forbidding it would be asymmetric against a wire-style-naming arm).
     static readonly string[] Leak =
     {
         "System.", "Microsoft.", "   at ", ".cs:line", "StackTrace", "Traceback",
-        "HttpRequestException", "NullReference", "test-api-key", "price_in_cents",
+        "HttpRequestException", "NullReference", "test-api-key",
     };
 
     static bool HasLeak(ApiResponse r) => Leak.Any(m => r.Has(m));
@@ -32,12 +34,18 @@ public static class Runner
         return AppClient.Numbers(r.Body).Any(n => near(n, dollars) || near(n, dollars * 100));
     }
 
-    /// <summary>Detect the tree's task size: 11-op pilot trees never mapped the extended (components/…)
-    /// routes, so probing the components route with a valid id returns 404 there and 2xx on a 22-op tree.</summary>
+    /// <summary>Detect the tree's task size. 11-op pilot trees never mapped the extended routes. Probe
+    /// SEVERAL extended endpoints (not one) and treat the tree as 22-op if ANY is mapped — so a single
+    /// broken extended endpoint can't misclassify a 22-op tree as 11-op and silently shrink the test set.</summary>
     public static async Task<int> DetectScope(Harness h)
     {
-        var r = await h.App.Get("/api/billing/components");
-        return r.Status == 404 ? 11 : 22;
+        foreach (var path in new[] { "/api/billing/components", "/api/billing/coupons",
+                                     "/api/billing/subscriptions/950001/invoices" })
+        {
+            var r = await h.App.Get(path);
+            if (r.Status != 404) return 22;   // route exists (any non-404: 2xx, or 4xx/5xx from a bug)
+        }
+        return 11;
     }
 
     // ---- D1: correctness depth ------------------------------------------------------------------
