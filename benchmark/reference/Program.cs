@@ -36,7 +36,10 @@ app.MapGet("/api/billing/plans", async (MaxioClient c, Breaks bk, CancellationTo
 {
     if (bk.Hardcode)   // BREAK: return canned plans WITHOUT calling upstream -> must fail the anti-hardcoding check
         return Results.Ok(new[] { new { id = 700001, name = "Pro Plan", priceInCents = 29900 }, new { id = 700002, name = "Basic Plan", priceInCents = 2900 } });
-    return Results.Ok(await c.ListPlansAsync(ct));
+    var plans = await c.ListPlansAsync(ct);
+    if (bk.ShallowMap)   // BREAK (quality D1 low-anchor): drop list cardinality -> only the first plan
+        return Results.Ok(plans.Take(1));
+    return Results.Ok(plans);
 });
 
 app.MapPost("/api/billing/customers", async (CreateCustomerReq req, MaxioClient c, CancellationToken ct) =>

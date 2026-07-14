@@ -42,6 +42,8 @@ public sealed class Harness(string appProject, string mockProject, string appUrl
         if (!await WaitHttp(mockUrl + "/__mock/health", () => _mock!.HasExited, 60)) return "mock did not start";
 
         var env = Cfg(); env["ASPNETCORE_URLS"] = appUrl;
+        var brk = Environment.GetEnvironmentVariable("BREAK");   // discrimination self-test passthrough
+        if (!string.IsNullOrEmpty(brk)) env["BREAK"] = brk;
         _app = Spawn($"run --project \"{appProject}\" --no-build --no-launch-profile", env, _appLog);
         if (!await WaitHttp(appUrl + "/", () => _app!.HasExited, 90)) return "BOOT — app did not start / crashed at startup";
 
