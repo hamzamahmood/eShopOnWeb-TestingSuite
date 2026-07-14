@@ -22,11 +22,12 @@ public sealed record DriftCase(string Label, string Profile, string? Field, stri
 /// </summary>
 public sealed record QOp(
     string Id, string Method, string AppPath, string? Body, string Upstream,
-    string[] MustContain, double? ExpectDollars, DriftCase[] Drifts);
+    string[] MustContain, double? ExpectDollars, DriftCase[] Drifts, int Scope = 11);
 
 public static class Ops
 {
-    // fixture values mirror mock/MockStore.cs
+    // fixture values mirror mock/MockStore.cs. Scope = the smallest task size that includes the op
+    // (11 = present in every tree; 22 = extended surface, absent from the 11-op pilot trees).
     public static readonly QOp[] All =
     {
         new("plans", "GET", "/api/billing/plans", null, "products.json",
@@ -78,7 +79,7 @@ public static class Ops
             {
                 new DriftCase("additive",             "additive", null, null, DriftCheck.Values),
                 new DriftCase("rename allocation_id", "rename",   "allocation_id", "alloc_id", DriftCheck.Values),
-            }),
+            }, Scope: 22),
 
         new("invoices", "GET", "/api/billing/subscriptions/950001/invoices", null, "/invoices.json",
             MustContain: new[] { "inv_abc001", "open" },        // uid + status
@@ -89,7 +90,7 @@ public static class Ops
                 new DriftCase("rename status",  "rename",   "status", "invoice_state", DriftCheck.Values),
                 new DriftCase("rename total",   "rename",   "total_amount", "total", DriftCheck.Units),
                 new DriftCase("envelope→list",  "envelope", "invoices", "invoice_list", DriftCheck.Values),
-            }),
+            }, Scope: 22),
 
         new("components", "GET", "/api/billing/components", null, "/product_families/600001/components.json",
             MustContain: new[] { "800001", "800002" },
@@ -99,6 +100,6 @@ public static class Ops
                 new DriftCase("additive",        "additive", null, null, DriftCheck.Values),
                 new DriftCase("envelope→comp",   "envelope", "component", "comp", DriftCheck.Values),
                 new DriftCase("retype id→string","retype",   "id", null, DriftCheck.Values),
-            }),
+            }, Scope: 22),
     };
 }
