@@ -450,3 +450,79 @@ weakness in front of you rather than argue about tooling in the abstract.
   you're comparing against an alternative you favor), §1 (pre-register, lock, two-sided,
   discrimination-validate, report-which-way-it-lands) is what makes the result credible — plus full
   artifact release. Invite independent replication.
+
+---
+
+## Appendix — What a filled-in scorecard looks like
+
+The benchmark's output is **not a single number**. For one integration it is three stacked things: a
+**gate verdict** (`DONE` / `ROBUST`), the **7-dimension scorecard** (the headline), and — secondary — a
+**Tier-1 composite quoted as a range** across defensible weightings. Three illustrative integrations
+below (construction-agnostic — each could be raw-HTTP, generated-SDK, or hand-mapped; N = 24 drift cells
+for D2). They exist to show the *shape* of the output, not as measured results.
+
+### Alpha — strong & robust
+**Gate:** `DONE ✅` · `ROBUST ✅`
+
+| Dimension (tier) | Raw | Normalized |
+|---|---|---|
+| D1 correctness depth (T1) | 100%, 0 defects | **1.00** |
+| D2 drift resilience (T1) | *see below* | **0.89** |
+| D3 maintainability (T1) | CC 2.1 · nest 3 · wire-coupling 4 · 210 LOC | **0.90** |
+| D4 security (T1) | 0 findings · 0 vuln pkgs · lean deps | **1.00** |
+| D5 dev-speed (T2) | extend ✅, low cost + cache-read | 0.88 |
+| D6 tests (T2) | present, mutation 71% | 0.71 |
+| D7 readability (T3) | judge 4.3/5, low variance | 0.86 |
+
+**D2:** CORRECT 18 · GRACEFUL 3 · BROKEN 2 · SILENT-WRONG 1 → **Resilience 0.81 · Safety 0.96**
+**Tier-1 composite:** **0.93 – 0.95** (equal / reliability-weighted / maintainability-weighted)
+**Read:** shippable and durable; the tight composite band means the verdict is weight-insensitive. One
+SILENT-WRONG drift cell is the only thing to chase.
+
+### Beta — clean surface, brittle to drift
+**Gate:** `DONE ✅` · `ROBUST ✅` — *passes the gate exactly like Alpha.*
+
+| Dimension (tier) | Raw | Normalized |
+|---|---|---|
+| D1 correctness depth (T1) | 100% | **1.00** |
+| D2 drift resilience (T1) | *see below* | **0.71** |
+| D3 maintainability (T1) | CC 1.9 · nest 3 · wire-coupling 0 · 90 LOC | **0.98** |
+| D4 security (T1) | 0 source findings · +6 transitive deps · 1 vuln pkg | **0.70** |
+| D5 dev-speed (T2) | extend ✅ very cheap | 0.91 |
+| D6 tests (T2) | none written | 0.00 |
+| D7 readability (T3) | judge 4.0/5 | 0.80 |
+
+**D2:** CORRECT 10 · GRACEFUL 4 · BROKEN 8 · SILENT-WRONG 2 → **Resilience 0.50 · Safety 0.92**
+**Tier-1 composite:** **0.83 – 0.87**
+**Read:** the composite (~0.85) looks fine — which is exactly why the *scorecard* is the headline. It
+hides a **drift-Resilience hole (0.50)**: Beta fails *loudly* (Safety 0.92) but *often*. Beautifully
+clean (D3 0.98), yet it carries dependency weight and wrote zero tests. "Good enough" depends on how much
+provider drift you expect.
+
+### Gamma — passes public, overfit & fragile
+**Gate:** `DONE ✅` · **`ROBUST ❌`** (fails 2 holdout checks)
+
+| Dimension (tier) | Raw | Normalized |
+|---|---|---|
+| D1 correctness depth (T1) | 90%, 1 op wrong units | **0.80** |
+| D2 drift resilience (T1) | *see below* | **0.53** |
+| D3 maintainability (T1) | CC 4.2 · nest 6 · wire-coupling 22 · smells | **0.55** |
+| D4 security (T1) | weak auth-scheme construction · moderate deps | **0.60** |
+| D5 dev-speed (T2) | extend ⚠ expensive (tangled) | 0.45 |
+| D6 tests (T2) | none | 0.00 |
+| D7 readability (T3) | judge 2.8/5, high variance | 0.56 |
+
+**D2:** CORRECT 8 · GRACEFUL 3 · BROKEN 5 · **SILENT-WRONG 8** → **Resilience 0.40 · Safety 0.67**
+**Tier-1 composite:** **0.59 – 0.62**
+**Read:** the public gate is green but the final score isn't — `ROBUST ❌` means it overfit the visible
+checks, and 8 SILENT-WRONG drift cells is a data-corruption hazard. Precisely what the scorecard + holdout
+catch that a binary "it passes" would miss.
+
+### How to read a scorecard
+- **The gate tier comes first.** `DONE` without `ROBUST` (Gamma) is a red flag regardless of the scores.
+- **The shape is the finding.** Alpha and Beta both pass and both score ~0.85–0.95 composite — but Beta
+  has a drift hole and no tests the single number hides.
+- **The composite is a range, not a point.** A tight band = a confident verdict; a wide band = "it
+  depends what you weight," which you report honestly.
+- **D2 is two numbers** — Resilience (kept working?) and Safety (failed loud vs. silent?) — because for
+  anything money-touching they trade against each other.
