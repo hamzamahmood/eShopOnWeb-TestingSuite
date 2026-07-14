@@ -10,6 +10,7 @@ var app = builder.Build();
 var recorder = new Recorder();
 var state = new MockState();
 var faults = new FaultEngine();
+var drift = new DriftEngine();
 var json = new JsonSerializerOptions { PropertyNamingPolicy = null };   // emit exact snake_case identifiers
 var webJson = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 
@@ -77,6 +78,21 @@ app.Use(async (ctx, next) =>
             case "reset":
                 ctx.Abort();
                 return;
+            // ---- P7 error-shape drift: provider error bodies of unexpected shapes (quality D2 only) ----
+            case "errmap":     // Maxio field-map error object instead of a string[]
+                await Results.Json(new { errors = new { @base = new[] { "unprocessable" }, product_handle = new[] { "is invalid" } }, error = "unprocessable" }, webJson, statusCode: 422).ExecuteAsync(ctx);
+                return;
+            case "errstring":  // a single bare JSON string as the whole error body
+                ctx.Response.StatusCode = 422; ctx.Response.ContentType = "application/json";
+                await ctx.Response.WriteAsync("\"a plain string error\"");
+                return;
+            case "htmlerror":  // non-JSON (HTML) error body, e.g. a gateway/proxy page
+                ctx.Response.StatusCode = 500; ctx.Response.ContentType = "text/html";
+                await ctx.Response.WriteAsync("<html><head><title>500</title></head><body>Internal Server Error</body></html>");
+                return;
+            case "status409":  // an unexpected but valid status the arm likely never modelled
+                await Results.Json(new { errors = new[] { "conflict" } }, webJson, statusCode: 409).ExecuteAsync(ctx);
+                return;
         }
     }
 
@@ -89,10 +105,45 @@ app.Use(async (ctx, next) =>
     await next();
 });
 
+// ---- schema-drift response mutation (quality D2). No-op unless a drift rule is installed, so the
+//      Stage-1 token gate — which never installs drift — sees byte-identical behaviour. Buffers the
+//      route's response, mutates the outgoing 2xx JSON per the matched DriftRule, then flushes. ------
+app.Use(async (ctx, next) =>
+{
+    var path = ctx.Request.Path.Value ?? "";
+    if (!drift.Any || path.StartsWith("/__mock", StringComparison.OrdinalIgnoreCase)) { await next(); return; }
+    var rule = drift.Match(ctx.Request.Method, path);
+    if (rule is null) { await next(); return; }
+
+    var original = ctx.Response.Body;
+    using var buffer = new MemoryStream();
+    ctx.Response.Body = buffer;
+    try
+    {
+        await next();
+        buffer.Position = 0;
+        var isJson = ctx.Response.ContentType?.Contains("json", StringComparison.OrdinalIgnoreCase) ?? false;
+        if (ctx.Response.StatusCode is >= 200 and < 300 && isJson)
+        {
+            var body = await new StreamReader(buffer, Encoding.UTF8).ReadToEndAsync();
+            var mutated = Encoding.UTF8.GetBytes(DriftEngine.Apply(rule, body));
+            ctx.Response.Body = original;
+            ctx.Response.ContentLength = mutated.Length;
+            await ctx.Response.Body.WriteAsync(mutated);
+        }
+        else                                    // non-2xx / non-JSON: pass through untouched
+        {
+            ctx.Response.Body = original;
+            await buffer.CopyToAsync(original);
+        }
+    }
+    finally { ctx.Response.Body = original; }
+});
+
 // ---- gate-only control endpoints (never part of the Maxio contract; arm never calls these) ------
 app.MapGet("/__mock/health", () => Results.Ok(new { ok = true }));
 app.MapGet("/__mock/recordings", () => J(new { records = recorder.Snapshot() }));
-app.MapPost("/__mock/reset", () => { recorder.Reset(); state.Reset(); faults.Reset(); return Results.Ok(new { reset = true }); });
+app.MapPost("/__mock/reset", () => { recorder.Reset(); state.Reset(); faults.Reset(); drift.Reset(); return Results.Ok(new { reset = true }); });
 app.MapPost("/__mock/config", async (HttpContext ctx) =>
 {
     var cfg = await JsonSerializer.DeserializeAsync<MockConfig>(ctx.Request.Body, webJson);
@@ -100,7 +151,10 @@ app.MapPost("/__mock/config", async (HttpContext ctx) =>
     if (cfg?.Faults is not null)
         faults.SetRules(cfg.Faults.Select(d => new FaultRule(
             d.PathContains, d.Method, d.Action ?? "status503", d.Times ?? 1, d.RetryAfter ?? 0)));
-    return Results.Ok(new { require_auth = state.RequireAuth, faults = cfg?.Faults?.Count ?? 0 });
+    if (cfg?.Drift is not null)
+        drift.SetRules(cfg.Drift.Select(d => new DriftRule(
+            d.PathContains, d.Method, d.Profile ?? "additive", d.Field, d.To)));
+    return Results.Ok(new { require_auth = state.RequireAuth, faults = cfg?.Faults?.Count ?? 0, drift = cfg?.Drift?.Count ?? 0 });
 });
 
 // ---- the 11 Maxio wire routes -------------------------------------------------------------------
@@ -339,5 +393,6 @@ sealed class MockState
     public void Reset() => RequireAuth = false;
 }
 
-sealed record MockConfig(bool? RequireAuth, List<FaultRuleDto>? Faults);
+sealed record MockConfig(bool? RequireAuth, List<FaultRuleDto>? Faults, List<DriftRuleDto>? Drift);
 sealed record FaultRuleDto(string? PathContains, string? Method, string? Action, int? Times, int? RetryAfter);
+sealed record DriftRuleDto(string? PathContains, string? Method, string? Profile, string? Field, string? To);
