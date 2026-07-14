@@ -1,18 +1,17 @@
 # API Integration Benchmark — Criteria & Methodology
 
-> **What this is.** A single, reusable bar for judging the quality of *any* API integration —
-> whether an AI agent or a human wrote it, whether it was built from an SDK, a client library, or a raw
-> OpenAPI spec. It answers two questions about one integration, standalone (no comparison build
-> required): **(1) Is it production-ready?** (a pass/fail gate) and **(2) How good is it, in depth?** (a
-> seven-dimension quality scorecard).
+> **What this is.** A single, reusable bar for judging the quality of *any* API integration — whether
+> an AI agent or a human wrote it, and however it was built (raw HTTP, a generated SDK, a typed client,
+> or hand-mapped from an OpenAPI spec). It answers two questions about one integration, standalone (no
+> comparison build required): **(1) Is it production-ready?** (a pass/fail gate) and **(2) How good is
+> it, in depth?** (a seven-dimension quality scorecard).
 >
-> **Why it exists / how to aim it at SDK & client-library shortcomings.** The dimensions below are the
-> axes on which a generated SDK or an SDK-delivery plugin most often *underperforms* a lean hand-rolled
-> integration — drift brittleness, dependency surface, navigation/learning cost, error-surface
-> ergonomics. Run any SDK-based integration through this bar and the dimensions where it scores poorly
-> **are the shortcomings to fix.** §7 maps each failure mode to the dimension that catches it and the
-> remediation lever. You do not need a baseline build to use the bar — but if you have one, every
-> dimension is comparative too.
+> **Why it exists.** Passing a gate proves an integration is shippable on paper; it says nothing about
+> how *well* it is built. This bar measures the depth-of-quality axes a pass/fail gate is blind to — how
+> the integration behaves when the provider's schema drifts, how much wire contract it owns, its
+> dependency and security footprint, how cheaply it can be extended, and how readable it is. §7 collects
+> the common failure modes these dimensions catch, with a remediation for each. The criteria are
+> **construction-agnostic**: they measure the integration on its merits, not how it was made.
 >
 > **Self-contained.** This document is a complete methodology on its own. It describes each instrument
 > abstractly — what it must measure, its oracle, its pass bar — so you can implement it in any language
@@ -28,7 +27,7 @@
 | Decide if an integration is shippable | **Part A** — the readiness gate (DONE / ROBUST) | deterministic, cheap |
 | Judge how good it is beyond "it passes" | **Part B** — the 7-dimension scorecard | mostly deterministic |
 | Run it rigorously / repeatably / at N | **Part C** — methodology, stats, instruments | scales with N |
-| Find what to fix in an SDK or client library | **§7** — the shortcomings diagnostic | reads Parts A+B |
+| Find where an integration is weak / what to improve | **§7** — the failure-mode diagnostic | reads Parts A+B |
 
 **Minimum viable evaluation** (one integration, one afternoon): run Part A to green, then score D1–D4
 from Part B. That already tells you production-readiness + the four deterministic quality axes. D5–D7
@@ -62,7 +61,7 @@ language, and toolchain.
    its code. Reading source for "did you call method X" is implementation-specific and unfair; a good
    integration can satisfy a property through a library's config instead of app code. **Source
    inspection is allowed only in Part B (quality)** — and there, only for *universal* properties
-   (complexity, coupling, dependency count), never "did you use a particular library."
+   (complexity, coupling, dependency count), never "how was this built."
 
 3. **Deterministic-first; LLM judgment is a labelled, low-trust fallback.** Prefer status checks,
    required/forbidden-substring sweeps, upstream-call counts (a recording mock), timing-liveness, and
@@ -76,26 +75,26 @@ language, and toolchain.
    defects for exactly this. If a metric doesn't move when you break the thing it claims to measure, it
    measures nothing.
 
-5. **Two-sided by construction.** An instrument that can only make one approach look good is biased.
-   For every dimension, name a concrete case where the *other* kind of integration should win, and
-   confirm the instrument surfaces it. (Example: a hand-rolled string parser tolerating a value a typed
-   SDK rejects, or an SDK precisely surfacing an error a thin mapper flattens — a good drift/error
-   instrument must be able to show *either* winning.)
+5. **Two-sided by construction.** An instrument that can only make one kind of integration look good is
+   biased. For every dimension, name a concrete case where a *different* implementation choice should
+   win, and confirm the instrument surfaces it. (Example: a tolerant parser accepting a value a strict
+   one rejects, vs. a richly-typed layer precisely surfacing an error a thin mapper flattens — a good
+   drift/error instrument must be able to show *either* winning.)
 
 6. **Pre-register and lock before you score.** Freeze the criteria, thresholds, normalization anchors,
    and defect fixtures — commit and content-hash them — *before* measuring the integration under test.
    Changes after seeing scores are disallowed unless they *loosen* a check symmetrically and are
-   disclosed. This blocks metric-shopping / HARKing, which matters most when the evaluator authored the
-   thing being evaluated.
+   disclosed. This blocks metric-shopping / HARKing, which matters most when the evaluator has a stake
+   in the outcome.
 
 7. **Scorecard-first — never a single number.** Report the per-dimension scorecard as the headline. A
    weighted composite, if quoted at all, is secondary and always ships with a **weight-sensitivity
    analysis** (does the ranking survive several defensible weightings?). Two integrations can tie on a
    composite and differ completely in shape; the shape is the finding.
 
-8. **Report which way it lands.** State the result even when it's "no difference," "the thing I hoped
-   would win lost," or "parity is real." A benchmark that can only confirm the answer you wanted is not
-   a benchmark.
+8. **Report which way it lands.** State the result even when it's "no difference," "the approach I
+   expected to win lost," or "parity is real." A benchmark that can only confirm the answer you wanted
+   is not a benchmark.
 
 ---
 
@@ -193,9 +192,9 @@ Seven dimensions anchored to **ISO/IEC 25010:2023**, in three trust tiers. D1–
 cheap (run them always). D5–D6 need agent runs or existing tests (conditional). D7 is subjective and
 lowest-trust (never the headline).
 
-For each dimension: **what it measures · oracle · the standalone reading (what "good" looks like) · the
-SDK/library shortcoming it exposes.** Thresholds are starting defaults — adjust per API, but *lock them
-before scoring* (§1.6).
+For each dimension: **what it measures · oracle · the standalone reading (what "good" looks like) · what
+to watch for.** Thresholds are starting defaults — adjust per API, but *lock them before scoring*
+(§1.6).
 
 ### D1 — Correctness depth · Functional Suitability · Tier 1
 - **Measures:** not just "a required value appears somewhere" (that's gate C1) but that it sits in a
@@ -206,13 +205,12 @@ before scoring* (§1.6).
   expected count; an empty list ≠ an error; an unknown id → a right-shaped 4xx.
 - **Good looks like:** ~100%. This dimension usually shows **parity** — most integrations that pass the
   gate are genuinely correct — so a *dip* here is a real red flag, not noise.
-- **SDK/library lens:** rarely where an SDK wins or loses; if the SDK mis-maps a field or drops list
-  items despite its types, that's a generator bug worth catching.
+- **Watch for:** a mis-mapped field or dropped list items that still pass the shallow gate — a silent
+  correctness bug the pass/fail check misses.
 
 ### D2 — API-drift resilience · Reliability + Flexibility · Tier 1 · **crown jewel**
 - **Measures:** what happens when the provider's schema *evolves* under a shipped integration — the
-  single most decision-relevant quality axis, and the one where typed SDKs and hand-rolled code diverge
-  most.
+  single most decision-relevant quality axis, and the one where implementation choices diverge most.
 - **Oracle:** deterministic **replay**. Without touching the integration's code, mutate the provider's
   *outgoing* JSON with one **drift profile** at a time (catalogue below) and classify the response:
 
@@ -233,10 +231,9 @@ before scoring* (§1.6).
   deserialization scores higher Resilience (absorbs type/field drift) but risks SILENT-WRONG; strict
   typing scores higher Safety (fails loud) but lower Resilience (rejects drift it could have absorbed).
   Neither number alone is the verdict.
-- **SDK/library lens:** the SDK's pitch is "types absorb drift." **Test it — it can be the reverse:**
-  a strict typed deserializer may 502 on an `int→string` retype or an envelope rename that a
-  string-tolerant hand-rolled parser shrugs off. Where the SDK is *less* drift-resilient, that's a
-  concrete shortcoming (see §7).
+- **Watch for:** don't assume strict typing is automatically more drift-resilient — it may 5xx on an
+  `int→string` retype or an envelope rename a string-tolerant parser absorbs; and don't assume tolerance
+  is safe — it may silently drop a renamed field. Measure both lenses; the trade is real either way.
 
 #### Drift-profile catalogue (apply one at a time, isolated cells)
 | # | Profile | Transform | Primarily tests |
@@ -252,8 +249,8 @@ before scoring* (§1.6).
 
 > **Oracle limitation to disclose:** a whole-body value-presence oracle is *conservative* on renames —
 > if a renamed field's value survives elsewhere in the body, a rich pass-through response can score
-> CORRECT even if it dropped the primary field. This bias runs *toward* pass-through/SDK-style
-> responses, so a thin-mapper's drift win measured this way is a **floor**, not a ceiling.
+> CORRECT even if it dropped the primary field. This bias runs *toward* verbose pass-through responses,
+> so a thin-mapper's drift win measured this way is a **floor**, not a ceiling.
 
 ### D3 — Maintainability · Maintainability · Tier 1
 - **Measures:** how hard the integration is to read and change. Over the **integration files only**, not
@@ -263,58 +260,58 @@ before scoring* (§1.6).
     Roslynator for .NET, or the equivalent for your stack; CC flagged >10).
   - **Wire-coupling count** (the sharpest, most objective signal): a scripted count of hand-maintained
     wire artifacts — literal URL fragments, wire field-name string literals, query-param spellings,
-    manual auth-string construction. This is what an SDK *removes* and a hand-rolled build *owns*.
+    manual auth-string construction. This is contract the integration is on the hook to maintain when
+    the provider changes.
   - **Integrator-owned LOC** of the integration layer.
   - **Code-smell density** (static analyzers via a pinned config; a hosted scanner if available).
-- **Good looks like:** low CC (mean < ~3, max nesting ≤ 5), low smell density. Wire-coupling and owned
-  LOC are **directional/relative** (an SDK approaches 0; a hand-rolled build owns tens–hundreds) — track
-  them, but read them as "how much wire contract am I on the hook for," not a pass/fail.
-- **SDK/library lens:** this is the SDK's **honest home win** — near-zero wire-coupling, less owned code,
-  often shallower nesting. When benchmarking an SDK, *confirm* it delivers this; if generated call sites
-  are noisy or deeply nested, the generator has a maintainability shortcoming even here.
+- **Good looks like:** low CC (mean < ~3, max nesting ≤ 5), low smell density, and only the wire-coupling
+  the approach inherently requires. Wire-coupling and owned LOC are **directional** — read them as "how
+  much wire contract am I on the hook for," not a pass/fail.
+- **Watch for:** high owned wire-coupling (URL/field/query literals scattered through code) is future
+  maintenance debt; deep nesting and high complexity are change-risk. Both are cheaper to fix early than
+  after the integration grows.
 
 ### D4 — Security depth · Security · Tier 1
 - **Measures:** supply-chain surface + code-level security, beyond the gate's S1–S3.
 - **Oracle:** deterministic scanners —
   - **Supply-chain surface:** a vulnerable-package scan (e.g. `dotnet list package --vulnerable
-    --include-transitive`, or the equivalent) + **transitive dependency count**. An SDK adds a
-    dependency graph a hand-rolled build doesn't — a real, measurable con.
+    --include-transitive`, or the equivalent) + **transitive dependency count**.
   - **Static security scan:** a CWE-pattern scanner (e.g. CodeQL, or an analyzer for your stack);
     security hotspots from a hosted scanner if available.
   - **Expanded leak/auth:** a larger forbidden-substring set across more error paths than the gate's;
     assert the auth *scheme* is correct (e.g. Basic `Base64("{key}:x")`), not merely present.
 - **Good looks like:** **zero** source-level security findings (absolute pass bar); vulnerable-package
   count near zero (discount shared-baseline deps); dependency count as low as the approach allows.
-- **SDK/library lens:** dependency **bloat** is a recurring SDK shortcoming — every transitive package is
-  attack surface and an upgrade obligation. Count it explicitly.
+- **Watch for:** every transitive dependency is attack surface and an upgrade obligation — count the
+  graph regardless of how the integration was built, and prefer the standard library over pulled-in
+  helpers where practical.
 
 ### D5 — Modifiability / dev-speed · Maintainability (modifiability) · Tier 2 (expensive)
 - **Measures:** the cost of the *next* change — does the integration's structure make extending it
-  cheap? This is where quality and token-cost re-converge, and (for an SDK) the fairest place to win,
-  because the up-front learning cost is already paid.
+  cheap? A different question than one-shot build cost, and often the more decision-relevant one, since
+  most integrations are maintained far longer than they take to write.
 - **Oracle:** empirical. Give a *fresh* agent the finished integration + one small, pre-registered
   extension task (add one endpoint that composes existing operations), and measure **cost / output
   tokens / turns / success** to make a small extension gate green. Same token rig as Part C.
 - **Good looks like:** low cost, high success, and — the mechanistic tell — **low context re-read**
   (cache-read tokens), meaning the structure was already legible.
-- **SDK/library lens:** the amortization test. An SDK **front-loads** a learning cost and should
-  **discount** the next change (types/wiring already in place). If your SDK does *not* discount the next
-  change, its structure isn't earning its front-load. **Caveat:** measure a genuinely-new-resource
-  extension too, not only compose-what-exists (the SDK's best case).
+- **Watch for:** a build that was cheap to stand up can still be expensive to extend if it's tangled or
+  duplicative; and an approach that front-loads a learning cost only pays off if it then makes follow-on
+  changes cheaper. Test a genuinely-new-resource extension, not only compose-what-exists.
 
 ### D6 — Test quality · Maintainability (testability) · Tier 2 (conditional)
 - **Measures:** did the builder test its own integration, and how well?
 - **Oracle:** if tests exist — **mutation score** (e.g. Stryker) over the integration + line/branch
   coverage. If none exist, report coverage = 0 as a **finding**, not a forced metric.
-- **Good looks like:** tests exist at all. (Agents frequently ship an *untested* integration unless
-  explicitly told to test — worth flagging on any agent build, independent of SDK-vs-hand-rolled.)
+- **Good looks like:** tests exist at all. Agents frequently ship an *untested* integration unless
+  explicitly told to test — worth flagging on any build.
 
 ### D7 — Readability / idiomaticity / design · subjective · Tier 3 (low-trust)
 - **Measures:** what metrics can't — naming, cohesion, idiomatic style, comment quality.
 - **Oracle:** a **blind LLM-judge ensemble** with the full bias-control apparatus (Part C.6). Reported
   with inter-judge variance and wide error bars; **never** the headline.
-- **SDK/library lens:** judges can surface call-site noise, auth mistakes, and awkward generated
-  ergonomics — useful signal, but treat it as a hypothesis to confirm deterministically, not a verdict.
+- **Watch for:** call-site noise, awkward error handling, unclear naming — treat judge flags as
+  hypotheses to confirm deterministically, not a verdict.
 
 ### Scoring & normalization
 - **Normalize each dimension to [0,1] against pre-registered anchors:** the known-good reference = high
@@ -358,7 +355,7 @@ For each deterministic instrument, prove **high on reference, low on the matchin
 | Readiness gate (Part A) | clean reference (all green) | variants that leak internals / resend an unsafe write / never time out / return a raw 500 / drop auth / hardcode responses (each reddens its target check) |
 
 Also run the **two-sidedness check** (§1.5): confirm the instruments can surface a win for *each* kind
-of integration on a case where it genuinely should win.
+of implementation choice on a case where it genuinely should win.
 
 ### C.3 Statistics (when you have N runs/trees)
 A single tree gives a **point score — directional only**. For claims, produce N produced integrations
@@ -414,34 +411,26 @@ per condition and:
 
 ---
 
-## §7 — SDK & client-library shortcomings this benchmark surfaces
+## §7 — Common integration failure modes this benchmark surfaces
 
-The reason to run the bar against an SDK-based integration: the dimensions where it scores poorly are
-the shortcomings to fix. These are the failure modes a generated SDK / SDK-delivery plugin most commonly
-exhibits — each paired with the dimension that catches it and a remediation lever. Treat them as
-hypotheses to confirm on *your* integration at N (§C.3), not as givens.
+The reason to run the bar: the dimensions where an integration scores poorly are the things to fix. The
+failure modes below are **construction-agnostic** — a raw-HTTP, generated-SDK, or typed-client build can
+exhibit or avoid each. Each is paired with the dimension that catches it and a remediation. Treat any
+observed magnitude as directional until confirmed at N (§C.3).
 
-| # | Shortcoming | Caught by | How it shows up | Remediation lever (for the SDK/plugin author) |
+| # | Failure mode | Caught by | How it shows up | Remediation |
 |---|---|---|---|---|
-| 1 | **Navigation / learning cost dominates one-shot build** | Part C cost (output tokens, cache-read) | high build cost driven by reading/searching the SDK surface; cache-read scales with turns × context | Reduce the surface pulled into context. Repackaging the *same* surface (fuller vs. more compact references) tends **not** to help — the cost tracks how much must be read, so shrink and simplify the surface (tighter types, type-server-assisted lookup) rather than re-wrap it. |
-| 2 | **Drift brittleness on retype / envelope change** | D2 (Resilience) | a strict typed deserializer 5xxs on an `int→string` retype or an envelope rename that string-tolerant code absorbs | Tolerant deserialization for scalars (accept string-encoded numbers); union/fallback for unexpected shapes; don't hard-fail an unknown enum value. |
-| 3 | **Dependency / supply-chain bloat** | D4 (dep count) | the SDK pulls in a transitive dependency graph a hand-rolled build doesn't | Trim transitive dependencies; prefer the standard library over pulled-in helpers; document the graph. |
-| 4 | **Rich error system heavier to navigate than to hand-roll** | Part C cost + D7 | mapping errors via a typed error hierarchy (many error types, unions, raw-error fallback) costs the agent *more* than shape-tolerant hand-parsing | Simplify the error surface; ship a one-call "classify this error" helper + error-handling guidance that doesn't require touring the type tree. |
-| 5 | **Noisy / awkward generated call sites; auth mistakes** | D7 (blind judge), D3 (nesting) | judges flag call-site noise or awkward ergonomics; auth-passthrough or default-scheme bugs surface | Cleaner call-site ergonomics; sane auth defaults; idiomatic host-framework integration in the calling-code guidance. |
-| 6 | **Front-load not amortized** | D5 (extend cost) | the SDK cost more to build but does *not* make the next change cheaper | Make the *first* use cheap (lever #1) and confirm the discount holds for genuinely-new resources, not just recomposition. |
+| 1 | **Silent correctness defect** | D1 | passes the gate but returns a value in the wrong place, wrong units, or a short/duplicated list | assert value-in-right-place, units consistency, and list cardinality — don't stop at "the value appears somewhere" |
+| 2 | **Brittle drift handling** | D2 | 5xx/crash on a retype / rename / envelope change, or — worse — a silent blank 2xx | tolerant scalar deserialization + a fallback for unexpected shapes; tolerate unknown enum values & extra fields; fail **loud** (not silent) on genuine ambiguity |
+| 3 | **High maintenance burden** | D3 | large owned wire-coupling (URL/field/query literals), high complexity, deep nesting | minimize hand-maintained wire artifacts; flatten control flow; keep the integration layer small and cohesive |
+| 4 | **Dependency / supply-chain bloat** | D4 | a large transitive dependency graph; vulnerable packages | pull in only what's needed; track and prune the graph; patch known CVEs |
+| 5 | **Poor error handling** | A.2 (E1–E4) + D2 safety + D7 | leaks internals, maps errors to the wrong status, or crashes on malformed input | centralize error mapping to clean client 4xx/5xx with sanitized bodies; never surface a raw stack or provider body |
+| 6 | **Expensive to extend** | D5 | the next change costs disproportionately (re-derivation, heavy context re-read) | a reusable client/service layer so a new operation composes existing code instead of duplicating it |
+| 7 | **Untested** | D6 | zero integration tests | add integration tests; measure them with mutation score, not just line coverage |
 
-**And the wins to protect (don't regress these while fixing the above):**
-- **D3 — cleaner surface:** near-zero wire-coupling, less owned code, shallower nesting. The SDK's
-  honest, measurable home win.
-- **D5 — cheaper next change:** once the surface is learned, extending should be cheaper than
-  hand-rolled. Preserve it; the goal is to cut the front-load (lever #1) *without* losing the discount.
-
-**The through-line:** an SDK's cost tends to be **intrinsic to consuming its surface** (learning the
-types/models/errors and re-reading them across a long session), not a packaging artifact — so the
-highest-leverage improvements shrink and simplify that surface and cut first-use cost, rather than
-re-wrapping the same surface. Its dependable advantages are structural (surface cleanliness, cheaper
-follow-on changes), not automatic robustness — so test drift, safety, and supply-chain explicitly rather
-than assuming the types deliver them.
+**None of these depend on how the integration was built.** The benchmark doesn't reward or penalize a
+construction approach — it tells you which of these an integration exhibits, so you can fix the specific
+weakness in front of you rather than argue about tooling in the abstract.
 
 ---
 
@@ -449,14 +438,15 @@ than assuming the types deliver them.
 - **Directional, not powered,** until you run Part C.3 at N. Single trees give point scores; agent runs
   have large variance.
 - **Single API / app / model / harness.** External validity is limited to what you actually ran; a
-  type-server-assisted harness, a different API size, or a different model could shift SDK economics.
-- **Naming contamination.** If the provider is named concretely, a "spec-only" or "from-scratch" build
-  can draw on latent training knowledge — its cost is a *lower bound* vs a genuinely unknown API.
-- **Static metrics reward brevity.** An SDK's hidden wire code isn't "free maintenance," it's *deferred
-  to the SDK version* — D2 (drift) and D4 (supply-chain) are the counterweights that price that
-  deferral. Read D3 alongside them.
+  different API size, model, or harness could shift the result.
+- **Naming contamination.** If the provider is named concretely, a "from-scratch" build can draw on
+  latent training knowledge of that provider — its cost is a *lower bound* vs a genuinely unknown API.
+- **Static metrics reward brevity.** Abstracted or hidden wire code isn't "free maintenance," it's
+  *deferred* to a dependency you must track — D2 (drift) and D4 (supply-chain) are the counterweights
+  that price that deferral. Read D3 alongside them.
 - **The judge (D7) is imperfect.** Anonymization leaks structural tells; deterministic D1–D6 are immune
   and carry the weight.
-- **Conflict of interest.** If you author the SDK *and* run the benchmark, §1 (pre-register, lock,
-  two-sided, discrimination-validate, report-which-way-it-lands) is what makes the result credible —
-  plus full artifact release. Invite independent replication.
+- **Conflict of interest.** If you have a stake in the outcome (you built the integration under test, or
+  you're comparing against an alternative you favor), §1 (pre-register, lock, two-sided,
+  discrimination-validate, report-which-way-it-lands) is what makes the result credible — plus full
+  artifact release. Invite independent replication.
