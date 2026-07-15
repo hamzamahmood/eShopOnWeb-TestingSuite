@@ -36,6 +36,8 @@
 | B | D1 per-op specification |
 | C | DriftEngine transform semantics |
 | D | **D7: what is *not* recoverable** |
+| F | **The treatment, verbatim** (`ARM_MATERIAL`) — the study's independent variable |
+| G | **Manipulation checks** — was the treatment actually delivered? |
 | E | **Measurements this record does not fully specify** |
 
 ---
@@ -83,11 +85,12 @@ C:\repos\eShopOnWeb-TestingSuite\
     └── runs\                              # produced trees + manifests (git-ignored)
 ```
 
-**Prerequisites**
+**Prerequisites** (versions as used; pinned here because C.7 asks for `tool_versions` and the manifests
+never captured them — see §8 #13)
 
-- **.NET 10 SDK** (all projects target `net10.0`). Every spawned process gets
+- **.NET SDK 10.0.301** (all projects target `net10.0`). Every spawned process gets
   `DOTNET_ROLL_FORWARD=Major` so a newer runtime still boots the pinned tree.
-- **PowerShell 7** (`#requires -Version 7`) — the harness uses `robocopy` and splatting.
+- **PowerShell 7.6.0** (`#requires -Version 7`) — the harness uses `robocopy` and splatting.
 - **Claude Code CLI** on `PATH`, authenticated.
 - Arm A additionally needs **NuGet** + **GitHub** reachable (package install + SDK source clone).
 - Plugin fork lives outside this repo: `C:\repos\v4-plugins\plugins\maxio-sdk`.
@@ -743,6 +746,15 @@ What makes the large-effect results still trustworthy is **non-overlapping range
 The small/negligible effects (D1, safety, avgCC, silent-wrong) are within noise and are reported as
 parity, not as findings.
 
+**Determinism — verified empirically, five days later.** `QUALITY_PROTOCOL.md` §9.3 requires that D1–D4
+give identical scores on repeated runs of the same tree. That was never checked at the time. It is now:
+re-scoring all 10 trees from scratch on 2026-07-15 and re-deriving the scorecard mechanically
+**reproduced all 11 published rows exactly**, and the excluded stall trees independently re-scored
+D1 = 17%. Since the instruments boot a live app + mock and drive real HTTP, this is a stronger result
+than "the static analysis is a pure function" — the dynamic dimensions (D1, D2) are reproducible across
+machines-in-time too. It also retroactively confirms the original hand-aggregation was arithmetically
+correct.
+
 **A correlation caveat that matters:** 3 of the 5 Arm A trees are the full/lean/split *delivery variants*
 — same SDK approach, different reference packaging. They are **correlated, not independent**, so "n=5" is
 generous. The matched **`scope22-armA` vs `scope22-armB`** pair alone tells the same story
@@ -914,6 +926,9 @@ results can claim.
 | 10 | **D6** mutation score (Stryker) over the integration | **Not run** — zero tests existed to mutate. | Correctly reported as coverage = 0, a finding. Stryker itself is unvalidated in this harness. |
 | 11 | **D5** "test a genuinely-new-resource extension, not only compose-what-exists" | Only the **compose-existing-ops** extension was run, n=1/arm. | D5 measured the **SDK's best case**. The benchmark's own instruction to test the harder case is outstanding. |
 | 12 | Consistency between suites | The **gate's** forbidden list still contains `price_in_cents`; the **quality tool's** dropped it as asymmetric (§6.2). | A real inconsistency between the two suites. **Inert here** (no arm triggered it) — but a future arm using wire-style naming would be unfairly failed by the gate and not by the quality tool. |
+| 13 | **C.7 manifest schema** — `timestamp · tree_hash · model fingerprint · tool_versions · price_table_id · wall_clock · public_results · holdout_results · D1…D7 · normalized · composite · transcript_path` | The actual manifest records **13 fields**: `runId · arm · model · effort · maxBudgetUsd · sessionId · tokens · totalCostUsd · numTurns · apiError · done · robust · workspace`. **Missing: timestamp, tree_hash, model fingerprint, tool_versions, price_table_id, wall_clock, per-check results** (only the `done`/`robust` booleans survive), and **the quality scores were never merged in** — D1–D4 live in a separate `quality.json`, D5 in the extend manifest, D7 nowhere. | **No content hash of any scored tree exists**, so "same tree ⇒ same score" cannot be verified against a recorded baseline — only re-derived (which §6.3 now does). Tool versions are recovered in §2 by inspection, not from the record. Wall-clock is unrecoverable (`FINDINGS.md`'s "~39 min" came from a run log, not a manifest). |
+| 14 | **C.4** "apply one fixed **price table** to every condition; pin it in the manifest" | **No price table was ever pinned.** `totalCostUsd` is taken straight from the CLI's own `total_cost_usd`, i.e. whatever the provider billed at run time. | All runs are same-model/same-tier and were executed within days of each other, so the *comparison* is sound. But the absolute dollar figures are **not reproducible against a stated price table** and would silently drift if pricing changed. The token counts (§6.4) are the durable quantity; the dollars are a convenience. |
+| 15 | **C.4** "**cost-to-DONE** = whole session's cost" + `pass@k`/`pass^k` (C.3) | Cost-to-DONE done correctly. **`pass@k` / `pass^k` never computed** — with all 8 verified runs reaching DONE+ROBUST, success rate is 8/8 and the k-sample reliability statistics have no variance to describe. | Not a gap in this data (a degenerate 100% success rate), but it means **nothing is known about run-to-run reliability** — the one place variance would show is exactly where the excluded infra stalls sit (§6.5). |
 
 **The honest summary of the gaps:** the **gate (Part A) is the strongest-evidenced part** of this work —
 fully discrimination-validated, property-based, self-tested green on a non-SDK reference and red on seven
@@ -1057,6 +1072,135 @@ error-mapping defect — is **deterministically checkable in the tree** and was 
 the benchmark's own instruction, judge flags are hypotheses to confirm deterministically; that is what
 happened, and it is why D7 contributed a finding despite being the weakest instrument here.
 
+## Appendix F — The treatment, verbatim (`ARM_MATERIAL`)
+
+**This is the study's one independent variable** and it belongs in the record in full. `prompt.md` is
+byte-identical across arms except for a single `{{ARM_MATERIAL}}` substitution; everything below is the
+*entire* difference between conditions. Composed by `run-arm.ps1`:
+
+```powershell
+$prompt = (Get-Content 'harness\prompt.md' -Raw).Replace('{{ARM_MATERIAL}}', $armMaterial.Trim())
+```
+
+**Arm A — SDK, full-source delivery** (`-Arm A`, the headline SDK condition):
+
+> The Maxio Advanced Billing SDK is available via the `maxio-sdk` plugin (its skills are loaded in this
+> session). Use it — it guides installing the NuGet package, navigating the SDK source, authentication,
+> calling endpoints, models, error handling, and resilience.
+
+**Arm B — OpenAPI spec** (`-Arm B`):
+
+> The Maxio Advanced Billing OpenAPI specification is provided in this repository at
+> `./maxio-openapi/openapi.yaml` (with referenced components under `./maxio-openapi/components/`).
+
+**Arm A′ — lean delivery** (`-Arm A -Lean`; plugin fork `maxio-sdk-lean`, clone directive removed):
+
+> The Maxio Advanced Billing SDK is available via the `maxio-sdk` plugin (its skills are loaded in this
+> session) and is installed as the NuGet package `AsadAli.AdvancedBilling.Sdk`. A compact API reference
+> for the SDK is provided in your working tree at `./maxio-api-reference.md` (every endpoint's signature,
+> thrown error type, and a usage snippet). Use the package + the plugin skills + that reference. Do NOT
+> clone or grep the SDK's GitHub source, and do NOT decompile/reflect the installed package — the compact
+> reference already carries the full SDK surface.
+
+**Arm A″ — split delivery** (`-Arm A -Split`; plugin fork `maxio-sdk-split`):
+
+> The Maxio Advanced Billing SDK is available via the `maxio-sdk` plugin (its skills are loaded in this
+> session) and is installed as the NuGet package `AsadAli.AdvancedBilling.Sdk`. A split API reference for
+> the SDK is provided in your working tree under `./maxio-sdk-reference/`: grep `INDEX.md` (one line per
+> operation) for the operation/resource you need, then open ONLY that operation's small file under
+> `./maxio-sdk-reference/ops/`. Use the package + the plugin skills + that reference. Do NOT clone or grep
+> the SDK's GitHub source, and do NOT decompile/reflect the installed package.
+
+**D5 extend material** (`run-extend.ps1`) — Arm A: *"…is already installed as the NuGet package
+`AsadAli.AdvancedBilling.Sdk` in this solution. Use it as you did originally."* · Arm B: *"The …
+specification is in your working tree at `./maxio-openapi/openapi.yaml` …, as in the original build."*
+
+**The D5 extend prompt, in full** (the only place the extend task is specified):
+
+> This application already has a working Maxio billing integration under /api/billing (you built it).
+> Add exactly ONE new endpoint, reusing your existing provider client/service code:
+>
+>     GET /api/billing/subscriptions/{subscriptionId}/summary
+>
+> It must return a combined summary for the subscription: the subscription's state and plan, PLUS the
+> list of that subscription's invoices (each invoice's uid/number, total, and status). Implement it by
+> calling the provider operations you already use for reading a subscription and for listing a
+> subscription's invoices — do not hardcode any values; the endpoint must genuinely call the provider.
+>
+> Keep the same code style, layering, error handling, and resilience as the rest of your integration.
+>
+> MAXIO API REFERENCE
+> {{ARM_MATERIAL}}
+>
+> DEFINITION OF DONE
+> Run the extend gate and iterate until it passes:
+>     .\gate.cmd
+> It reports pass/fail. You cannot read its source. Do not modify anything under benchmark/.
+
+**Three asymmetries in the treatment text, disclosed** — read the cost result knowing these exist:
+
+1. **Arm A's material is longer and points at more** (a plugin carrying 8 skills, plus — for the
+   full-source condition — a directive to clone the SDK repo). Arm B's points at one file. That
+   asymmetry *is* the treatment, not a flaw: the question was whether the SDK's delivery pays for
+   itself. But it means "the arms got equal-sized prompts" is **not** true and was never claimed.
+2. **Only A′/A″ name the package explicitly and forbid the source clone.** Arm A (full) leaves both to
+   the plugin's own skills. So A vs A′/A″ differ in *two* ways (reference format *and* clone
+   permission), not one — which is why `FINDINGS.md` treats the ordering among the three SDK variants as
+   within-noise rather than a ranking.
+3. **Arm B is never told to hand-roll.** It is given a spec and the same task; the raw-`HttpClient`
+   approach is what the agent *chose*, not what it was instructed to do.
+
+## Appendix G — Manipulation checks (was the treatment actually delivered?)
+
+A cost comparison is worthless if the treatment didn't land. These checks were run and are reproduced
+here with their commands, because the record previously asserted "Arm A used the SDK" without showing
+how that was established.
+
+**Pre-flight:** plugin load was probed before spending arm tokens (`SKILL=yes`,
+`PACKAGE=AsadAli.AdvancedBilling.Sdk`), confirming `--plugin-dir` actually took effect in the headless
+child.
+
+**Post-hoc, on the produced trees** (re-verified 2026-07-15):
+
+```bash
+# the discriminator: does the tree reference the SDK package?
+grep -rl "AsadAli.AdvancedBilling.Sdk" runs/<tree>/workspace/src --include=*.csproj | wc -l
+# and: was the spec placed in this tree?
+test -f runs/<tree>/workspace/maxio-openapi/openapi.yaml
+```
+
+| Tree | SDK package refs | Spec in tree | Verdict |
+|---|:--:|:--:|---|
+| `scope22-armA` | **1** | no | SDK treatment delivered |
+| `scope22-armB` | **0** | yes | spec treatment delivered, no SDK leakage |
+
+**A trap worth recording: `HttpClient` presence is NOT a discriminator.** Both trees contain 5 files
+referencing `HttpClient`/`IHttpClientFactory` — because the generated SDK *requires the caller to supply
+an `HttpClient`*. Anyone auditing "did Arm A really use the SDK?" by grepping for raw HTTP will conclude,
+wrongly, that it didn't. The package reference and the spec's presence are the real signals.
+
+**Delivery-variant compliance** (A′/A″ were told not to clone the SDK source — an instruction that, if
+ignored, would silently collapse the lean conditions back into the full-source one):
+
+| Run | Check | Result |
+|---|---|---|
+| `scope22lean-armA` | transcript refs to the source clone | **0** (37 refs to `maxio-api-reference.md` instead) |
+| `scope22split-armA` | transcript refs to the source clone | **0** (opened **163 of 247** op files; 74 grep sweeps over the ref dir) |
+
+Both honored the no-clone rule, so the lean/split cost results measure what they claim to. The A″ figure
+is the mechanism behind Lever 3's refutation: **more granular delivery invited broader exploration**
+rather than narrower lookup.
+
+**D6's "zero tests" finding, verified rather than asserted:**
+
+```bash
+find runs/<tree>/workspace -path "*/obj/*" -prune -o -name "*.cs" -print \
+  | grep -iE "test" | xargs grep -ril "billing\|maxio" | wc -l      # → 0 for both arms
+```
+
+Neither arm's produced tree contains a single test file mentioning billing or Maxio. Only the stock
+eShopOnWeb test projects exist, and they predate the integration.
+
 ## Appendix E — Measurements this record does *not* fully specify
 
 Completing the honesty ledger in §8. These are gaps in **this document's** coverage, distinct from §8's
@@ -1067,7 +1211,8 @@ gaps in the *study's* execution:
 | **D7 judge** | prompt/rubric/anonymization never existed as artifacts | nowhere — see Appendix D |
 | **Cliff's delta; medians "across DONE trees"** | ~~no script exists~~ → **CLOSED 2026-07-15.** `harness/score-all.ps1` + `harness/aggregate-scorecard.ps1` derive the scorecard from artifacts; `-Verify` reproduces all 11 published rows exactly | `runs/<tree>/quality.json` (regenerable inputs), `runs/scorecard.{md,json}` (derived output) |
 | **Mock fixture wire bodies** | the exact snake_case JSON each route serves is referenced, not reproduced | `mock/MockStore.cs` (single source of truth; edit in lockstep with `Checks.cs` + `Ops.cs`) |
-| **The frozen agent prompt** | task text, pinned routes, and the definition-of-done are summarized, not reproduced | `harness/prompt.md`, `TASK_SPEC.md` §3 |
+| **The frozen agent prompt** | the `ARM_MATERIAL` block and the D5 extend prompt are now reproduced in full (Appendix F); the surrounding shared task text — 22 route definitions + acceptance criteria — is still summarized, not reproduced | `harness/prompt.md`, `TASK_SPEC.md` §3 |
+| **Wall-clock per run** | never recorded in any manifest (§8 #13). `FINDINGS.md`'s "~39 min" for `pilot1-armB` came from a run log, not an artifact | unrecoverable for most runs |
 | **`reference/` BREAK defect implementations** | flags and their targets are listed; the injected code is not shown | `reference/MaxioClient.cs`, `reference/Program.cs` |
 
 **Update 2026-07-15 — the statistics gap is closed, and it paid for itself.** Deriving the scorecard
