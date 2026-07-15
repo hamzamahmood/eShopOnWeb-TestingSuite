@@ -221,6 +221,42 @@ removed** from the D1/D2 leak markers (a snake_case field name is a defensible n
 forbidding it was asymmetric against a wire-style-naming arm). Re-scoring after both fixes reproduced the
 scorecard unchanged — neither arm triggered either issue.
 
+### 5.2 Scorecard reproduced mechanically — and one confound found (2026-07-15)
+
+The §2 scorecard was originally **hand-aggregated** from the quality tool's console output; the per-tree
+JSON was never kept, so it could not be re-derived from artifacts. That gap is now closed:
+`harness/score-all.ps1` regenerates `runs/<tree>/quality.json` for all 10 trees, and
+`harness/aggregate-scorecard.ps1` computes the scorecard from them (seeded, deterministic).
+
+**Result: `aggregate-scorecard.ps1 -Verify` reproduces all 11 published rows of §2 exactly.** The
+hand-aggregation was correct, and the excluded stall trees independently re-score D1 = 17%, reproducing
+the instrument sanity anchor. Nothing in the headline changes.
+
+**But the mechanical pass found a confound the hand pass hid, and it is disclosed here rather than
+silently corrected.** Three rows are **raw counts whose ceiling scales with task size**: the 11-op pilot
+trees run **13** drift cells and carry less code; the 22-op trees run **22**. The arms' pools have
+different scope mixes (Arm A = 2×11-op + 3×22-op; Arm B = 2×11-op + 1×22-op), so a median can land on a
+22-cell tree for Arm A and a **13-cell tree** for Arm B — measuring task size as much as the arm.
+Comparing only the 22-op trees (like-for-like, n=3 A vs n=1 B) moves two rows:
+
+| Row | §2 as published (mixed scope) | 22-op only (like-for-like) |
+|---|---|---|
+| D2 silent-wrong **count** | 8 vs 5 — reads as Arm B better | **8 vs 10 — favours Arm A** |
+| D3 avg cyclomatic | 2.33 vs 2.16 — reads as Arm B better | **2.35 vs 3.00 — favours Arm A** |
+
+Both published rows were already reported as *negligible/parity*, so **no stated conclusion changes** —
+but the underlying comparison was confounded, and the scope-invariant reading points the other way. A
+scope-invariant **silent-wrong rate** (36% A vs 38% B) is now computed alongside the count; prefer it.
+
+**Two honesty notes on this correction.** (1) It **cuts toward the SDK — i.e. toward the party running
+the study** — which is exactly when a correction deserves the most scrutiny; it rests on **n=3 vs n=1**
+and is therefore weaker evidence than the rows it adjusts. (2) It leaves every **large, non-overlapping**
+effect untouched in both direction and magnitude: wire-coupling (0 vs 19/24, Arm A), drift resilience
+(41% vs 50–54%, Arm B), transitive deps (96 vs 90, Arm B). The load-bearing findings do not depend on the
+confound in either direction.
+
+---
+
 One residual limitation is worth stating precisely: **rename-drift detection is conservative.** Because
 the oracle uses whole-body value-presence, a renamed field whose value also survives elsewhere (e.g. the
 fixture's `previous_state="active"`, or `subtotal==total`) could be scored CORRECT even if the arm

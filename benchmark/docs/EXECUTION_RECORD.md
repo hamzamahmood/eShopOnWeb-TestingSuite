@@ -907,7 +907,7 @@ results can claim.
 | 3 | **Drift catalogue P1–P8** | Only **P1 additive, P2 rename, P3 retype, P5 new-enum, P6 envelope** were executed. **P4 (scalar→union)** and **P8 (field-removal)** are implemented in `DriftEngine` but **no cell uses them**. **P7 (error-shape)** was never wired into the matrix. | D2 covers **5 of 8** profiles across 22 cells. Union-handling and graceful-degradation are **unmeasured** — and P4 is precisely where the SDK's `TryGet` unions might have won. |
 | 4 | **C.2** low anchors for every deterministic instrument (`brittlemap`, `complex`, `vulndep`) | Only **D1's** (`shallowmap`) was built. **D2, D3, D4 have no low anchor.** | The gate is fully discrimination-validated; **D2/D3/D4 are not.** Their credibility rests on the accidental 17% stall-tree validation + the two-sidedness check, which is weaker than a purpose-built defect. |
 | 5 | **C.4** capture tokens from **multiple sources and reconcile** (OTel `claude_code.token.usage` + result JSON + `ccusage`), investigate >2% discrepancy | **Single source.** `run-arm.ps1` parses only the `-p` result JSON. The OTel collector specified in `PROTOCOL.md` §5 was never wired. | No cross-check on token figures. The stderr-parse bug (§6.4) is exactly the class of error reconciliation would have caught immediately. |
-| 6 | **C.3** median + IQR + bootstrap BCa CI; Mann–Whitney U; pass@k / pass^k; default N=30 | **Cliff's delta only**, n=5/3 (and 3 of the 5 correlated). | Everything is **directional**. No confidence interval exists on any number in this study, including the headline ~1.5× cost gap. |
+| 6 | **C.3** median + IQR + bootstrap BCa CI; Mann–Whitney U; pass@k / pass^k; default N=30 | **Partly closed 2026-07-15.** `aggregate-scorecard.ps1` now computes median/IQR/range, Cliff's delta, Mann–Whitney U (exact permutation at this n), and BCa — but **BCa refuses below n=8** and the p-values are anti-conservative (correlated Arm A pool), so both are withheld from the headline. pass@k / pass^k still not computed; N is still 5/3, not 30. | Everything remains **directional**. No usable confidence interval exists on any number in this study, including the headline ~1.5× cost gap — the machinery is now in place, the *sample* is what's missing. |
 | 7 | **C.6** judge family ≠ builder family; ensemble of ≥2 **distinct** families; human calibration | **Two Claude judges** (Opus + Sonnet) on Claude-built code; **no human calibration**. | D7's absolute scores may be inflated. Directionally fair for A-vs-B (bias is non-directional when both arms share the builder family), but it is the weakest evidence in the record. |
 | 8 | **D3** Maintainability Index; code-smell density via a static analyzer / hosted scanner | **Not computed.** `Metrics.cs` does CC, nesting, owned LOC, wire-coupling. No MI, no SonarScanner. | D3 rests on CC/nesting/LOC/wire-coupling. Since wire-coupling carries the large effect (0 vs 19), the missing metrics don't change the conclusion — but D3 is thinner than specified. |
 | 9 | **D4** CWE-pattern scanner (CodeQL or equivalent) | **Regex source scan** (5 rules) + `dotnet list --vulnerable`. No CodeQL. | "0 source findings" means *"0 hits from 5 regexes"* — a much weaker claim than "0 CWE findings." Read it as a floor. |
@@ -1065,13 +1065,25 @@ gaps in the *study's* execution:
 | Measurement | Gap | Where the truth lives |
 |---|---|---|
 | **D7 judge** | prompt/rubric/anonymization never existed as artifacts | nowhere — see Appendix D |
-| **Cliff's delta; medians "across DONE trees"** | **no script exists.** Computed ad-hoc from the per-tree JSONs; the `QUALITY_FINDINGS.md` scorecard is **not mechanically reproducible** | `QUALITY_FINDINGS.md` §2 (the values), the per-tree `quality.json` (the inputs) |
+| **Cliff's delta; medians "across DONE trees"** | ~~no script exists~~ → **CLOSED 2026-07-15.** `harness/score-all.ps1` + `harness/aggregate-scorecard.ps1` derive the scorecard from artifacts; `-Verify` reproduces all 11 published rows exactly | `runs/<tree>/quality.json` (regenerable inputs), `runs/scorecard.{md,json}` (derived output) |
 | **Mock fixture wire bodies** | the exact snake_case JSON each route serves is referenced, not reproduced | `mock/MockStore.cs` (single source of truth; edit in lockstep with `Checks.cs` + `Ops.cs`) |
 | **The frozen agent prompt** | task text, pinned routes, and the definition-of-done are summarized, not reproduced | `harness/prompt.md`, `TASK_SPEC.md` §3 |
 | **`reference/` BREAK defect implementations** | flags and their targets are listed; the injected code is not shown | `reference/MaxioClient.cs`, `reference/Program.cs` |
 
-If you are replicating this, the **statistics gap is the one to fix first** — it is cheap (a script over
-the existing `quality.json` files), and until it exists the headline scorecard rests on hand-aggregation.
+**Update 2026-07-15 — the statistics gap is closed, and it paid for itself.** Deriving the scorecard
+mechanically (`score-all.ps1` → `aggregate-scorecard.ps1 -Verify`) **reproduced all 11 published rows
+exactly**, so the hand-aggregation was correct — but it also surfaced a confound the hand pass hid:
+three rows are **raw counts whose ceiling scales with task size** (11-op trees run 13 drift cells and
+carry less code; 22-op trees run 22), and the arms have different scope mixes, so a median lands on a
+22-cell tree for one arm and a 13-cell tree for the other. Two "parity" rows flip at like-for-like scope
+(`QUALITY_FINDINGS.md` §5.2). Those rows are now marked `[scope-sensitive]`, a scope-invariant
+silent-wrong **rate** is computed alongside the count, and `-Scope22Only` / `-MatchedPairOnly` give the
+uncontaminated reads.
+
+**The transferable lesson:** hand-aggregation was *arithmetically* correct and still shipped a confounded
+comparison. Writing the script did not catch a maths error — it caught a **design** error, by forcing the
+question "are these two numbers even commensurable?" that reading medians off a console never asks. Build
+the aggregation step even when N is small enough to do in your head; that is not when it earns its keep.
 
 ---
 
