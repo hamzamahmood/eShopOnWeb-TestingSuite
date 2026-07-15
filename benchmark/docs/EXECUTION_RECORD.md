@@ -31,6 +31,12 @@
 | 6 | Part C — methodology as actually executed |
 | 7 | End-to-end reproduction sequence |
 | 8 | **Divergences from the benchmark** — what was specified but not done |
+| 9 | The result, in one paragraph |
+| A | Exact request bodies (Part A) |
+| B | D1 per-op specification |
+| C | DriftEngine transform semantics |
+| D | **D7: what is *not* recoverable** |
+| E | **Measurements this record does not fully specify** |
 
 ---
 
@@ -931,6 +937,141 @@ cleanliness** (wire-coupling 0 vs 19, nesting 4 vs 6) and **directionally on the
 **behind on drift resilience** (41% vs 54%), **dependency surface** (96 vs 90), and **blind-judged design**
 (4.0 vs 4.75). Both arms shipped **zero tests**. The SDK's honest, measured value here is *a cleaner
 surface and a cheaper next change* — not correctness, robustness, safety, or cost to stand up.
+
+---
+
+## Appendix A — Exact request bodies (Part A)
+
+Every payload the gate sends. Response shapes are deliberately **free** (value-presence oracle); only the
+*request* contracts are pinned, so the gate can drive any arm's endpoints. Pinned camelCase, from
+`TASK_SPEC.md` §3 and reproduced in `harness/prompt.md` — the agents were told these exactly.
+
+| Check | Route | Body |
+|---|---|---|
+| `C1.find-or-create` | `POST /api/billing/customers` | `{"reference":"cust_known","firstName":"A","lastName":"B","email":"a@b.com"}` |
+| `C1.create-sub` | `POST /api/billing/subscriptions` | `{"customerReference":"cust_known","productHandle":"pro-plan"}` |
+| `C1.plan-change` | `POST /api/billing/subscriptions/950001/plan-change` | `{"productHandle":"basic-plan"}` |
+| `C1.usage` | `POST /api/billing/subscriptions/950001/usage` | `{"quantity":5,"memo":"m"}` |
+| `C1.create-component` | `POST /api/billing/components` | `{"name":"Metered X","unitName":"call","pricingScheme":"per_unit"}` |
+| `C1.create-price-point` | `POST /api/billing/components/800001/price-points` | `{"name":"Volume Tier","pricingScheme":"per_unit","unitPrice":"5"}` |
+| `C1.create-allocation` | `POST /api/billing/subscriptions/950001/components/800001/allocations` | `{"quantity":7,"memo":"m"}` |
+| `C1.create-coupon` | `POST /api/billing/coupons` | `{"code":"NEW20","name":"New 20","percentage":"20"}` |
+| `C1.pause` / `resume` / `reactivate` | `POST .../pause`, `.../resume`, `.../reactivate` | *(none)* |
+| `C1.cancel` | `DELETE /api/billing/subscriptions/950001` | *(none)* |
+| `C3.local-validation` | `POST /api/billing/subscriptions` | `{}` ← must be rejected locally, **zero** upstream calls |
+| `E1.provider-4xx` | `POST /api/billing/subscriptions` | `{"customerReference":"cust_known","productHandle":"does-not-exist"}` |
+| `H.R5.usage-no-dup` | `POST /api/billing/subscriptions/950001/usage` | `{"quantity":3}` ← different instance from `C1.usage` |
+
+## Appendix B — D1 per-op specification
+
+The complete `quality/Ops.cs` D1 contract. `MustContain` values are asserted **field-name-agnostically**
+(whole-body, case-insensitive substring) and are always **stable ids/states**, never a price encoding —
+the price is asked separately, in either representation, via `ExpectDollars`.
+
+| Op | Method · app route | Upstream (drift target) | `MustContain` | `ExpectDollars` | Scope |
+|---|---|---|---|---|:--:|
+| `plans` | `GET /api/billing/plans` | `products.json` | `700001`, `700002` *(cardinality: both)* | **299.00** | 11 |
+| `read-sub` | `GET /api/billing/subscriptions/950001` | `/subscriptions/950001.json` | `950001`, `active`, `pro-plan` *(id + state + plan)* | — | 11 |
+| `list-subs` | `GET /api/billing/customers/900001/subscriptions` | `/customers/900001/subscriptions.json` | `950001`, `active` | — | 11 |
+| `create-sub` | `POST /api/billing/subscriptions` | `/subscriptions.json` | `950010`, `active` | — | 11 |
+| `allocations` | `GET /api/billing/subscriptions/950001/components/800001/allocations` | `/allocations.json` | `830001` *(lives in wire field `allocation_id`)* | — | 22 |
+| `invoices` | `GET /api/billing/subscriptions/950001/invoices` | `/invoices.json` | `inv_abc001`, `open` *(uid + status)* | **299.00** *(`total_amount` "299.00")* | 22 |
+| `components` | `GET /api/billing/components` | `/product_families/600001/components.json` | `800001`, `800002` | — | 22 |
+
+**Check count derivation** — one `.values` per op, one `.price` per op carrying `ExpectDollars`, plus one
+synthetic `unknown-id.4xx` per tree:
+
+- **Scope 22:** 7 values + 2 price + 1 unknown-id = **10 checks**. (`scope22lean-armA`'s 9/10 = the 90% dip.)
+- **Scope 11:** 4 values + 1 price + 1 unknown-id = **6 checks**. (The excluded stall trees' 1/6 = the ≈17%.)
+
+`create-sub` sends `{"customerReference":"cust_known","productHandle":"pro-plan"}`; all other ops are GETs
+with no body.
+
+## Appendix C — DriftEngine transform semantics
+
+How each profile actually mutates the provider's outgoing JSON (`mock/DriftEngine.cs`). **These details
+are load-bearing** — they define what a D2 cell really tests.
+
+**Application model.** Parse the body as a `JsonNode`; **on parse failure, return the original text
+unchanged** (so drift silently no-ops on a non-JSON body rather than corrupting it). Then `WalkObjects`
+visits **every `JsonObject` in the whole tree**, recursing through arrays, snapshotting each object's
+children *before* invoking the transform so mutation can't disturb iteration.
+
+> **The consequence to internalize: transforms are applied at every nesting level, not just the root.**
+> A `rename state → sub_state` renames `state` in *every* object in the body that has that key —
+> including each element of a list. This makes a drift cell a whole-body schema change, which is
+> realistic (a provider renaming a field renames it everywhere) but stronger than a single-site mutation.
+
+| Profile | ID | Transform (per visited object `o`) |
+|---|:--:|---|
+| `additive` | P1 | `o["__drift_extra"] = "x"` **and** `o["__drift_obj"] = {"k":1}` — an unknown scalar *and* an unknown nested object, into every object |
+| `rename` | P2 | `RenameKey(o, field, to ?? field+"_v2")` — `DeepClone` the value to detach it, `Remove` the old key, re-add under the new one |
+| `envelope` | P6 | *identical code path to `rename`* — the only difference is that `field` names a wrapper key (`product`→`plan`) rather than a leaf |
+| `retype` | P3 | `if (o[field] is Number) o[field] = o[field].ToJsonString()` — number → the same digits as a JSON **string** |
+| `union` | P4 | `if (o[field] is scalar) o[field] = {"value": <original>}` — **implemented, but no cell uses it** (§8 #3) |
+| `newenum` | P5 | `if (o.ContainsKey(field)) o[field] = to ?? "drift_unknown_value"` — unconditional overwrite with an unmodeled value |
+| `remove` | P8 | `o.Remove(field)` — **implemented, but no cell uses it** (§8 #3) |
+
+**Rule matching.** The first rule whose optional `method` and optional `pathContains` both match wins.
+Rules persist until `POST /__mock/reset`. With none installed the middleware is inert — which is what
+makes the whole quality layer additive to the locked Stage-1 gate.
+
+**One caller-side subtlety** worth knowing when reading `Runner.RunDrift`: the method filter is passed as
+
+```csharp
+op.Method == "GET" || dc.Profile == "additive" ? null : op.Method
+```
+
+— i.e. for GET ops, and for *any* additive cell, the rule matches **any method** on that path; only
+non-additive writes are method-scoped. Nothing in the executed matrix depends on the distinction (each
+cell installs exactly one rule against one op's path), but it is a latent footgun if you add cells.
+
+**`retype` measures less than it appears to.** Because the value's *text* is unchanged (`700001` →
+`"700001"`), a whole-body value-presence oracle still finds it. So a `retype` cell tests
+**crash-tolerance**, not value fidelity — it asks "does strict deserialization reject this?", not "did
+the value survive?". This is symmetric across arms and was disclosed in the instrument audit.
+
+## Appendix D — D7: what is *not* recoverable
+
+**The exact D7 methodology cannot be reconstructed from this repository, and this appendix exists to say
+so rather than let §5.7's summary imply otherwise.**
+
+The judge runs were executed ad-hoc in-session via subagents. **No artifact was committed** — no prompt
+text, no rubric, no anonymization script, no per-judge transcript, no invocation record. What is known is
+only what `QUALITY_FINDINGS.md` §3 records:
+
+| Recorded | Not recorded |
+|---|---|
+| Two judges: Opus + Sonnet | The prompt text given to either judge |
+| Run in **opposite label orders** (position-bias control) | The rubric's sub-score definitions and scale anchors |
+| "Anonymized-approach instructions" | What was actually anonymized, and how |
+| Scores: J1 4.5 (B) vs 4.0 (A); J2 5 (B) vs 4 (A) → 4.75 vs 4.0 | Per-judge chain-of-thought output |
+| The cited reasons (401/403→502 mapping; cancellation-vs-timeout precision; noisier SDK call sites) | Whether the judges saw whole trees or excerpts |
+
+**Rerunning D7 means re-designing it, not re-executing it.** Any replication should build it properly per
+`QUALITY_PROTOCOL.md` §8 — non-Claude ensemble, committed prompt + rubric, scripted anonymization, human
+calibration — which is the pre-registered design this run deviated from (§8 #7).
+
+**The one thing that survives the gap:** the judges' central concrete claim — Arm A's 401/403 passthrough
+error-mapping defect — is **deterministically checkable in the tree** and was confirmed by inspection. Per
+the benchmark's own instruction, judge flags are hypotheses to confirm deterministically; that is what
+happened, and it is why D7 contributed a finding despite being the weakest instrument here.
+
+## Appendix E — Measurements this record does *not* fully specify
+
+Completing the honesty ledger in §8. These are gaps in **this document's** coverage, distinct from §8's
+gaps in the *study's* execution:
+
+| Measurement | Gap | Where the truth lives |
+|---|---|---|
+| **D7 judge** | prompt/rubric/anonymization never existed as artifacts | nowhere — see Appendix D |
+| **Cliff's delta; medians "across DONE trees"** | **no script exists.** Computed ad-hoc from the per-tree JSONs; the `QUALITY_FINDINGS.md` scorecard is **not mechanically reproducible** | `QUALITY_FINDINGS.md` §2 (the values), the per-tree `quality.json` (the inputs) |
+| **Mock fixture wire bodies** | the exact snake_case JSON each route serves is referenced, not reproduced | `mock/MockStore.cs` (single source of truth; edit in lockstep with `Checks.cs` + `Ops.cs`) |
+| **The frozen agent prompt** | task text, pinned routes, and the definition-of-done are summarized, not reproduced | `harness/prompt.md`, `TASK_SPEC.md` §3 |
+| **`reference/` BREAK defect implementations** | flags and their targets are listed; the injected code is not shown | `reference/MaxioClient.cs`, `reference/Program.cs` |
+
+If you are replicating this, the **statistics gap is the one to fix first** — it is cheap (a script over
+the existing `quality.json` files), and until it exists the headline scorecard rests on hand-aggregation.
 
 ---
 
