@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <PackageReference Include="YamlDotNet" Version="16.2.1" />
+    <PackageReference Include="Microsoft.OpenApi" Version="3.9.0" />
   </ItemGroup>
 
 </Project>

@@ -66,6 +66,10 @@ public sealed class Spec
         return (node, baseDir);
     }
 
+    /// <summary>Public wrapper: load the node a $ref string points at, plus the base dir of the file it
+    /// landed in (so refs inside that node resolve relative to their own file). Used by the bundler.</summary>
+    public (YamlNode node, string dir) Resolve(string refStr, string baseDir) => ResolveRef(refStr, baseDir);
+
     private (YamlNode, string) ResolveRef(string refStr, string baseDir)
     {
         var hash = refStr.IndexOf('#');

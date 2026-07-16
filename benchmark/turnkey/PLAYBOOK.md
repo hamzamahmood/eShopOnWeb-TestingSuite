@@ -100,10 +100,12 @@ Read the codebase and the provider contract, and collect:
 **If you have the provider's OpenAPI spec (recommended), generate a draft first** with `Harness.Profiler`
 — it fills the entire provider side authoritatively, so you only complete the integration side:
 ```bash
-dotnet run --project Harness.Profiler -- --spec <openapi.yaml> --out profiles/<name> --name <name>
+dotnet run --project Harness.Profiler -- --spec <openapi.(yaml|json)> --out profiles/<name> --name <name>
 ```
-It emits (example-first — fixtures carry the provider's **real** envelopes/field-names/types, taken from
-the spec's response examples, falling back to schemas):
+A multi-file spec is first bundled into one self-contained document (external `$ref`s inlined into
+`components`), then parsed with **Microsoft.OpenApi** (native 3.1 + JSON-Schema semantics). It emits
+(example-first — fixtures carry the provider's **real** envelopes/field-names/types from the spec's
+response examples, with schema synthesis when an operation has no example):
 - **`contract.json`** — near-final: one route per operation with a faithful success body + a 404 default
   on by-id reads. This is the validity-critical, tedious part, done mechanically. Because the shapes come
   from the *provider's* spec (not the integration under test), the oracle stays independent (§1 rule).

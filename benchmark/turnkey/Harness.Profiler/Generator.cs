@@ -2,60 +2,162 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
-using YamlDotNet.RepresentationModel;
+using Microsoft.OpenApi;
 
 namespace Harness.Profiler;
 
 /// <summary>
-/// Emits a profile DRAFT from an OpenAPI spec. Provider-side fields (mock routes, fixtures, upstream
-/// paths, expected id values, drift candidates) are filled from the spec — example-first, so fixtures
-/// carry the provider's real envelopes/field-names/types. Integration-side fields the spec cannot know
-/// (app-routes, roles, boot config) are emitted as TODO placeholders for the agent to complete.
+/// Emits a profile DRAFT from a loaded OpenAPI document (Microsoft.OpenApi model, fed the bundled
+/// single-file spec). Provider-side fields (mock routes, fixtures, upstream paths, expected id values,
+/// drift candidates) are filled from the spec — example-first, with schema synthesis when an operation
+/// has no example. Integration-side fields the spec cannot know (app-routes, roles, boot config) are
+/// emitted as TODO placeholders for the agent to complete.
 /// </summary>
 public static class Generator
 {
-    static readonly string[] Methods = { "get", "post", "put", "delete", "patch" };
     static readonly string[] IdKeys = { "id", "uid", "code", "handle", "token", "reference" };
     static int _sentinel;   // deterministic distinct sentinel ids for schema-synthesized fixtures
 
     public sealed record GenOp(
         string Id, string Method, string Path, string SuccessStatus, JsonNode? Example,
-        string? IdField, string? IdValue, string UpstreamFragment, string? RequestBody, bool HasPathParam);
+        string? IdField, string? IdValue, string UpstreamFragment, string? RequestBody);
 
-    public static int Run(Spec spec, string outDir, string name)
+    public static int Run(OpenApiDocument doc, string outDir, string name)
     {
         Directory.CreateDirectory(outDir);
         _sentinel = 1000001;
-        var paths = Spec.Get(spec.Root, "paths");
 
         var gens = new List<GenOp>();
         var noExample = new List<string>();
-        foreach (var (pathKey, pathItem) in Spec.Entries(paths))
-            foreach (var (method, opNode) in Spec.Entries(pathItem))
+        foreach (var (pathKey, item) in doc.Paths)
+        {
+            if (item.Operations is null) continue;
+            foreach (var (method, op) in item.Operations)
             {
-                if (!Methods.Contains(method)) continue;
-                var g = Build(spec, pathKey, method, opNode);
+                var g = Build(pathKey, method.Method, op);
                 gens.Add(g);
-                if (g.Example is null) noExample.Add($"{method.ToUpper()} {pathKey}");
+                if (g.Example is null) noExample.Add($"{method.Method.ToUpperInvariant()} {pathKey}");
             }
+        }
 
         WriteContract(outDir, gens);
         WriteOptableDraft(outDir, gens);
-        WriteProfileSkeleton(spec, outDir, name);
+        WriteProfileSkeleton(doc, outDir, name);
         PrintChecklist(gens, noExample, outDir);
         return 0;
     }
 
-    static GenOp Build(Spec spec, string path, string method, YamlNode opNode)
+    static GenOp Build(string path, string httpMethod, OpenApiOperation op)
     {
-        var (status, example) = ExtractSuccessExample(spec, opNode);
-        var pathParams = Regex.Matches(path, @"\{([^}]+)\}").Select(m => m.Groups[1].Value).ToArray();
+        var method = httpMethod.ToLowerInvariant();
+        var (status, example) = SuccessExample(op);
         var (idField, idValue) = example is null ? (null, null) : FindPrimaryId(example);
-        var opId = Spec.Scalar(Spec.Get(opNode, "operationId")) is { } oid && oid.Length > 0
-            ? Kebab(oid) : $"{method}-{LastLiteral(path).TrimEnd('.', 'j', 's', 'o', 'n')}";
-        var reqBody = ExtractRequestExample(spec, opNode);
-        return new GenOp(opId, method, path, status ?? "200", example, idField, idValue,
-            UpstreamFragment(path), reqBody, pathParams.Length > 0);
+        var opId = !string.IsNullOrEmpty(op.OperationId)
+            ? Kebab(op.OperationId!) : $"{method}-{LastLiteral(path).TrimEnd('.', 'j', 's', 'o', 'n')}";
+        return new GenOp(opId, method, path, status ?? "200", example, idField, idValue, UpstreamFragment(path), RequestExample(op));
+    }
+
+    // ---- Microsoft.OpenApi extraction ---------------------------------------------------------------
+    static (string? status, JsonNode? body) SuccessExample(OpenApiOperation op)
+    {
+        if (op.Responses is null) return (null, null);
+        foreach (var (code, resp) in op.Responses)
+        {
+            if (!(code.StartsWith('2') || code == "default")) continue;
+            var mt = MediaType(resp.Content);
+            if (mt is null) return (code, null);
+            if (mt.Example is not null) return (code, mt.Example.DeepClone());
+            var exVal = mt.Examples?.Values.FirstOrDefault()?.Value;
+            if (exVal is not null) return (code, exVal.DeepClone());
+            if (mt.Schema is not null && Synth(mt.Schema, 0) is { } synth) return (code, synth);
+            return (code, null);
+        }
+        return (null, null);
+    }
+
+    static string? RequestExample(OpenApiOperation op)
+    {
+        var mt = MediaType(op.RequestBody?.Content);
+        if (mt is null) return null;
+        var v = mt.Example ?? mt.Examples?.Values.FirstOrDefault()?.Value;
+        if (v is not null) return v.ToJsonString();
+        return mt.Schema is not null ? Synth(mt.Schema, 0)?.ToJsonString() : null;
+    }
+
+    static IOpenApiMediaType? MediaType(IDictionary<string, IOpenApiMediaType>? content)
+    {
+        if (content is null) return null;
+        return content.TryGetValue("application/json", out var mt) ? mt : content.Values.FirstOrDefault();
+    }
+
+    // ---- schema-based fixture synthesis (MO model; fallback when no inline example) -----------------
+    // Objects from properties, arrays from items, enum→first value, id-ish integers→distinct sentinels,
+    // typed strings by format. Depth-capped so recursive schema graphs terminate. MO resolves $refs.
+    static JsonNode? Synth(IOpenApiSchema schema, int depth)
+    {
+        if (depth > 6) return null;
+        if (schema.Example is not null) return schema.Example.DeepClone();
+
+        if (schema.AllOf is { Count: > 0 } allOf)
+        {
+            var merged = new JsonObject();
+            foreach (var sub in allOf)
+                if (Synth(sub, depth) is JsonObject o)
+                    foreach (var k in o.Select(kv => kv.Key).ToList()) { var v = o[k]; o.Remove(k); merged[k] = v; }
+            MergeProps(schema, merged, depth);
+            return merged;
+        }
+        if (schema.OneOf is { Count: > 0 } oneOf) return Synth(oneOf[0], depth);
+        if (schema.AnyOf is { Count: > 0 } anyOf) return Synth(anyOf[0], depth);
+
+        if (Is(schema.Type, JsonSchemaType.Object) || schema.Properties is { Count: > 0 })
+        {
+            var obj = new JsonObject();
+            MergeProps(schema, obj, depth);
+            return obj;
+        }
+        if (Is(schema.Type, JsonSchemaType.Array))
+        {
+            var arr = new JsonArray();
+            if (schema.Items is not null && Synth(schema.Items, depth + 1) is { } iv) arr.Add(iv);
+            return arr;
+        }
+        return ScalarSynth(schema);
+    }
+
+    static void MergeProps(IOpenApiSchema s, JsonObject obj, int depth)
+    {
+        if (s.Properties is null) return;
+        foreach (var (name, ps) in s.Properties) obj[name] = Synth(ps, depth + 1);
+    }
+
+    static bool Is(JsonSchemaType? t, JsonSchemaType flag) => t.HasValue && (t.Value & flag) == flag;
+
+    static JsonNode? ScalarSynth(IOpenApiSchema s)
+    {
+        if (s.Enum is { Count: > 0 } en && en[0] is not null) return en[0]!.DeepClone();
+        if (Is(s.Type, JsonSchemaType.Integer)) return JsonValue.Create(_sentinel++);
+        if (Is(s.Type, JsonSchemaType.Number)) return JsonValue.Create((double)_sentinel++);
+        if (Is(s.Type, JsonSchemaType.Boolean)) return JsonValue.Create(false);
+        if (Is(s.Type, JsonSchemaType.String))
+            return JsonValue.Create(s.Format switch
+            {
+                "date" => "2024-01-01",
+                "date-time" => "2024-01-01T00:00:00Z",
+                "email" => "user@example.com",
+                "uuid" => "00000000-0000-0000-0000-000000000000",
+                "uri" => "https://example.com",
+                _ => "string",
+            });
+        return null;
+    }
+
+    static string AuthHint(OpenApiDocument doc)
+    {
+        var schemes = doc.Components?.SecuritySchemes;
+        if (schemes is null || schemes.Count == 0) return "none declared";
+        return string.Join(", ", schemes.Select(kv =>
+            $"{kv.Key} ({kv.Value.Type}{(string.IsNullOrEmpty(kv.Value.Scheme) ? "" : "/" + kv.Value.Scheme)})"));
     }
 
     // ---- contract.json ------------------------------------------------------------------------------
@@ -64,7 +166,7 @@ public static class Generator
         var routes = new JsonArray();
         foreach (var g in gens)
         {
-            if (g.Example is null) continue;   // no example ⇒ can't synthesize a body here; listed as TODO
+            if (g.Example is null) continue;   // no synthesizable body; listed in the checklist
             var cases = new JsonArray();
             // A pathIn guard (known-id → 200, else 404) is only correct for a READ-BY-ID: an idempotent
             // method whose TERMINAL path segment is the id param. Creates (POST) and collection lists
@@ -86,12 +188,12 @@ public static class Generator
             {
                 cases.Add(new JsonObject { ["status"] = StatusInt(g.SuccessStatus), ["body"] = g.Example!.DeepClone() });
             }
-            routes.Add(new JsonObject { ["method"] = g.Method.ToUpper(), ["path"] = g.Path, ["cases"] = cases });
+            routes.Add(new JsonObject { ["method"] = g.Method.ToUpperInvariant(), ["path"] = g.Path, ["cases"] = cases });
         }
         var contract = new JsonObject
         {
-            ["//"] = "GENERATED from the OpenAPI spec (example-first). Fixtures carry the provider's real shapes. " +
-                     "Review error/guard cases (422 on missing fields, bad-reference rejects) — add them per op as needed.",
+            ["//"] = "GENERATED from the OpenAPI spec (example-first, schema-synth fallback). Fixtures carry the " +
+                     "provider's real shapes. Add error/guard cases (422 on missing fields, bad-reference rejects) per op as needed.",
             ["fixtures"] = new JsonObject(),
             ["routes"] = routes,
         };
@@ -107,7 +209,7 @@ public static class Generator
             var app = new JsonObject
             {
                 ["//"] = "TODO: the integration's app route that triggers this provider call (relative to routePrefix)",
-                ["method"] = g.Method.ToUpper(),
+                ["method"] = g.Method.ToUpperInvariant(),
                 ["path"] = "TODO",
             };
             if (g.RequestBody is not null) app["body"] = g.RequestBody;
@@ -117,7 +219,7 @@ public static class Generator
                 ["id"] = g.Id,
                 ["scope"] = 0,
                 ["app"] = app,
-                ["upstream"] = new JsonObject { ["method"] = g.Method.ToUpper(), ["pathContains"] = g.UpstreamFragment },
+                ["upstream"] = new JsonObject { ["method"] = g.Method.ToUpperInvariant(), ["pathContains"] = g.UpstreamFragment },
                 ["gate"] = new JsonObject { ["mustContain"] = g.IdValue is null ? new JsonArray() : new JsonArray(g.IdValue) },
             };
             if (g.IdField is not null)
@@ -129,7 +231,6 @@ public static class Generator
                 };
             ops.Add(op);
         }
-        var todo = new JsonObject { ["//"] = "TODO: pick op ids for each role (see PLAYBOOK §4.3)" };
         var optable = new JsonObject
         {
             ["//"] = "DRAFT. Provider side (upstream/mustContain/drifts) generated from the spec. You must: " +
@@ -143,9 +244,8 @@ public static class Generator
     }
 
     // ---- profile.skeleton.json ----------------------------------------------------------------------
-    static void WriteProfileSkeleton(Spec spec, string outDir, string name)
+    static void WriteProfileSkeleton(OpenApiDocument doc, string outDir, string name)
     {
-        var authHint = DescribeAuth(spec);
         var profile = new JsonObject
         {
             ["name"] = name,
@@ -157,7 +257,7 @@ public static class Generator
                 ["readyPath"] = "/",
                 ["routePrefix"] = "TODO (e.g. /api/billing)",
                 ["launchArgs"] = new JsonArray("--no-launch-profile"),
-                ["config"] = new JsonObject { ["//"] = "TODO: env/config the app boots with; ${mockUrl} points it at the mock. Auth: " + authHint },
+                ["config"] = new JsonObject { ["//"] = "TODO: env/config the app boots with; ${mockUrl} points it at the mock. Auth: " + AuthHint(doc) },
                 ["secretConfigKeys"] = new JsonArray(),
                 ["secretValues"] = new JsonArray(),
             },
@@ -196,44 +296,9 @@ public static class Generator
         }
     }
 
-    // ---- extraction helpers -------------------------------------------------------------------------
-    public static (string? status, JsonNode? body) ExtractSuccessExample(Spec spec, YamlNode opNode)
-    {
-        foreach (var (code, resp) in Spec.Entries(Spec.Get(opNode, "responses")))
-        {
-            if (!(code.StartsWith("2") || code == "default")) continue;
-            var mt = MediaType(Spec.Get(resp, "content"));
-            if (mt is null) continue;
-            var val = Spec.Get(Spec.Entries(Spec.Get(mt, "examples")).FirstOrDefault().val, "value");
-            if (val is not null) return (code, Spec.ToJson(val));
-            var example = Spec.Get(mt, "example");
-            if (example is not null) return (code, Spec.ToJson(example));
-            var schema = Spec.Get(mt, "schema");
-            if (schema is not null)
-            {
-                var synth = SynthFromSchema(spec, schema, spec.Dir, 0, new HashSet<string>());
-                if (synth is not null) return (code, synth);
-            }
-            return (code, null);
-        }
-        return (null, null);
-    }
-
-    static string? ExtractRequestExample(Spec spec, YamlNode opNode)
-    {
-        var mt = MediaType(Spec.Get(Spec.Get(opNode, "requestBody"), "content"));
-        if (mt is null) return null;
-        var val = Spec.Get(Spec.Entries(Spec.Get(mt, "examples")).FirstOrDefault().val, "value")
-                  ?? Spec.Get(mt, "example");
-        return val is null ? null : Spec.ToJson(val)?.ToJsonString();
-    }
-
-    static YamlNode? MediaType(YamlNode? content) =>
-        Spec.Get(content, "application/json") ?? Spec.Entries(content).Select(e => e.val).FirstOrDefault();
-
+    // ---- parser-agnostic helpers (operate on the JsonNode fixture + path strings) -------------------
     static (string? field, string? value) FindPrimaryId(JsonNode example)
     {
-        // unwrap a single-key envelope ({ "product": {...} }) then look for an id-ish scalar
         JsonObject? obj = example as JsonObject;
         if (obj is { Count: 1 } && obj.First().Value is JsonObject inner) obj = inner;
         else if (example is JsonArray arr && arr.FirstOrDefault() is JsonObject e0)
@@ -248,7 +313,6 @@ public static class Generator
 
     static string UpstreamFragment(string path)
     {
-        // the literal tail: drop trailing {param} segments, keep from the last literal segment
         var segs = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
         var lastLiteral = segs.Length - 1;
         while (lastLiteral >= 0 && segs[lastLiteral].Contains('{')) lastLiteral--;
@@ -259,18 +323,6 @@ public static class Generator
     {
         var segs = path.Split('/', StringSplitOptions.RemoveEmptyEntries).Where(s => !s.Contains('{')).ToArray();
         return segs.Length == 0 ? "root" : segs[^1];
-    }
-
-    static string DescribeAuth(Spec spec)
-    {
-        var schemes = Spec.Get(Spec.Get(spec.Root, "components"), "securitySchemes");
-        var names = Spec.Entries(schemes).Select(e =>
-        {
-            var t = Spec.Scalar(Spec.Get(e.val, "type"));
-            var scheme = Spec.Scalar(Spec.Get(e.val, "scheme"));
-            return $"{e.key} ({t}{(scheme is null ? "" : "/" + scheme)})";
-        }).ToList();
-        return names.Count == 0 ? "none declared" : string.Join(", ", names);
     }
 
     static int StatusInt(string code) => int.TryParse(code, out var i) ? i : 200;
@@ -286,83 +338,6 @@ public static class Generator
             else if (sb.Length > 0 && sb[^1] != '-') sb.Append('-');
         }
         return sb.ToString().Trim('-');
-    }
-
-    // ---- schema-based fixture synthesis (fallback when an operation has no inline example) ----------
-    // Walks a (deref'd) OpenAPI schema and builds a structurally-faithful JSON value: objects from
-    // properties, arrays from items, enums→first value, id-ish integers→distinct sentinels. Depth-capped
-    // and $ref-cycle-guarded so recursive Maxio schemas terminate.
-    static JsonNode? SynthFromSchema(Spec spec, YamlNode schemaNode, string baseDir, int depth, HashSet<string> seen)
-    {
-        if (depth > 6) return null;
-        if (Spec.Get(schemaNode, "$ref") is YamlScalarNode { Value: { } r } && !seen.Add(baseDir + "|" + r))
-            return null;   // cycle
-        var (s, nb) = spec.Deref(schemaNode, baseDir);
-
-        if (Spec.Get(s, "example") is { } ex) return Spec.ToJson(ex);
-
-        if (Spec.Get(s, "allOf") is YamlSequenceNode allOf)
-        {
-            var merged = new JsonObject();
-            foreach (var sub in allOf.Children)
-                if (SynthFromSchema(spec, sub, nb, depth, new HashSet<string>(seen)) is JsonObject vo)
-                    foreach (var name in vo.Select(kv => kv.Key).ToList()) { var v = vo[name]; vo.Remove(name); merged[name] = v; }
-            MergeProps(spec, s, nb, merged, depth, seen);
-            return merged;
-        }
-        foreach (var key in new[] { "oneOf", "anyOf" })
-            if (Spec.Get(s, key) is YamlSequenceNode { Children.Count: > 0 } seq)
-                return SynthFromSchema(spec, seq.Children[0], nb, depth, seen);
-
-        var type = SchemaType(s);
-        if (type == "object" || Spec.Get(s, "properties") is not null)
-        {
-            var obj = new JsonObject();
-            MergeProps(spec, s, nb, obj, depth, seen);
-            return obj;
-        }
-        if (type == "array")
-        {
-            var arr = new JsonArray();
-            if (Spec.Get(s, "items") is { } items && SynthFromSchema(spec, items, nb, depth + 1, seen) is { } iv) arr.Add(iv);
-            return arr;
-        }
-        return ScalarSynth(type, s);
-    }
-
-    static void MergeProps(Spec spec, YamlNode s, string baseDir, JsonObject obj, int depth, HashSet<string> seen)
-    {
-        foreach (var (name, propSchema) in Spec.Entries(Spec.Get(s, "properties")))
-            obj[name] = SynthFromSchema(spec, propSchema, baseDir, depth + 1, new HashSet<string>(seen));
-    }
-
-    static string? SchemaType(YamlNode s) => Spec.Get(s, "type") switch
-    {
-        YamlScalarNode sc => sc.Value,
-        YamlSequenceNode seq => seq.Children.OfType<YamlScalarNode>().Select(x => x.Value).FirstOrDefault(v => v != "null"),
-        _ => null,
-    };
-
-    static JsonNode? ScalarSynth(string? type, YamlNode s)
-    {
-        if (Spec.Get(s, "enum") is YamlSequenceNode { Children.Count: > 0 } en) return Spec.ToJson(en.Children[0]);
-        switch (type)
-        {
-            case "integer": return JsonValue.Create(_sentinel++);
-            case "number": return JsonValue.Create((double)_sentinel++);
-            case "boolean": return JsonValue.Create(false);
-            case "string":
-                return JsonValue.Create(Spec.Scalar(Spec.Get(s, "format")) switch
-                {
-                    "date" => "2024-01-01",
-                    "date-time" => "2024-01-01T00:00:00Z",
-                    "email" => "user@example.com",
-                    "uuid" => "00000000-0000-0000-0000-000000000000",
-                    "uri" => "https://example.com",
-                    _ => "string",
-                });
-            default: return null;
-        }
     }
 
     static void Write(string outDir, string file, JsonNode node) =>
