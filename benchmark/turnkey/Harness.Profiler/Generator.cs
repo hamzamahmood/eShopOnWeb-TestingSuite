@@ -16,6 +16,7 @@ public static class Generator
 {
     static readonly string[] Methods = { "get", "post", "put", "delete", "patch" };
     static readonly string[] IdKeys = { "id", "uid", "code", "handle", "token", "reference" };
+    static int _sentinel;   // deterministic distinct sentinel ids for schema-synthesized fixtures
 
     public sealed record GenOp(
         string Id, string Method, string Path, string SuccessStatus, JsonNode? Example,
@@ -24,6 +25,7 @@ public static class Generator
     public static int Run(Spec spec, string outDir, string name)
     {
         Directory.CreateDirectory(outDir);
+        _sentinel = 1000001;
         var paths = Spec.Get(spec.Root, "paths");
 
         var gens = new List<GenOp>();
@@ -174,7 +176,7 @@ public static class Generator
     {
         var withEx = gens.Count(g => g.Example is not null);
         Console.WriteLine($"\n=== generated into {outDir} ===");
-        Console.WriteLine($"operations: {gens.Count}   contract routes (with example): {withEx}   no-example (need manual fixture): {noExample.Count}");
+        Console.WriteLine($"operations: {gens.Count}   contract routes (example or schema-synth): {withEx}   no synthesizable body: {noExample.Count}");
         Console.WriteLine("\nfiles:");
         Console.WriteLine("  contract.json          — mock routes+fixtures (provider-faithful; near-final)");
         Console.WriteLine("  optable.draft.json     — ops with upstream/mustContain/drift filled; app-routes + roles are TODO");
@@ -187,7 +189,8 @@ public static class Generator
         Console.WriteLine("  5. contract: add 422/reject cases (missing-field, bad-reference) where the gate needs E1/C3");
         if (noExample.Count > 0)
         {
-            Console.WriteLine($"\nops WITHOUT a spec example (add a fixture by hand or from the schema) — {noExample.Count}:");
+            Console.WriteLine($"\nops with no synthesizable response body (bodyless like DELETE/204, or no schema) — {noExample.Count};");
+            Console.WriteLine("add a fixture by hand only if the integration exercises them:");
             foreach (var s in noExample.Take(20)) Console.WriteLine("  - " + s);
             if (noExample.Count > 20) Console.WriteLine($"  … and {noExample.Count - 20} more");
         }
@@ -208,9 +211,8 @@ public static class Generator
             var schema = Spec.Get(mt, "schema");
             if (schema is not null)
             {
-                var (deref, _) = spec.Deref(schema, spec.Dir);
-                var se = Spec.Get(deref, "example");
-                if (se is not null) return (code, Spec.ToJson(se));
+                var synth = SynthFromSchema(spec, schema, spec.Dir, 0, new HashSet<string>());
+                if (synth is not null) return (code, synth);
             }
             return (code, null);
         }
@@ -284,6 +286,83 @@ public static class Generator
             else if (sb.Length > 0 && sb[^1] != '-') sb.Append('-');
         }
         return sb.ToString().Trim('-');
+    }
+
+    // ---- schema-based fixture synthesis (fallback when an operation has no inline example) ----------
+    // Walks a (deref'd) OpenAPI schema and builds a structurally-faithful JSON value: objects from
+    // properties, arrays from items, enums→first value, id-ish integers→distinct sentinels. Depth-capped
+    // and $ref-cycle-guarded so recursive Maxio schemas terminate.
+    static JsonNode? SynthFromSchema(Spec spec, YamlNode schemaNode, string baseDir, int depth, HashSet<string> seen)
+    {
+        if (depth > 6) return null;
+        if (Spec.Get(schemaNode, "$ref") is YamlScalarNode { Value: { } r } && !seen.Add(baseDir + "|" + r))
+            return null;   // cycle
+        var (s, nb) = spec.Deref(schemaNode, baseDir);
+
+        if (Spec.Get(s, "example") is { } ex) return Spec.ToJson(ex);
+
+        if (Spec.Get(s, "allOf") is YamlSequenceNode allOf)
+        {
+            var merged = new JsonObject();
+            foreach (var sub in allOf.Children)
+                if (SynthFromSchema(spec, sub, nb, depth, new HashSet<string>(seen)) is JsonObject vo)
+                    foreach (var name in vo.Select(kv => kv.Key).ToList()) { var v = vo[name]; vo.Remove(name); merged[name] = v; }
+            MergeProps(spec, s, nb, merged, depth, seen);
+            return merged;
+        }
+        foreach (var key in new[] { "oneOf", "anyOf" })
+            if (Spec.Get(s, key) is YamlSequenceNode { Children.Count: > 0 } seq)
+                return SynthFromSchema(spec, seq.Children[0], nb, depth, seen);
+
+        var type = SchemaType(s);
+        if (type == "object" || Spec.Get(s, "properties") is not null)
+        {
+            var obj = new JsonObject();
+            MergeProps(spec, s, nb, obj, depth, seen);
+            return obj;
+        }
+        if (type == "array")
+        {
+            var arr = new JsonArray();
+            if (Spec.Get(s, "items") is { } items && SynthFromSchema(spec, items, nb, depth + 1, seen) is { } iv) arr.Add(iv);
+            return arr;
+        }
+        return ScalarSynth(type, s);
+    }
+
+    static void MergeProps(Spec spec, YamlNode s, string baseDir, JsonObject obj, int depth, HashSet<string> seen)
+    {
+        foreach (var (name, propSchema) in Spec.Entries(Spec.Get(s, "properties")))
+            obj[name] = SynthFromSchema(spec, propSchema, baseDir, depth + 1, new HashSet<string>(seen));
+    }
+
+    static string? SchemaType(YamlNode s) => Spec.Get(s, "type") switch
+    {
+        YamlScalarNode sc => sc.Value,
+        YamlSequenceNode seq => seq.Children.OfType<YamlScalarNode>().Select(x => x.Value).FirstOrDefault(v => v != "null"),
+        _ => null,
+    };
+
+    static JsonNode? ScalarSynth(string? type, YamlNode s)
+    {
+        if (Spec.Get(s, "enum") is YamlSequenceNode { Children.Count: > 0 } en) return Spec.ToJson(en.Children[0]);
+        switch (type)
+        {
+            case "integer": return JsonValue.Create(_sentinel++);
+            case "number": return JsonValue.Create((double)_sentinel++);
+            case "boolean": return JsonValue.Create(false);
+            case "string":
+                return JsonValue.Create(Spec.Scalar(Spec.Get(s, "format")) switch
+                {
+                    "date" => "2024-01-01",
+                    "date-time" => "2024-01-01T00:00:00Z",
+                    "email" => "user@example.com",
+                    "uuid" => "00000000-0000-0000-0000-000000000000",
+                    "uri" => "https://example.com",
+                    _ => "string",
+                });
+            default: return null;
+        }
     }
 
     static void Write(string outDir, string file, JsonNode node) =>
