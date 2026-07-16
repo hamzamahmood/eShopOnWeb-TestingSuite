@@ -17,6 +17,14 @@
 > abstractly — what it must measure, its oracle, its pass bar — so you can implement it in any language
 > or toolchain and point it at any API. Nothing here depends on a particular provider, app, or prior
 > study.
+>
+> **Turnkey path.** You do not have to build the instruments from scratch. A ready-made, reusable harness
+> ships alongside this document (in `benchmark/turnkey/`), and **`PLAYBOOK.md`** (its sibling) is the
+> step-by-step procedure for pointing it at a codebase:
+> you describe the provider + integration in three JSON files (a *profile*) and the generic mock, gate,
+> and quality scorer do the rest. The harness talks to the integration black-box over HTTP, so it scores
+> an integration in any language; only the D3/D4 static-analysis adapter is stack-specific. Read this
+> document to understand *what* is measured and *why*; read `PLAYBOOK.md` to actually run it.
 
 ---
 

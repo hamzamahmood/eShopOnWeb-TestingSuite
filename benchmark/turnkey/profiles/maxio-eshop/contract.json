@@ -1,0 +1,174 @@
+{
+  "//": "Maxio Advanced Billing wire contract for the eShopOnWeb billing integration. Ids/handles/",
+  "//2": "envelopes/snake_case mirror the original benchmark/mock/MockStore.cs. Authored from the",
+  "//3": "provider contract, NOT the integration under test. Served by the generic Harness.Mock host.",
+
+  "fixtures": {
+    "productsList": [
+      { "product": { "id": 700001, "name": "Pro Plan", "handle": "pro-plan", "description": "", "price_in_cents": 29900, "interval": 1, "interval_unit": "month", "product_family": { "id": 600001, "handle": "eshop-plans" } } },
+      { "product": { "id": 700002, "name": "Basic Plan", "handle": "basic-plan", "description": "", "price_in_cents": 2900, "interval": 1, "interval_unit": "month", "product_family": { "id": 600001, "handle": "eshop-plans" } } }
+    ],
+
+    "knownCustomer": { "customer": { "id": 900001, "first_name": "Ada", "last_name": "Lovelace", "email": "ada@example.com", "reference": "cust_known", "organization": null, "created_at": "2026-01-01T00:00:00-05:00" } },
+    "createdCustomer": { "customer": { "id": 900002, "first_name": "{{body.customer.first_name}}", "last_name": "{{body.customer.last_name}}", "email": "{{body.customer.email}}", "reference": "{{body.customer.reference}}", "created_at": "2026-01-01T00:00:00-05:00" } },
+
+    "activeSub": { "subscription": { "id": 950001, "state": "active", "balance_in_cents": 0, "product_price_in_cents": 29900, "currency": "USD", "previous_state": "active", "product": { "id": 700001, "handle": "pro-plan", "name": "Pro Plan", "price_in_cents": 29900 }, "customer": { "id": 900001, "reference": "cust_known" } } },
+    "onHoldSub": { "subscription": { "id": 950002, "state": "on_hold", "balance_in_cents": 0, "currency": "USD", "on_hold_at": "2026-01-10T00:00:00-05:00", "product": { "id": 700001, "handle": "pro-plan", "name": "Pro Plan", "price_in_cents": 29900 }, "customer": { "id": 900001, "reference": "cust_known" } } },
+    "canceledSub": { "subscription": { "id": 950003, "state": "canceled", "balance_in_cents": 0, "currency": "USD", "canceled_at": "2026-01-15T00:00:00-05:00", "cancellation_method": "merchant_api", "product": { "id": 700001, "handle": "pro-plan", "name": "Pro Plan", "price_in_cents": 29900 }, "customer": { "id": 900001, "reference": "cust_known" } } },
+    "listSubs": [ { "subscription": { "id": 950001, "state": "active", "product": { "id": 700001, "handle": "pro-plan", "name": "Pro Plan" }, "customer": { "id": 900001, "reference": "cust_known" } } } ],
+
+    "holdResult":       { "subscription": { "id": "{{path.sid}}", "state": "on_hold",  "product": { "id": 700001, "handle": "pro-plan", "name": "Pro Plan", "price_in_cents": 29900 }, "customer": { "id": 900001, "reference": "cust_known" } } },
+    "resumeResult":     { "subscription": { "id": "{{path.sid}}", "state": "active",   "product": { "id": 700001, "handle": "pro-plan", "name": "Pro Plan", "price_in_cents": 29900 }, "customer": { "id": 900001, "reference": "cust_known" } } },
+    "reactivateResult": { "subscription": { "id": "{{path.sid}}", "state": "active",   "product": { "id": 700001, "handle": "pro-plan", "name": "Pro Plan", "price_in_cents": 29900 }, "customer": { "id": 900001, "reference": "cust_known" } } },
+    "cancelResult":     { "subscription": { "id": "{{path.sid}}", "state": "canceled", "canceled_at": "2026-01-15T00:00:00-05:00", "cancellation_method": "merchant_api", "product": { "id": 700001, "handle": "pro-plan", "name": "Pro Plan", "price_in_cents": 29900 }, "customer": { "id": 900001, "reference": "cust_known" } } },
+    "createdSub":       { "subscription": { "id": 950010, "state": "active", "product": { "id": 700001, "handle": "pro-plan", "name": "Pro Plan", "price_in_cents": 29900 }, "customer": { "id": 900001, "reference": "cust_known" } } },
+    "migrationResult":  { "subscription": { "id": "{{path.sid}}", "state": "active", "product": { "id": 700002, "handle": "basic-plan", "name": "Basic Plan", "price_in_cents": 2900 }, "customer": { "id": 900001, "reference": "cust_known" } } },
+
+    "usageResult": { "usage": { "id": 990001, "memo": "{{body.usage.memo}}", "quantity": "{{body.usage.quantity}}", "component_id": 800001, "component_handle": "api-calls", "subscription_id": "{{path.sid}}", "created_at": "2026-01-20T00:00:00-05:00" } },
+
+    "componentsList": [
+      { "component": { "id": 800001, "name": "API Calls", "handle": "api-calls", "kind": "metered_component", "unit_name": "call", "pricing_scheme": "per_unit", "product_family_id": 600001 } },
+      { "component": { "id": 800002, "name": "Seats", "handle": "seats", "kind": "quantity_based_component", "unit_name": "seat", "pricing_scheme": "per_unit", "product_family_id": 600001 } }
+    ],
+    "componentMetered": { "component": { "id": 800001, "name": "API Calls", "handle": "api-calls", "kind": "metered_component", "unit_name": "call", "pricing_scheme": "per_unit", "product_family_id": 600001 } },
+    "componentQty":     { "component": { "id": 800002, "name": "Seats", "handle": "seats", "kind": "quantity_based_component", "unit_name": "seat", "pricing_scheme": "per_unit", "product_family_id": 600001 } },
+    "createdComponent": { "component": { "id": 800010, "name": "{{body.metered_component.name}}", "handle": "created-metered", "kind": "metered_component", "unit_name": "{{body.metered_component.unit_name}}", "pricing_scheme": "per_unit", "product_family_id": 600001 } },
+
+    "pricePointsList": { "price_points": [ { "id": 810001, "name": "Default", "pricing_scheme": "per_unit", "component_id": 800001 }, { "id": 810002, "name": "Volume", "pricing_scheme": "per_unit", "component_id": 800001 } ], "meta": { "total_count": 2, "current_page": 1, "total_pages": 1, "per_page": 30 } },
+    "createdPricePoint": { "price_point": { "id": 810010, "name": "{{body.price_point.name}}", "pricing_scheme": "per_unit", "component_id": "{{path.cid}}" } },
+
+    "subComponentsList": [ { "component": { "id": 820001, "component_id": 800001, "subscription_id": "{{path.sid}}", "name": "API Calls", "kind": "metered_component", "unit_name": "call", "allocated_quantity": 5, "enabled": true, "component_handle": "api-calls" } } ],
+
+    "allocationsList": [ { "allocation": { "allocation_id": 830001, "component_id": 800001, "subscription_id": "{{path.sid}}", "quantity": 5, "previous_quantity": 0, "memo": "initial", "component_handle": "api-calls", "created_at": "2026-01-20T00:00:00Z" } } ],
+    "createdAllocation": { "allocation": { "allocation_id": 830010, "component_id": "{{path.cid}}", "subscription_id": "{{path.sid}}", "quantity": "{{body.allocation.quantity}}", "previous_quantity": 0, "memo": "{{body.allocation.memo}}", "component_handle": "api-calls" } },
+
+    "invoicesList": { "invoices": [ { "uid": "inv_abc001", "id": 700100, "number": "1", "status": "open", "total_amount": "299.00", "subtotal_amount": "299.00", "due_amount": "299.00", "currency": "USD", "subscription_id": "{{query.subscription_id}}", "customer_id": 900001, "issue_date": "2026-01-01" } ] },
+    "emptyInvoices": { "invoices": [] },
+
+    "couponsList": [ { "coupon": { "id": 840001, "name": "10% off", "code": "SAVE10", "description": "10% off", "percentage": "10", "product_family_id": 600001, "recurring": true } } ],
+    "createdCoupon": { "coupon": { "id": 840010, "name": "{{body.coupon.name}}", "code": "{{body.coupon.code}}", "description": "{{body.coupon.name}}", "percentage": "{{body.coupon.percentage}}", "product_family_id": 600001, "recurring": true } },
+
+    "pfNotFound": "A valid product_family_id is required"
+  },
+
+  "routes": [
+    { "method": "GET", "path": "/product_families/{pfId}/products.json", "cases": [
+      { "when": { "pathIn": { "pfId": ["600001"] } }, "status": 200, "bodyFixture": "productsList" },
+      { "status": 404, "bodyFixture": "pfNotFound" }
+    ] },
+
+    { "method": "POST", "path": "/customers.json", "cases": [
+      { "when": { "bodyMissing": ["customer.email", "customer.first_name", "customer.last_name"] }, "status": 422, "body": { "errors": ["First name: cannot be blank.", "Last name: cannot be blank.", "Email: cannot be blank."] } },
+      { "status": 200, "bodyFixture": "createdCustomer" }
+    ] },
+
+    { "method": "GET", "path": "/customers/lookup.json", "cases": [
+      { "when": { "queryIn": { "reference": ["cust_known"] } }, "status": 200, "bodyFixture": "knownCustomer" },
+      { "status": 404 }
+    ] },
+
+    { "method": "GET", "path": "/customers/{customerId}/subscriptions.json", "cases": [
+      { "when": { "pathIn": { "customerId": ["900001"] } }, "status": 200, "bodyFixture": "listSubs" },
+      { "status": 404 }
+    ] },
+
+    { "method": "GET", "path": "/subscriptions/{sid}.json", "cases": [
+      { "when": { "pathIn": { "sid": ["950001"] } }, "status": 200, "bodyFixture": "activeSub" },
+      { "when": { "pathIn": { "sid": ["950002"] } }, "status": 200, "bodyFixture": "onHoldSub" },
+      { "when": { "pathIn": { "sid": ["950003"] } }, "status": 200, "bodyFixture": "canceledSub" },
+      { "status": 404 }
+    ] },
+
+    { "method": "POST", "path": "/subscriptions/{sid}/hold.json", "cases": [
+      { "when": { "pathIn": { "sid": ["950001"] } }, "status": 200, "bodyFixture": "holdResult" },
+      { "status": 422, "body": { "errors": ["This subscription is not eligible to be put on hold."] } }
+    ] },
+
+    { "method": "POST", "path": "/subscriptions/{sid}/resume.json", "cases": [
+      { "when": { "pathIn": { "sid": ["950002"] } }, "status": 200, "bodyFixture": "resumeResult" },
+      { "status": 422, "body": { "errors": ["Only subscriptions that are on hold can be resumed."] } }
+    ] },
+
+    { "method": "PUT", "path": "/subscriptions/{sid}/reactivate.json", "cases": [
+      { "when": { "pathIn": { "sid": ["950003"] } }, "status": 200, "bodyFixture": "reactivateResult" },
+      { "status": 422, "body": { "errors": ["Cannot reactivate a subscription that is not canceled."] } }
+    ] },
+
+    { "method": "POST", "path": "/subscriptions.json", "cases": [
+      { "when": { "bodyMissing": ["subscription"] }, "status": 422, "body": { "errors": ["Subscription: cannot be blank."] } },
+      { "when": { "bodyValueNotIn": { "subscription.product_handle": ["pro-plan", "basic-plan"] } }, "status": 422, "body": { "errors": ["Product: could not be found."] } },
+      { "status": 201, "bodyFixture": "createdSub" }
+    ] },
+
+    { "method": "POST", "path": "/subscriptions/{sid}/migrations.json", "cases": [
+      { "when": { "pathIn": { "sid": ["950001", "950002", "950003"] } }, "status": 200, "bodyFixture": "migrationResult" },
+      { "status": 404 }
+    ] },
+
+    { "method": "DELETE", "path": "/subscriptions/{sid}.json", "cases": [
+      { "when": { "pathIn": { "sid": ["950001", "950002"] } }, "status": 200, "bodyFixture": "cancelResult" },
+      { "status": 404 }
+    ] },
+
+    { "method": "POST", "path": "/subscriptions/{sid}/components/{cid}/usages.json", "cases": [
+      { "when": { "pathIn": { "cid": ["800001"] }, "bodyPresent": ["usage"] }, "status": 200, "bodyFixture": "usageResult" },
+      { "status": 422, "body": { "errors": ["Usage: cannot be blank."] } }
+    ] },
+
+    { "method": "GET", "path": "/product_families/{pfId}/components.json", "cases": [
+      { "when": { "pathIn": { "pfId": ["600001"] } }, "status": 200, "bodyFixture": "componentsList" },
+      { "status": 404, "bodyFixture": "pfNotFound" }
+    ] },
+
+    { "method": "GET", "path": "/product_families/{pfId}/components/{cid}.json", "cases": [
+      { "when": { "pathIn": { "cid": ["800001"] } }, "status": 200, "bodyFixture": "componentMetered" },
+      { "when": { "pathIn": { "cid": ["800002"] } }, "status": 200, "bodyFixture": "componentQty" },
+      { "status": 404 }
+    ] },
+
+    { "method": "POST", "path": "/product_families/{pfId}/metered_components.json", "cases": [
+      { "when": { "bodyMissing": ["metered_component.name", "metered_component.unit_name"] }, "status": 422, "body": { "errors": ["Name: cannot be blank."] } },
+      { "status": 201, "bodyFixture": "createdComponent" }
+    ] },
+
+    { "method": "GET", "path": "/components/{cid}/price_points.json", "cases": [
+      { "when": { "pathIn": { "cid": ["800001", "800002"] } }, "status": 200, "bodyFixture": "pricePointsList" },
+      { "status": 404 }
+    ] },
+
+    { "method": "POST", "path": "/components/{cid}/price_points.json", "cases": [
+      { "when": { "bodyMissing": ["price_point.name"] }, "status": 422, "body": { "errors": ["Name: cannot be blank."] } },
+      { "status": 200, "bodyFixture": "createdPricePoint" }
+    ] },
+
+    { "method": "GET", "path": "/subscriptions/{sid}/components.json", "cases": [
+      { "when": { "pathIn": { "sid": ["950001", "950002", "950003"] } }, "status": 200, "bodyFixture": "subComponentsList" },
+      { "status": 404 }
+    ] },
+
+    { "method": "GET", "path": "/subscriptions/{sid}/components/{cid}/allocations.json", "cases": [
+      { "when": { "pathIn": { "sid": ["950001", "950002", "950003"], "cid": ["800001", "800002"] } }, "status": 200, "bodyFixture": "allocationsList" },
+      { "status": 404 }
+    ] },
+
+    { "method": "POST", "path": "/subscriptions/{sid}/components/{cid}/allocations.json", "cases": [
+      { "when": { "bodyMissing": ["allocation"] }, "status": 422, "body": { "errors": ["Allocation: cannot be blank."] } },
+      { "status": 200, "bodyFixture": "createdAllocation" }
+    ] },
+
+    { "method": "GET", "path": "/invoices.json", "cases": [
+      { "when": { "queryIn": { "subscription_id": ["950001"] } }, "status": 200, "bodyFixture": "invoicesList" },
+      { "status": 200, "bodyFixture": "emptyInvoices" }
+    ] },
+
+    { "method": "GET", "path": "/product_families/{pfId}/coupons.json", "cases": [
+      { "when": { "pathIn": { "pfId": ["600001"] } }, "status": 200, "bodyFixture": "couponsList" },
+      { "status": 404, "bodyFixture": "pfNotFound" }
+    ] },
+
+    { "method": "POST", "path": "/product_families/{pfId}/coupons.json", "cases": [
+      { "when": { "bodyMissing": ["coupon.code"] }, "status": 422, "body": { "errors": ["Code: cannot be blank."] } },
+      { "status": 201, "bodyFixture": "createdCoupon" }
+    ] }
+  ]
+}

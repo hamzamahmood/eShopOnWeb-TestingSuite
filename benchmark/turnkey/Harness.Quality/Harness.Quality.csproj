@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Harness.Quality</RootNamespace>
+    <AssemblyName>Harness.Quality</AssemblyName>
+    <!--
+      Generic quality scorecard. D1 (deep correctness) + D2 (drift resilience) replay the produced
+      integration against the drift-capable mock, driven by the profile's op table. D3 (maintainability)
+      + D4 (security) are static analysis over the integration files the profile selects. Emits a JSON
+      scorecard. The .NET static-analysis adapter ships; other stacks are documented in the playbook.
+    -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.11.0" />
+    <ProjectReference Include="..\Harness.Core\Harness.Core.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Harness.Core</RootNamespace>
+    <AssemblyName>Harness.Core</AssemblyName>
+    <!--
+      Provider-AGNOSTIC engine for the API-integration benchmark kit.
+      Contains nothing about any particular provider: the fault/drift/recording engines, the
+      HTTP clients + oracle primitives, and the profile/contract/optable model types that the
+      per-integration JSON is deserialized into. Referenced by Harness.Mock/Gate/Quality.
+      Never edited per integration — the provider-specific surface lives entirely in a profile.
+    -->
+  </PropertyGroup>
+
+</Project>

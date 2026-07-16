@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Harness.Gate</RootNamespace>
+    <AssemblyName>Harness.Gate</AssemblyName>
+    <!--
+      Generic production-readiness gate. Hermetic: builds + boots the generic mock (with the profile's
+      contract) and the target app, runs the checks (public or holdout) resolved from the profile's op
+      table, prints per-check pass/fail, tears down, exits 0/1. Pass a profile dir + an app csproj; see
+      the playbook for the exact invocation.
+    -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Harness.Core\Harness.Core.csproj" />
+  </ItemGroup>
+
+</Project>

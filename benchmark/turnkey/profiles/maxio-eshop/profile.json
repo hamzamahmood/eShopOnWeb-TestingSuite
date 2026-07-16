@@ -1,0 +1,39 @@
+{
+  "name": "maxio-eshop",
+
+  "app": {
+    "//": "project is supplied per-run via --app-project (the same profile scores reference + each arm tree).",
+    "project": "",
+    "baseUrl": "http://127.0.0.1:5111",
+    "readyPath": "/",
+    "routePrefix": "/api/billing",
+    "launchArgs": ["--no-launch-profile"],
+    "config": {
+      "Maxio__BaseUrl": "${mockUrl}",
+      "Maxio__ApiKey": "test-api-key",
+      "Maxio__Subdomain": "acme",
+      "Maxio__ProductFamilyId": "600001",
+      "Maxio__ProductFamilyHandle": "eshop-plans",
+      "Maxio__MeteredComponentId": "800001",
+      "Maxio__MeteredComponentHandle": "api-calls",
+      "UseOnlyInMemoryDatabase": "true",
+      "ASPNETCORE_ENVIRONMENT": "Development",
+      "DOTNET_ROLL_FORWARD": "Major"
+    },
+    "secretConfigKeys": ["Maxio__ApiKey"],
+    "secretValues": ["test-api-key", "acme"]
+  },
+
+  "mock": { "baseUrl": "http://localhost:8080", "contract": "contract.json" },
+
+  "leak": {
+    "generic": ["System.", "Microsoft.", "   at ", ".cs:line", "StackTrace", "Traceback", "HttpRequestException", "NullReference"],
+    "extra": ["test-api-key", "price_in_cents", "product_family"]
+  },
+
+  "analysis": {
+    "stack": "dotnet",
+    "integrationPathPattern": "/(Billing|Maxio)",
+    "depProjectFile": "Infrastructure.csproj"
+  }
+}

@@ -1,7 +1,7 @@
 # Related Work & Prior Art — API Integration Benchmark
 
 > **Purpose.** A verified survey of published benchmarks and studies adjacent to the *API Integration
-> Benchmark* (see `API_INTEGRATION_BENCHMARK.md`), with an explicit contrast of each work's methodology
+> Benchmark* (see `../turnkey/API_INTEGRATION_BENCHMARK.md`), with an explicit contrast of each work's methodology
 > against ours, and a synthesis of where the genuine novelty is.
 >
 > **How this was produced (2026-07-14).** A deep-research pass: fan-out web search across six themes →

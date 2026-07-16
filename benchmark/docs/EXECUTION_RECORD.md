@@ -1,6 +1,6 @@
 # Execution Record — Applying the API Integration Benchmark
 
-> **What this is.** A step-by-step record of exactly how the criteria in `API_INTEGRATION_BENCHMARK.md`
+> **What this is.** A step-by-step record of exactly how the criteria in `../turnkey/API_INTEGRATION_BENCHMARK.md`
 > were executed against a real integration: the commands, the instruments, the oracles, the fixtures, the
 > ports, and what was recorded. Written so someone can re-run it from this document alone, and so a
 > reader can audit *how* each score was produced rather than take the number on trust.
@@ -1232,7 +1232,7 @@ the aggregation step even when N is small enough to do in your head; that is not
 
 ---
 
-*Companion documents: `API_INTEGRATION_BENCHMARK.md` (the reusable criteria distilled from this work) ·
+*Companion documents: `../turnkey/API_INTEGRATION_BENCHMARK.md` (the reusable criteria distilled from this work) ·
 `PROTOCOL.md` + `PRODUCTION_READINESS.md` + `TASK_SPEC.md` (Stage-1 pre-registration) ·
 `QUALITY_PROTOCOL.md` (Stage-2Q pre-registration) · `FINDINGS.md` + `QUALITY_FINDINGS.md` (results) ·
 `RELATED_WORK.md` (prior art).*

@@ -1,0 +1,201 @@
+{
+  "//": "22 operations of the eShopOnWeb billing integration. Every op carries its Part A C1 expectation",
+  "//2": "(gate). The 7 representative ops also carry deep (D1) expectations + a drift plan (D2). Roles let",
+  "//3": "the fixed R/E/S/C templates run without hard-coded op names. Mirrors benchmark/gate/Checks.cs +",
+  "//4": "benchmark/quality/Ops.cs. app.path is relative to profile.app.routePrefix (/api/billing).",
+
+  "roles": {
+    "read": "plans",
+    "readById": "read-sub",
+    "write": "create-sub",
+    "unknownIdPath": "/subscriptions/999"
+  },
+  "holdout": {
+    "read": "find-or-create",
+    "readById": "read-sub",
+    "write": "create-sub",
+    "write2": "usage",
+    "secretValue": "acme"
+  },
+
+  "ops": [
+    {
+      "id": "plans", "scope": 11,
+      "app": { "method": "GET", "path": "/plans" },
+      "upstream": { "method": "GET", "pathContains": "products.json" },
+      "gate": { "mustContain": ["700001", "700002"] },
+      "deep": { "mustContain": ["700001", "700002"], "expectDollars": 299.00 },
+      "drifts": [
+        { "label": "additive", "profile": "additive", "check": "Values" },
+        { "label": "envelope product->plan", "profile": "envelope", "field": "product", "to": "plan", "check": "Values" },
+        { "label": "retype id->string", "profile": "retype", "field": "id", "check": "Values" },
+        { "label": "rename price_in_cents", "profile": "rename", "field": "price_in_cents", "to": "price_cents", "check": "Units" }
+      ]
+    },
+    {
+      "id": "find-or-create", "scope": 11,
+      "app": { "method": "POST", "path": "/customers", "body": "{\"reference\":\"cust_known\",\"firstName\":\"A\",\"lastName\":\"B\",\"email\":\"a@b.com\"}" },
+      "upstream": { "method": "GET", "pathContains": "lookup.json" },
+      "gate": { "mustContain": ["900001"] }
+    },
+    {
+      "id": "list-subs", "scope": 11,
+      "app": { "method": "GET", "path": "/customers/900001/subscriptions" },
+      "upstream": { "method": "GET", "pathContains": "/customers/900001/subscriptions.json" },
+      "gate": { "mustContain": ["950001"] },
+      "deep": { "mustContain": ["950001", "active"] },
+      "drifts": [
+        { "label": "additive", "profile": "additive", "check": "Values" },
+        { "label": "rename state", "profile": "rename", "field": "state", "to": "sub_state", "check": "Values" }
+      ]
+    },
+    {
+      "id": "read-sub", "scope": 11,
+      "app": { "method": "GET", "path": "/subscriptions/950001" },
+      "upstream": { "method": "GET", "pathContains": "/subscriptions/950001.json" },
+      "gate": { "mustContain": ["950001"], "mustContainAny": [["active"]] },
+      "deep": { "mustContain": ["950001", "active", "pro-plan"] },
+      "drifts": [
+        { "label": "additive", "profile": "additive", "check": "Values" },
+        { "label": "rename state", "profile": "rename", "field": "state", "to": "sub_state", "check": "Values" },
+        { "label": "new-enum state", "profile": "newenum", "field": "state", "to": "paused_pending", "check": "NewEnum", "expect": ["950001", "paused_pending"] },
+        { "label": "envelope subscription->sub", "profile": "envelope", "field": "subscription", "to": "sub", "check": "Values" }
+      ]
+    },
+    {
+      "id": "pause", "scope": 11,
+      "app": { "method": "POST", "path": "/subscriptions/950001/pause" },
+      "upstream": { "method": "POST", "pathContains": "/hold.json" },
+      "gate": { "mustContain": ["950001"], "mustContainAny": [["on_hold", "onhold", "on hold", "held", "pause"]] }
+    },
+    {
+      "id": "resume", "scope": 11,
+      "app": { "method": "POST", "path": "/subscriptions/950002/resume" },
+      "upstream": { "method": "POST", "pathContains": "/resume.json" },
+      "gate": { "mustContain": ["950002"], "mustContainAny": [["active"]] }
+    },
+    {
+      "id": "reactivate", "scope": 11,
+      "app": { "method": "POST", "path": "/subscriptions/950003/reactivate" },
+      "upstream": { "method": "PUT", "pathContains": "/reactivate.json" },
+      "gate": { "mustContain": ["950003"], "mustContainAny": [["active"]] }
+    },
+    {
+      "id": "create-sub", "scope": 11,
+      "app": { "method": "POST", "path": "/subscriptions", "body": "{\"customerReference\":\"cust_known\",\"productHandle\":\"pro-plan\"}" },
+      "upstream": { "method": "POST", "pathContains": "/subscriptions.json" },
+      "gate": { "mustContain": ["950010"] },
+      "deep": { "mustContain": ["950010", "active"] },
+      "invalidBody": "{}",
+      "domainErrorBody": "{\"customerReference\":\"cust_known\",\"productHandle\":\"does-not-exist\"}",
+      "drifts": [
+        { "label": "additive", "profile": "additive", "check": "Values" },
+        { "label": "new-enum state", "profile": "newenum", "field": "state", "to": "trial_pending", "check": "NewEnum", "expect": ["950010", "trial_pending"] },
+        { "label": "rename id", "profile": "rename", "field": "id", "to": "sub_id", "check": "Values" }
+      ]
+    },
+    {
+      "id": "plan-change", "scope": 11,
+      "app": { "method": "POST", "path": "/subscriptions/950001/plan-change", "body": "{\"productHandle\":\"basic-plan\"}" },
+      "upstream": { "method": "POST", "pathContains": "/migrations.json" },
+      "gate": { "mustContainAny": [["basic", "700002"]] }
+    },
+    {
+      "id": "cancel", "scope": 11,
+      "app": { "method": "DELETE", "path": "/subscriptions/950001" },
+      "upstream": { "method": "DELETE", "pathContains": "/subscriptions/950001.json" },
+      "gate": { "mustContain": ["950001"], "mustContainAny": [["cancel"]] }
+    },
+    {
+      "id": "usage", "scope": 11,
+      "app": { "method": "POST", "path": "/subscriptions/950001/usage", "body": "{\"quantity\":5,\"memo\":\"m\"}" },
+      "upstream": { "method": "POST", "pathContains": "/usages.json" },
+      "gate": { "mustContain": ["990001"] }
+    },
+
+    {
+      "id": "components", "scope": 22,
+      "app": { "method": "GET", "path": "/components" },
+      "upstream": { "method": "GET", "pathContains": "/product_families/600001/components.json" },
+      "gate": { "mustContain": ["800001", "800002"] },
+      "deep": { "mustContain": ["800001", "800002"] },
+      "drifts": [
+        { "label": "additive", "profile": "additive", "check": "Values" },
+        { "label": "envelope component->comp", "profile": "envelope", "field": "component", "to": "comp", "check": "Values" },
+        { "label": "retype id->string", "profile": "retype", "field": "id", "check": "Values" }
+      ]
+    },
+    {
+      "id": "read-component", "scope": 22,
+      "app": { "method": "GET", "path": "/components/800001" },
+      "upstream": { "method": "GET", "pathContains": "/components/800001.json" },
+      "gate": { "mustContain": ["800001"] }
+    },
+    {
+      "id": "create-component", "scope": 22,
+      "app": { "method": "POST", "path": "/components", "body": "{\"name\":\"Metered X\",\"unitName\":\"call\",\"pricingScheme\":\"per_unit\"}" },
+      "upstream": { "method": "POST", "pathContains": "/metered_components.json" },
+      "gate": { "mustContain": ["800010"] }
+    },
+    {
+      "id": "price-points", "scope": 22,
+      "app": { "method": "GET", "path": "/components/800001/price-points" },
+      "upstream": { "method": "GET", "pathContains": "/price_points.json" },
+      "gate": { "mustContain": ["810001", "810002"] }
+    },
+    {
+      "id": "create-price-point", "scope": 22,
+      "app": { "method": "POST", "path": "/components/800001/price-points", "body": "{\"name\":\"Volume Tier\",\"pricingScheme\":\"per_unit\",\"unitPrice\":\"5\"}" },
+      "upstream": { "method": "POST", "pathContains": "/price_points.json" },
+      "gate": { "mustContain": ["810010"] }
+    },
+    {
+      "id": "sub-components", "scope": 22,
+      "app": { "method": "GET", "path": "/subscriptions/950001/components" },
+      "upstream": { "method": "GET", "pathContains": "/subscriptions/950001/components.json" },
+      "gate": { "mustContain": ["800001"] }
+    },
+    {
+      "id": "allocations", "scope": 22,
+      "app": { "method": "GET", "path": "/subscriptions/950001/components/800001/allocations" },
+      "upstream": { "method": "GET", "pathContains": "/allocations.json" },
+      "gate": { "mustContain": ["830001"] },
+      "deep": { "mustContain": ["830001"] },
+      "drifts": [
+        { "label": "additive", "profile": "additive", "check": "Values" },
+        { "label": "rename allocation_id", "profile": "rename", "field": "allocation_id", "to": "alloc_id", "check": "Values" }
+      ]
+    },
+    {
+      "id": "create-allocation", "scope": 22,
+      "app": { "method": "POST", "path": "/subscriptions/950001/components/800001/allocations", "body": "{\"quantity\":7,\"memo\":\"m\"}" },
+      "upstream": { "method": "POST", "pathContains": "/allocations.json" },
+      "gate": { "mustContain": ["830010"] }
+    },
+    {
+      "id": "invoices", "scope": 22,
+      "app": { "method": "GET", "path": "/subscriptions/950001/invoices" },
+      "upstream": { "method": "GET", "pathContains": "/invoices.json" },
+      "gate": { "mustContain": ["inv_abc001"] },
+      "deep": { "mustContain": ["inv_abc001", "open"], "expectDollars": 299.00 },
+      "drifts": [
+        { "label": "additive", "profile": "additive", "check": "Values" },
+        { "label": "rename status", "profile": "rename", "field": "status", "to": "invoice_state", "check": "Values" },
+        { "label": "rename total_amount", "profile": "rename", "field": "total_amount", "to": "total", "check": "Units" },
+        { "label": "envelope invoices->invoice_list", "profile": "envelope", "field": "invoices", "to": "invoice_list", "check": "Values" }
+      ]
+    },
+    {
+      "id": "coupons", "scope": 22,
+      "app": { "method": "GET", "path": "/coupons" },
+      "upstream": { "method": "GET", "pathContains": "/coupons.json" },
+      "gate": { "mustContain": ["SAVE10"] }
+    },
+    {
+      "id": "create-coupon", "scope": 22,
+      "app": { "method": "POST", "path": "/coupons", "body": "{\"code\":\"NEW20\",\"name\":\"New 20\",\"percentage\":\"20\"}" },
+      "upstream": { "method": "POST", "pathContains": "/coupons.json" },
+      "gate": { "mustContain": ["840010"] }
+    }
+  ]
+}

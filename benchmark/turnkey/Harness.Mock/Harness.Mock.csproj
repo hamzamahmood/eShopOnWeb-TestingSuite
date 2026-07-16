@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Harness.Mock</RootNamespace>
+    <AssemblyName>Harness.Mock</AssemblyName>
+    <!--
+      Generic, provider-agnostic mock host. Loads a declarative contract.json and serves it through the
+      recording / fault-injecting / drift-mutating middlewares + the /__mock control plane. The SAME
+      binary serves any provider — only the contract.json changes. Boot it by passing the
+      "contract" argument (path to contract.json); the MOCK_URL env var sets the listen port.
+    -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Harness.Core\Harness.Core.csproj" />
+  </ItemGroup>
+
+</Project>

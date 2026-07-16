@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="Harness.Core/Harness.Core.csproj" />
+  <Project Path="Harness.Gate/Harness.Gate.csproj" />
+  <Project Path="Harness.Mock/Harness.Mock.csproj" />
+  <Project Path="Harness.Profiler/Harness.Profiler.csproj" />
+  <Project Path="Harness.Quality/Harness.Quality.csproj" />
+</Solution>
