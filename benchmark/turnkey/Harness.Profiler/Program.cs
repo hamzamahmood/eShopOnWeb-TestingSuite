@@ -5,9 +5,6 @@ using Microsoft.OpenApi.Reader;
 
 string? Arg(string n) { for (var i = 0; i < args.Length - 1; i++) if (args[i] == n) return args[i + 1]; return null; }
 
-// diagnostics: load an already-bundled single-file JSON spec with Microsoft.OpenApi and report coverage
-if (Arg("--oas-probe") is { } bundledPath) { await OasProbe.Run(bundledPath); return 0; }
-
 var specPath = Arg("--spec") ?? throw new ArgumentException("usage: --spec <openapi.(yaml|json)> --out <profileDir> [--name <name>] [--bundle <out.json>]");
 var spec = new Spec(specPath);
 
