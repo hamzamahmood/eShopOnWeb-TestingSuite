@@ -8,6 +8,9 @@ string? Arg(string n) { for (var i = 0; i < args.Length - 1; i++) if (args[i] ==
 var contractPath = Arg("--contract") ?? Environment.GetEnvironmentVariable("CONTRACT")
     ?? throw new ArgumentException("missing --contract <path>");
 var contract = Json.Load<Contract>(contractPath);
+// Which request header(s) mark a call as authenticated (S2). Defaults to Authorization; a provider that
+// keys auth off a custom header declares it in the contract (e.g. "api_key") so S2 works for it too.
+var authHeaders = contract.AuthHeaders is { Length: > 0 } ah ? ah : new[] { "Authorization" };
 
 var builder = WebApplication.CreateBuilder(args);
 var listenUrl = Environment.GetEnvironmentVariable("MOCK_URL") ?? "http://localhost:8080";
@@ -36,7 +39,7 @@ app.Use(async (ctx, next) =>
         body = await reader.ReadToEndAsync();
         ctx.Request.Body.Position = 0;
     }
-    var hasAuth = !string.IsNullOrWhiteSpace(ctx.Request.Headers.Authorization.ToString());
+    var hasAuth = authHeaders.Any(h => !string.IsNullOrWhiteSpace(ctx.Request.Headers[h].ToString()));
     recorder.Record(ctx.Request.Method, path, ctx.Request.QueryString.Value ?? "", hasAuth, body);
 
     // fault injection runs AFTER recording so R5/R6 counts still see the request.

@@ -18,6 +18,10 @@ public sealed class Contract
     /// <summary>Named JSON fixtures a route case can return via "bodyFixture". Raw provider-shaped JSON.</summary>
     public Dictionary<string, JsonElement> Fixtures { get; init; } = new();
     public RouteDef[] Routes { get; init; } = Array.Empty<RouteDef>();
+    /// <summary>Request header names that count as "authenticated" for the S2 auth-applied check. The
+    /// provider may key auth off a custom header (e.g. "api_key", "X-Api-Key") rather than "Authorization".
+    /// Null/empty ⇒ ["Authorization"], so an Authorization-bearing integration is unaffected.</summary>
+    public string[]? AuthHeaders { get; init; }
 }
 
 public sealed class RouteDef

@@ -19,7 +19,9 @@ Harness.Profiler/  OpenAPI spec → profile draft generator (fills the provider 
 
 profiles/
   maxio-eshop/     worked, validated example profile (profile.json · contract.json · optable.json)
-reference/         known-good integration used as the self-test fixture (+ BREAK=… defect toggles)
+  petstore/        second example — a DIFFERENT provider (Swagger Petstore, OpenAPI 3.0)
+reference/         known-good Maxio integration used as the self-test fixture (+ BREAK=… defect toggles)
+reference-petstore/  known-good Petstore integration for the second example (+ the same BREAK=… toggles)
 ```
 
 **Prerequisites:** .NET 10 SDK. (The harness runtime is .NET; it scores integrations in *any* language
@@ -39,3 +41,18 @@ Then follow **`PLAYBOOK.md`** to author a profile for your own integration and p
 The `maxio-eshop` profile reproduces the locked study (`../docs/EXECUTION_RECORD.md`) exactly — gate
 37/37 + 5/5 on `reference/`, every `BREAK=` discrimination case, and the D1–D4 scorecard on the study's
 `../runs/scope22-arm*` trees. Use it as the template for a new profile.
+
+**Second example — a different provider (proves cross-API generality).** `profiles/petstore/` +
+`reference-petstore/` run the whole benchmark on the Swagger Petstore API (OpenAPI **3.0**, bare/array
+bodies, camelCase, `api_key`-header auth — none of which Maxio exercises). It was built by generating the
+provider side from the spec with `Harness.Profiler`, then completing the integration-side fields. Result:
+gate **22/22 public + 5/5 holdout**, all `BREAK=` cases red their target check, and a full D1–D4 scorecard
+(D1 100% · D2 resilience 53% · D3 maxCC 23/LOC 230 · D4 0 findings/0 deps).
+
+```bash
+# Part A on the second example (run from benchmark/turnkey)
+dotnet run --project Harness.Gate -- --profile profiles/petstore --mode public
+dotnet run --project Harness.Gate -- --profile profiles/petstore --mode holdout
+# Part B scorecard
+dotnet run --project Harness.Quality -- --profile profiles/petstore --tree reference-petstore --mode all
+```

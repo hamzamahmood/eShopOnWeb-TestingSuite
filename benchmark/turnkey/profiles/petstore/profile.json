@@ -1,0 +1,34 @@
+{
+  "name": "petstore",
+
+  "app": {
+    "//": "project is relative to the turnkey root (run the gate/quality from there), or pass --app-project.",
+    "project": "reference-petstore/ReferencePetstore.csproj",
+    "baseUrl": "http://127.0.0.1:5211",
+    "readyPath": "/",
+    "routePrefix": "/api/store",
+    "launchArgs": ["--no-launch-profile"],
+    "config": {
+      "Petstore__BaseUrl": "${mockUrl}",
+      "Petstore__ApiKey": "petstore-secret-key-9f8e7d",
+      "Petstore__OrgId": "acme-42",
+      "ASPNETCORE_ENVIRONMENT": "Development",
+      "DOTNET_ROLL_FORWARD": "Major"
+    },
+    "secretConfigKeys": ["Petstore__ApiKey"],
+    "secretValues": ["petstore-secret-key-9f8e7d", "acme-42"]
+  },
+
+  "mock": { "baseUrl": "http://localhost:8080", "contract": "contract.json" },
+
+  "leak": {
+    "generic": ["System.", "Microsoft.", "   at ", ".cs:line", "StackTrace", "Traceback", "HttpRequestException", "NullReference"],
+    "extra": ["petstore-secret-key-9f8e7d", "acme-42"]
+  },
+
+  "analysis": {
+    "stack": "dotnet",
+    "integrationPathPattern": "Petstore",
+    "depProjectFile": "ReferencePetstore.csproj"
+  }
+}

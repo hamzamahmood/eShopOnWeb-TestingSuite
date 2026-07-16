@@ -1,0 +1,62 @@
+{
+  "//": "Swagger Petstore (OpenAPI 3.0) wire contract for the /api/store integration. Ids/fields/shapes",
+  "//2": "mirror the provider spec (bare objects + arrays, no envelope, camelCase). Authored from the",
+  "//3": "provider contract, NOT the integration under test. Served by the generic Harness.Mock host.",
+  "//4": "authHeaders declares Petstore's custom auth header (api_key) so the S2 auth-applied check works.",
+  "//5": "Provider side seeded by Harness.Profiler from https://petstore3.swagger.io/api/v3/openapi.json,",
+  "//6": "then hand-finished (fixtures + 422 domain/validation cases + api_key auth).",
+
+  "authHeaders": ["api_key"],
+
+  "fixtures": {
+    "petsList": [
+      { "id": 10, "name": "doggie", "category": { "id": 1, "name": "Dogs" }, "photoUrls": ["https://cdn.petstore.io/10.jpg"], "tags": [{ "id": 1, "name": "friendly" }], "status": "available" }
+    ],
+    "pet10": { "id": 10, "name": "doggie", "category": { "id": 1, "name": "Dogs" }, "photoUrls": ["https://cdn.petstore.io/10.jpg"], "tags": [{ "id": 1, "name": "friendly" }], "status": "available" },
+    "createdPet": { "id": 10, "name": "{{body.name}}", "category": { "id": 1, "name": "Dogs" }, "photoUrls": ["https://cdn.petstore.io/10.jpg"], "tags": [], "status": "{{body.status}}" },
+
+    "order10": { "id": 10, "petId": 198772, "quantity": 7, "shipDate": "2026-01-20T00:00:00Z", "status": "approved", "complete": false },
+    "createdOrder": { "id": 10, "petId": "{{body.petId}}", "quantity": "{{body.quantity}}", "shipDate": "2026-01-20T00:00:00Z", "status": "{{body.status}}", "complete": false },
+
+    "userTheUser": { "id": 10, "username": "theUser", "firstName": "John", "lastName": "James", "email": "john@email.com", "password": "hidden", "phone": "12345", "userStatus": 1 },
+
+    "petRejected": { "code": 422, "type": "validation", "message": "Pet status must be one of available, pending, sold." },
+    "orderRejected": { "code": 422, "type": "validation", "message": "Order petId is required." }
+  },
+
+  "routes": [
+    { "method": "GET", "path": "/pet/findByStatus", "cases": [
+      { "status": 200, "bodyFixture": "petsList" }
+    ] },
+
+    { "method": "GET", "path": "/pet/findByTags", "cases": [
+      { "status": 200, "bodyFixture": "petsList" }
+    ] },
+
+    { "method": "GET", "path": "/pet/{petId}", "cases": [
+      { "when": { "pathIn": { "petId": ["10"] } }, "status": 200, "bodyFixture": "pet10" },
+      { "status": 404, "body": { "code": 404, "type": "error", "message": "Pet not found" } }
+    ] },
+
+    { "method": "POST", "path": "/pet", "cases": [
+      { "when": { "bodyMissing": ["name"] }, "status": 422, "body": { "code": 422, "type": "validation", "message": "Pet name is required." } },
+      { "when": { "bodyValueNotIn": { "status": ["available", "pending", "sold"] } }, "status": 422, "bodyFixture": "petRejected" },
+      { "status": 200, "bodyFixture": "createdPet" }
+    ] },
+
+    { "method": "POST", "path": "/store/order", "cases": [
+      { "when": { "bodyMissing": ["petId"] }, "status": 422, "bodyFixture": "orderRejected" },
+      { "status": 200, "bodyFixture": "createdOrder" }
+    ] },
+
+    { "method": "GET", "path": "/store/order/{orderId}", "cases": [
+      { "when": { "pathIn": { "orderId": ["10"] } }, "status": 200, "bodyFixture": "order10" },
+      { "status": 404, "body": { "code": 404, "type": "error", "message": "Order not found" } }
+    ] },
+
+    { "method": "GET", "path": "/user/{username}", "cases": [
+      { "when": { "pathIn": { "username": ["theUser"] } }, "status": 200, "bodyFixture": "userTheUser" },
+      { "status": 404, "body": { "code": 404, "type": "error", "message": "User not found" } }
+    ] }
+  ]
+}

@@ -1,0 +1,101 @@
+{
+  "//": "7 operations of the /api/store Petstore integration. Every op carries its Part A C1 expectation",
+  "//2": "(gate); 6 also carry deep (D1) expectations + a drift plan (D2). Roles let the fixed R/E/S/C",
+  "//3": "templates run without hard-coded op names. app.path is relative to profile.app.routePrefix",
+  "//4": "(/api/store). scope omitted ⇒ 0 (present in the single integration tree).",
+
+  "roles": {
+    "read": "list-pets",
+    "readById": "read-pet",
+    "write": "create-pet",
+    "unknownIdPath": "/pets/999"
+  },
+  "holdout": {
+    "read": "list-tags",
+    "readById": "read-order",
+    "write": "create-pet",
+    "write2": "create-order",
+    "secretValue": "acme-42"
+  },
+
+  "ops": [
+    {
+      "id": "list-pets",
+      "app": { "method": "GET", "path": "/pets" },
+      "upstream": { "method": "GET", "pathContains": "findByStatus" },
+      "gate": { "mustContain": ["10", "doggie"] },
+      "deep": { "mustContain": ["10", "doggie"] },
+      "drifts": [
+        { "label": "additive", "profile": "additive", "check": "Values" },
+        { "label": "rename name->petName", "profile": "rename", "field": "name", "to": "petName", "check": "Values" },
+        { "label": "retype id->string", "profile": "retype", "field": "id", "check": "Values" }
+      ]
+    },
+    {
+      "id": "list-tags",
+      "app": { "method": "GET", "path": "/pets/by-tags" },
+      "upstream": { "method": "GET", "pathContains": "findByTags" },
+      "gate": { "mustContain": ["10", "doggie"] }
+    },
+    {
+      "id": "read-pet",
+      "app": { "method": "GET", "path": "/pets/10" },
+      "upstream": { "method": "GET", "pathContains": "/pet/10" },
+      "gate": { "mustContain": ["10"], "mustContainAny": [["doggie"]] },
+      "deep": { "mustContain": ["10", "doggie", "available"] },
+      "drifts": [
+        { "label": "additive", "profile": "additive", "check": "Values" },
+        { "label": "rename status->petStatus", "profile": "rename", "field": "status", "to": "petStatus", "check": "Values" },
+        { "label": "new-enum status", "profile": "newenum", "field": "status", "to": "reserved", "check": "NewEnum", "expect": ["10", "reserved"] }
+      ]
+    },
+    {
+      "id": "read-order",
+      "app": { "method": "GET", "path": "/orders/10" },
+      "upstream": { "method": "GET", "pathContains": "/store/order/10" },
+      "gate": { "mustContain": ["10"], "mustContainAny": [["approved"]] },
+      "deep": { "mustContain": ["10", "approved"] },
+      "drifts": [
+        { "label": "additive", "profile": "additive", "check": "Values" },
+        { "label": "rename status->orderStatus", "profile": "rename", "field": "status", "to": "orderStatus", "check": "Values" },
+        { "label": "retype id->string", "profile": "retype", "field": "id", "check": "Values" }
+      ]
+    },
+    {
+      "id": "get-user",
+      "app": { "method": "GET", "path": "/users/theUser" },
+      "upstream": { "method": "GET", "pathContains": "/user/theUser" },
+      "gate": { "mustContain": ["theUser", "John"] },
+      "deep": { "mustContain": ["theUser", "John"] },
+      "drifts": [
+        { "label": "additive", "profile": "additive", "check": "Values" },
+        { "label": "rename firstName->fname", "profile": "rename", "field": "firstName", "to": "fname", "check": "Values" }
+      ]
+    },
+    {
+      "id": "create-pet",
+      "app": { "method": "POST", "path": "/pets", "body": "{\"name\":\"Rex\",\"photoUrls\":[\"https://ex.com/rex.jpg\"],\"status\":\"available\"}" },
+      "upstream": { "method": "POST", "pathContains": "/pet" },
+      "gate": { "mustContain": ["10"] },
+      "deep": { "mustContain": ["10", "Rex"] },
+      "invalidBody": "{}",
+      "domainErrorBody": "{\"name\":\"Rex\",\"photoUrls\":[\"https://ex.com/rex.jpg\"],\"status\":\"banana\"}",
+      "drifts": [
+        { "label": "additive", "profile": "additive", "check": "Values" },
+        { "label": "rename id->petId", "profile": "rename", "field": "id", "to": "petId", "check": "Values" }
+      ]
+    },
+    {
+      "id": "create-order",
+      "app": { "method": "POST", "path": "/orders", "body": "{\"petId\":198772,\"quantity\":7,\"status\":\"approved\"}" },
+      "upstream": { "method": "POST", "pathContains": "/store/order" },
+      "gate": { "mustContain": ["10"], "mustContainAny": [["approved"]] },
+      "deep": { "mustContain": ["10", "approved"] },
+      "invalidBody": "{}",
+      "drifts": [
+        { "label": "additive", "profile": "additive", "check": "Values" },
+        { "label": "rename status->state", "profile": "rename", "field": "status", "to": "state", "check": "Values" }
+      ]
+    }
+  ]
+}
