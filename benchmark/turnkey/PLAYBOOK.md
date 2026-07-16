@@ -94,6 +94,8 @@ Read the codebase and the provider contract, and collect:
   op table's backbone; the integration's own source is the authoritative source for it.
 - The **operations** worth scoring — aim for coverage across CRUD + list + a lifecycle action.
 - The **secrets** in play (API key, subdomain/tenant) and the config key(s) that gate startup.
+- **Which request header carries auth** — `Authorization`, or a custom one like `api_key` / `X-Api-Key`.
+  The mock's S2 check needs to know this (declare it in `contract.authHeaders`; §4.2).
 
 ### Step 2 — Author the profile bundle
 
@@ -223,6 +225,8 @@ The declarative mock. A request matches a route by `method` + `path` (with `{par
 route's `cases` are tried top-to-bottom and the first whose `when` guard holds is served.
 ```jsonc
 {
+  "authHeaders": ["Authorization"],      // header(s) that count as authenticated for S2; omit ⇒ Authorization.
+                                         //   set to the provider's real header if custom (e.g. ["api_key"])
   "fixtures": {                          // named JSON bodies; {{path.x}} {{query.x}} {{body.a.b}} interpolate
     "activeSub": { "subscription": { "id": 950001, "state": "active" } }
   },
@@ -245,6 +249,10 @@ route's `cases` are tried top-to-bottom and the first whose `when` guard holds i
 `bodyValueIn`, `bodyValueNotIn` (matches when value ∉ set — the bad-reference branch).
 **Interpolation:** a string leaf that is exactly one token (`"{{path.sid}}"`) is coerced to a number when
 numeric; embedded tokens splice as text. Property names are preserved verbatim (wire casing survives).
+**Auth header (S2).** S2 treats a request as authenticated when any header in `authHeaders` is present.
+Omit it for `Authorization`-bearing providers (the default); set it to the provider's actual auth header
+(e.g. `["api_key"]`, `["X-Api-Key"]`) or S2 fails even when the integration authenticates correctly. The
+`petstore` example uses `["api_key"]`.
 
 ### 4.3 `optable.json`
 ```jsonc
@@ -372,6 +380,14 @@ This *is* the kit's discrimination proof: the instruments surface a win for **ea
 choice (the spec arm wins drift resilience + deps; the SDK arm wins wire-coupling + drift safety), so the
 suite is not biased toward either. Use `maxio-eshop` as the template for a new profile.
 
+**Second example — a *different* provider (`profiles/petstore/`).** To show the kit isn't wedded to the
+API it was built from, `profiles/petstore/` + `reference-petstore/` run the whole benchmark on the Swagger
+Petstore API (OpenAPI **3.0**, bare/array bodies, camelCase, `api_key`-header auth — none of which Maxio
+exercises). Provider side was seeded by `Harness.Profiler` from the spec, then finished by hand. Result:
+gate **22/22 public + 5/5 holdout**, every `BREAK=` case reds its target, D1 100% / D2 resilience 53% /
+D3 maxCC 23, LOC 230 / D4 0 findings, 0 deps. It's the reference for authoring a profile against a
+camelCase / custom-auth API — run commands are in `README.md`.
+
 ---
 
 ## 9. Caveats & limits
@@ -381,8 +397,10 @@ suite is not biased toward either. Use `maxio-eshop` as the template for a new p
 - **A wrong mock produces confident nonsense.** Steps 3–4 are the guard; do not skip them. Discrimination-
   validation catches most bad harnesses but not one wrong in a way both the happy path and the injected
   defect tolerate — keep the contract faithful to the provider.
-- **Wire-coupling's default URL regex assumes `.json`-style endpoints.** Widen it for other providers
-  (§6), or the SDK-vs-hand-rolled signal understates hand-rolled coupling.
+- **Wire-coupling's default regexes assume snake_case / `.json`-style endpoints.** camelCase, no-suffix
+  APIs undercount — the `petstore` example scores wire-coupling 1 despite hardcoding real endpoint paths.
+  Widen the regexes for such providers (§6), or the SDK-vs-hand-rolled signal understates hand-rolled
+  coupling. Read D3 alongside D2/D4, which are convention-independent.
 - **The kit runtime is .NET.** It scores any-language integrations over HTTP, but the machine needs the
   .NET 10 SDK (containerize the kit for a zero-install footprint).
 - **Static metrics reward brevity.** Read D3 next to D2 (drift) and D4 (supply-chain) — hidden wire code
