@@ -176,9 +176,14 @@ public static class Generator
             var byId = g.Method is "get" or "delete" or "put" && terminalParam.Success && g.IdValue is not null;
             if (byId)
             {
+                var param = terminalParam.Groups[1].Value;
+                // The guard must key on the value the integration will actually place in THIS path param —
+                // which is the example's field matching the param NAME, not the entity's generic primary id.
+                // (e.g. /user/{username} keys on "theUser", not the User's id 10.)
+                var guardValue = GuardValue(g.Example!, param) ?? g.IdValue;
                 cases.Add(new JsonObject
                 {
-                    ["when"] = new JsonObject { ["pathIn"] = new JsonObject { [terminalParam.Groups[1].Value] = new JsonArray(g.IdValue) } },
+                    ["when"] = new JsonObject { ["pathIn"] = new JsonObject { [param] = new JsonArray(guardValue) } },
                     ["status"] = StatusInt(g.SuccessStatus),
                     ["body"] = g.Example!.DeepClone(),
                 });
@@ -297,18 +302,44 @@ public static class Generator
     }
 
     // ---- parser-agnostic helpers (operate on the JsonNode fixture + path strings) -------------------
+    // Unwrap a fixture to the entity object: a single-key envelope ({ "user": {...} }) drops to its
+    // inner object; an array takes its first element (itself unwrapped). Otherwise the object as-is.
+    static JsonObject? Entity(JsonNode example)
+    {
+        if (example is JsonObject obj)
+            return obj is { Count: 1 } && obj.First().Value is JsonObject inner ? inner : obj;
+        if (example is JsonArray arr && arr.FirstOrDefault() is JsonObject e0)
+            return e0 is { Count: 1 } && e0.First().Value is JsonObject i2 ? i2 : e0;
+        return null;
+    }
+
     static (string? field, string? value) FindPrimaryId(JsonNode example)
     {
-        JsonObject? obj = example as JsonObject;
-        if (obj is { Count: 1 } && obj.First().Value is JsonObject inner) obj = inner;
-        else if (example is JsonArray arr && arr.FirstOrDefault() is JsonObject e0)
-            obj = e0.Count == 1 && e0.First().Value is JsonObject i2 ? i2 : e0;
+        var obj = Entity(example);
         if (obj is null) return (null, null);
         foreach (var key in IdKeys)
             foreach (var kv in obj)
                 if (string.Equals(kv.Key, key, StringComparison.OrdinalIgnoreCase) && kv.Value is JsonValue jv)
                     return (kv.Key, jv.ToJsonString().Trim('"'));
         return (null, null);
+    }
+
+    // The value a by-id guard should match for a given terminal path param. Prefer the example field whose
+    // name equals the param (username → "theUser"); an "*Id"/"id" param keys on the entity's id field
+    // (petId, orderId → id). Returns null when the example offers nothing better than the caller's fallback.
+    static string? GuardValue(JsonNode example, string paramName)
+    {
+        var obj = Entity(example);
+        if (obj is null) return null;
+        foreach (var kv in obj)
+            if (string.Equals(kv.Key, paramName, StringComparison.OrdinalIgnoreCase) && kv.Value is JsonValue exact)
+                return exact.ToJsonString().Trim('"');
+        if (Regex.IsMatch(paramName, @"(^id$|Id$|_id$)", RegexOptions.IgnoreCase))
+        {
+            var (_, value) = FindPrimaryId(example);
+            return value;
+        }
+        return null;
     }
 
     static string UpstreamFragment(string path)
