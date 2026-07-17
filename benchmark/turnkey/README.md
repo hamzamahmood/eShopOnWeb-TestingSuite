@@ -29,7 +29,7 @@ over HTTP — only the D3/D4 static-analysis adapter is stack-specific.)
 
 **Quickstart (self-test — proves the kit works out of the box):**
 ```bash
-cd benchmark/turnkey
+# run every command from the kit root — the folder with Harness.slnx (benchmark/turnkey/ in the monorepo)
 dotnet build Harness.slnx
 # Part A on the bundled known-good integration → 37/37 public, 5/5 holdout
 dotnet run --project Harness.Gate -- --profile profiles/maxio-eshop --app-project reference/Reference.csproj --mode public
@@ -38,9 +38,11 @@ dotnet run --project Harness.Gate -- --profile profiles/maxio-eshop --app-projec
 
 Then follow **`PLAYBOOK.md`** to author a profile for your own integration and produce its scorecard.
 
-The `maxio-eshop` profile reproduces the locked study (`../docs/EXECUTION_RECORD.md`) exactly — gate
-37/37 + 5/5 on `reference/`, every `BREAK=` discrimination case, and the D1–D4 scorecard on the study's
-`../runs/scope22-arm*` trees. Use it as the template for a new profile.
+The `maxio-eshop` profile is validated two ways. The **self-contained** proof ships in this repo: gate
+37/37 public + 5/5 holdout on `reference/`, plus every `BREAK=` discrimination case. Separately, in the
+origin study this kit was extracted from, the same profile produced the full D1–D4 scorecard on that
+study's SDK-vs-spec arm trees — those produced trees are *not* bundled here (see PLAYBOOK §8). Use
+`maxio-eshop` as the template for a new profile.
 
 **Second example — a different provider (proves cross-API generality).** `profiles/petstore/` +
 `reference-petstore/` run the whole benchmark on the Swagger Petstore API (OpenAPI **3.0**, bare/array
@@ -50,7 +52,7 @@ gate **22/22 public + 5/5 holdout**, all `BREAK=` cases red their target check, 
 (D1 100% · D2 resilience 53% · D3 maxCC 23/LOC 230 · D4 0 findings/0 deps).
 
 ```bash
-# Part A on the second example (run from benchmark/turnkey)
+# Part A on the second example (run from the kit root)
 dotnet run --project Harness.Gate -- --profile profiles/petstore --mode public
 dotnet run --project Harness.Gate -- --profile profiles/petstore --mode holdout
 # Part B scorecard

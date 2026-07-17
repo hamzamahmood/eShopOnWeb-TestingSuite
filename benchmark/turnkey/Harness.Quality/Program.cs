@@ -88,6 +88,12 @@ if (wantStatic)
 }
 
 var jsonOut = JsonSerializer.Serialize(scorecard, new JsonSerializerOptions(Json.Options) { WriteIndented = true });
-if (outPath is not null) { File.WriteAllText(outPath, jsonOut); Console.Error.WriteLine($"• wrote {outPath}"); }
+if (outPath is not null)
+{
+    var outDir = Path.GetDirectoryName(outPath);
+    if (!string.IsNullOrEmpty(outDir)) Directory.CreateDirectory(outDir);
+    File.WriteAllText(outPath, jsonOut);
+    Console.Error.WriteLine($"• wrote {outPath}");
+}
 else Console.WriteLine(jsonOut);
 return 0;

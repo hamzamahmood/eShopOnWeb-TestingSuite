@@ -1,7 +1,7 @@
 # API Integration Benchmark — Turnkey Playbook
 
 > **What this is.** The operational bridge between `API_INTEGRATION_BENCHMARK.md` (the *methodology* —
-> what to measure and why) and a real codebase. It pairs a **shipped, reusable harness** (`benchmark/turnkey/`)
+> what to measure and why) and a real codebase. It pairs a **shipped, reusable harness** (this kit)
 > with a **per-integration profile** (three JSON files you author) so an agent can point the benchmark at
 > an API integration and produce a scorecard without hand-writing any instruments.
 >
@@ -22,7 +22,7 @@
 ## 0. TL;DR — the whole loop
 
 ```bash
-cd benchmark/turnkey
+# run every command from the kit root — the folder with Harness.slnx (benchmark/turnkey/ in the monorepo)
 dotnet build Harness.slnx                                  # build the kit once
 
 # (recommended) generate a profile DRAFT from the provider's OpenAPI spec, then complete the app-side
@@ -34,13 +34,13 @@ dotnet run --project Harness.Gate -- --profile <profileDir> --app-project <appCs
 
 # Part B — quality scorecard D1–D4
 dotnet run --project Harness.Quality -- --profile <profileDir> --tree <treeRoot> \
-  --app-project <appCsproj> --mode all --out scorecard.json
+  --app-project <appCsproj> --mode all --out runs/scorecard.json
 ```
 
 You supply `<profileDir>/`: **`profile.json`** (how to boot + config + secrets + leak set + analysis
 globs), **`contract.json`** (the provider's wire routes + fixtures), **`optable.json`** (the operations +
 their expectations + drift plan + roles). Full schema in §5. A complete, validated example ships at
-`benchmark/turnkey/profiles/maxio-eshop/` (§9).
+`profiles/maxio-eshop/` (§9).
 
 ---
 
@@ -75,7 +75,7 @@ from what the integration under test happens to parse. A mock shaped to the inte
 
 ## 2. What ships vs. what you author
 
-| Shipped in `benchmark/turnkey/` — never edited per integration | You author per integration (`profile/`) |
+| Shipped in this kit — never edited per integration | You author per integration (`profile/`) |
 |---|---|
 | **Harness.Core** — fault engine, drift engine (P1–P8), recorder, HTTP clients + oracle primitives, model types, boot helpers | **profile.json** — boot command, config/env, secrets, leak set, analysis selectors |
 | **Harness.Mock** — generic host: serves `contract.json` through record/fault/drift middlewares + `/__mock` control plane | **contract.json** — provider wire routes → guarded cases → fixture bodies |
@@ -152,7 +152,7 @@ Minimum set (mirrors `API_INTEGRATION_BENCHMARK.md` §C.2):
 | Read a renamed field by a hardcoded key | D2 cells → SILENT-WRONG |
 
 If a metric doesn't move when you break the thing it measures, the instrument measures nothing — fix it.
-(The shipped `benchmark/turnkey/reference` integration + its `BREAK=` toggles demonstrate every one of these; §9.)
+(The shipped `reference/` integration + its `BREAK=` toggles demonstrate every one of these; §9.)
 
 ### Step 5 — Part A readiness gate → DONE / ROBUST
 ```bash
@@ -166,7 +166,7 @@ means the integration overfit its visible checks. The agent under evaluation mus
 ### Step 6 — Part B quality scorecard → D1–D4
 ```bash
 dotnet run --project Harness.Quality -- --profile profiles/<name> --tree <treeRoot> \
-  --app-project <appCsproj> --mode all --out scorecard.json
+  --app-project <appCsproj> --mode all --out runs/scorecard.json
 ```
 Produces the four deterministic dimensions: **D1** correctness-depth, **D2** drift resilience/safety +
 the 4-way confusion matrix, **D3** maintainability (wire-coupling, complexity, nesting, LOC), **D4**
@@ -340,12 +340,12 @@ profile-driven and stack-independent.
 
 ## 8. Worked example — `maxio-eshop` (validated)
 
-The shipped profile `benchmark/turnkey/profiles/maxio-eshop/` scores the eShopOnWeb ↔ Maxio billing
-integration. It was validated by reproducing the locked study (`benchmark/docs/EXECUTION_RECORD.md`)
-exactly. Reproduce it yourself:
+The shipped profile `profiles/maxio-eshop/` scores an eShopOnWeb ↔ Maxio billing integration. It was
+validated against the origin study this kit was extracted from (that study's execution record is not
+bundled in this repo). The **self-contained** part reproduces here directly:
 
 ```bash
-cd benchmark/turnkey
+# run from the kit root (this folder)
 dotnet build Harness.slnx
 
 # Part A on the known-good reference → 37/37 public, 5/5 holdout
@@ -361,14 +361,17 @@ BREAK=noauth     dotnet run --project Harness.Gate -- --profile profiles/maxio-e
 BREAK=retrywrite dotnet run --project Harness.Gate -- --profile profiles/maxio-eshop --app-project reference/Reference.csproj  # R5
 BREAK=notimeout  dotnet run --project Harness.Gate -- --profile profiles/maxio-eshop --app-project reference/Reference.csproj  # R4
 
-# Part B on a produced integration tree
+# Part B needs a produced integration tree to score — point --tree/--app-project at your own tree.
+# (For a fully in-repo Part B run, use the petstore example — `--profile profiles/petstore --tree reference-petstore` (command in README) — which scores the bundled reference-petstore/ tree.)
 dotnet run --project Harness.Quality -- --profile profiles/maxio-eshop \
-  --tree ../runs/scope22-armA/workspace \
-  --app-project ../runs/scope22-armA/workspace/src/PublicApi/PublicApi.csproj \
-  --mode all --out scope22-armA.json
+  --tree <yourProducedTree> \
+  --app-project <yourProducedTree>/src/PublicApi/PublicApi.csproj \
+  --mode all --out runs/maxio-eshop.json
 ```
 
-**Reproduced results** (match `benchmark/runs/scorecard.json` exactly):
+**Results from the origin study** (cited — the SDK-vs-spec arm trees are not bundled in this repo, so the
+`scope22-*` D1–D4 rows below are the study's measured numbers, not reproducible from this repo alone; the
+`reference` row *is* reproducible from the commands above):
 
 | | Gate | D1 | D2 resilience / safety / silent-wrong | D3 wire-coupling / avgCC / maxNest / LOC | D4 deps / vuln / source |
 |---|---|---|---|---|---|
@@ -376,8 +379,8 @@ dotnet run --project Harness.Quality -- --profile profiles/maxio-eshop \
 | scope22-armA (SDK) | DONE·ROBUST | 100% | 41% / 64% / 8 | 0 / 2.04 / 4 / 793 | 96 / 4 / 0 |
 | scope22-armB (spec) | DONE·ROBUST | 100% | 50% / 55% / 10 | 24 / 3.0 / 6 / 869 | 90 / 5 / 0 |
 
-This *is* the kit's discrimination proof: the instruments surface a win for **each** implementation
-choice (the spec arm wins drift resilience + deps; the SDK arm wins wire-coupling + drift safety), so the
+That study *is* the kit's discrimination proof: the instruments surfaced a win for **each** implementation
+choice (the spec arm won drift resilience + deps; the SDK arm won wire-coupling + drift safety), so the
 suite is not biased toward either. Use `maxio-eshop` as the template for a new profile.
 
 **Second example — a *different* provider (`profiles/petstore/`).** To show the kit isn't wedded to the
@@ -409,4 +412,5 @@ camelCase / custom-auth API — run commands are in `README.md`.
 ---
 
 *Companion documents: `API_INTEGRATION_BENCHMARK.md` (the methodology this operationalizes, in this folder) ·
-`../docs/EXECUTION_RECORD.md` (the original study this kit reproduces) · the `Harness.*` projects in this folder (the shipped harness).*
+the `Harness.*` projects in this folder (the shipped harness). This kit was extracted from a locked
+SDK-vs-spec study; that study's execution record lives in the parent benchmark project and is not bundled here.*

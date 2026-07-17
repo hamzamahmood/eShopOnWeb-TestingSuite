@@ -19,7 +19,7 @@
 > study.
 >
 > **Turnkey path.** You do not have to build the instruments from scratch. A ready-made, reusable harness
-> ships alongside this document (in `benchmark/turnkey/`), and **`PLAYBOOK.md`** (its sibling) is the
+> ships alongside this document (in this folder), and **`PLAYBOOK.md`** (its sibling) is the
 > step-by-step procedure for pointing it at a codebase:
 > you describe the provider + integration in three JSON files (a *profile*) and the generic mock, gate,
 > and quality scorer do the rest. The harness talks to the integration black-box over HTTP, so it scores

@@ -1,4 +1,12 @@
+# .NET build artifacts
 bin/
 obj/
 .vs/
 *.user
+
+# run artifacts (scorecards + run logs are local output, not part of the kit)
+runs/
+*.tmp
+
+# IDE / auto-generated
+launchSettings.json
