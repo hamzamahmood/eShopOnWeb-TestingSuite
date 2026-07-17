@@ -36,6 +36,7 @@ if (wantDynamic)
     var appLog = new StringBuilder();
     try
     {
+        Console.Error.WriteLine("• preflight: " + Proc.Preflight(appProject));
         Console.Error.WriteLine("• building + booting app + mock …");
         if (!Proc.Build(appProject, out var berr)) throw new InvalidOperationException("app build failed:\n" + berr);
         Proc.Build(mockProject, out _);
@@ -48,7 +49,7 @@ if (wantDynamic)
         app = Proc.SpawnRun(appProject, profile.App.LaunchArgs, Array.Empty<string>(), env, appLog);
         if (!await Proc.WaitHttp(appUrl + profile.App.ReadyPath, () => app!.HasExited, 90)) throw new InvalidOperationException("app did not start");
 
-        var appClient = new AppClient(appUrl);
+        var appClient = new AppClient(appUrl, profile.App.Headers);
         var mockClient = new MockClient(mockUrl);
         var scope = await Runner.DetectScope(appClient, prefix, optable);
         scorecard["scope"] = scope;

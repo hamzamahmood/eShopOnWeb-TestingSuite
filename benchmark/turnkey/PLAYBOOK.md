@@ -35,6 +35,11 @@ dotnet run --project Harness.Gate -- --profile <profileDir> --app-project <appCs
 # Part B — quality scorecard D1–D4
 dotnet run --project Harness.Quality -- --profile <profileDir> --tree <treeRoot> \
   --app-project <appCsproj> --mode all --out runs/scorecard.json
+
+# …or run all of the above (build → gate public + holdout → quality) in one shot, with every output +
+# a RUN_LOG skeleton captured under runs/<name>/:
+./run.ps1 -Profile <name> -App <appCsproj>          # Windows / pwsh
+./run.sh  --profile <name> --app <appCsproj>        # POSIX
 ```
 
 You supply `<profileDir>/`: **`profile.json`** (how to boot + config + secrets + leak set + analysis
@@ -96,6 +101,10 @@ Read the codebase and the provider contract, and collect:
 - The **secrets** in play (API key, subdomain/tenant) and the config key(s) that gate startup.
 - **Which request header carries auth** — `Authorization`, or a custom one like `api_key` / `X-Api-Key`.
   The mock's S2 check needs to know this (declare it in `contract.authHeaders`; §4.2).
+- **Whether the app's OWN routes require auth** (distinct from the provider's auth above). If the
+  integration's endpoints are `[Authorize]` / behind a gateway, the harness must present a credential to
+  reach them — set `app.headers` (§4.1); the JWT recipe is in §5.1. Without it every op 401s before it
+  touches the integration.
 
 ### Step 2 — Author the profile bundle
 
@@ -131,6 +140,13 @@ Rename `optable.draft.json` → `optable.json` when done.
 same rules — and flag reduced oracle-independence per §7, since the contract's shapes then come from the
 integration rather than an independent source.
 
+> **Prefer a fresh spec-seeded `contract.json` over reusing another integration's.** Copying a sibling
+> provider's contract inherits its fixture *identities* (customer references, ids, handles) — you then pay
+> a realignment tax (the recorder will 404 until they match) and risk a stale oracle drifting from the real
+> provider shapes. If you have the spec, regenerate the provider side; reuse only the app-side authoring
+> (roles / holdout / the app routes). Same provider, different app is the one case where contract reuse is
+> safe — but re-verify the fixtures against the recorder (Step 3) either way.
+
 ### Step 3 — Mock-sanity gate (fail fast on a wrong mock)
 Run the public gate against the **integration under test**. Every `C1.*` must be green — that proves the
 mock serves each operation's happy path with the expected values and the integration consumes them. If a
@@ -153,6 +169,11 @@ Minimum set (mirrors `API_INTEGRATION_BENCHMARK.md` §C.2):
 
 If a metric doesn't move when you break the thing it measures, the instrument measures nothing — fix it.
 (The shipped `reference/` integration + its `BREAK=` toggles demonstrate every one of these; §9.)
+
+**Never mutate the tree you'll score.** Do the injection on a throwaway copy or a scratch branch and
+restore with `git checkout` before running Part B (confirm `git status` is clean). If you control the
+integration, prefer wiring the defects behind a `BREAK=` env toggle (the `reference` project's pattern) so
+discrimination re-runs touch no files at all.
 
 ### Step 5 — Part A readiness gate → DONE / ROBUST
 ```bash
@@ -200,6 +221,10 @@ All three files are camelCase, comment-tolerant (`"//": "..."`) and trailing-com
     "readyPath": "/",                    // polled until the app answers
     "routePrefix": "/api/billing",       // prepended to every op's app.path
     "launchArgs": ["--no-launch-profile"],// extra process args (ASP.NET launchSettings override, etc.)
+    "headers": {                         // OPTIONAL: attached to EVERY harness→app request (gate happy-path
+      "Authorization": "Bearer <jwt>"    //   + fault drives, holdout, quality drift). For an integration
+    },                                   //   whose OWN routes require auth — test scaffolding to reach the
+                                         //   endpoints; does NOT change the integration. Recipe in §5.1.
     "config": {                          // env/config the app boots with; ${mockUrl} points it at the mock
       "Provider__BaseUrl": "${mockUrl}",
       "Provider__ApiKey": "test-api-key"
@@ -290,6 +315,27 @@ Omit it for `Authorization`-bearing providers (the default); set it to the provi
   (provider-rejected → E1).
 - `scope` = smallest task size that includes the op (lets a partial integration be scored on what it
   implements). Quality auto-detects scope by probing the max-scope GET ops.
+- **`app.preSteps`** (optional) makes a **stateful, multi-step** operation drivable in one shot. It's a list
+  of app calls run in order *before* the op; each may `capture` response values (by JSON dotted-path;
+  numeric segments index arrays) into named vars that interpolate as `{{capture.NAME}}` into later steps'
+  and the op's own `path`/`body`. e.g. a plan-change `commit` that needs a staleness token echoed from a
+  prior `preview`:
+  ```jsonc
+  { "id": "commit", "scope": 11,
+    "app": {
+      "method": "POST", "path": "/950001/plan-change/commit",
+      "body": "{\"stalenessToken\":\"{{capture.tok}}\"}",
+      "preSteps": [
+        { "method": "POST", "path": "/950001/plan-change/preview",
+          "body": "{\"targetProductHandle\":\"basic-plan\"}",
+          "capture": { "tok": "stalenessToken" } }   // dotted-path into the preview response
+      ]
+    },
+    "upstream": { "method": "PUT", "pathContains": "/subscriptions/950001.json" },
+    "gate": { "mustContain": ["950001"] } }
+  ```
+  Ops with no `preSteps` (the default) are a single request — byte-identical to the pre-preSteps behavior.
+  (The mock still just serves each call's upstream normally; the token round-trips harness↔app.)
 
 ---
 
@@ -302,6 +348,28 @@ yours to extend: add a bespoke route handler in `Harness.Mock/Program.cs` (or en
 in `Harness.Core/Model/Contract.cs`). Anything you add still flows through the same recording / fault /
 drift middlewares, so faults and drift keep working. Prefer widening the declarative model over one-off
 handlers when the pattern will recur across providers.
+
+### 5.1 Auth scaffolding (reaching `[Authorize]` app routes)
+
+If the integration's **own** routes require auth (JWT bearer, a gateway header), the harness needs a
+credential to drive them — otherwise every op 401s before it reaches the integration. Put the credential in
+`profile.app.headers` (§4.1); it's attached to every gate/holdout/quality request. This is test scaffolding
+to *reach* the endpoints — it does not change the integration, and the gate's S2 still verifies the
+integration authenticates **upstream**.
+
+For a symmetric-key JWT (HS256) signed with an in-repo secret, mint one long-lived token and paste it in:
+```bash
+b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+SECRET='<the in-repo signing secret>'
+HDR=$(printf '%s' '{"alg":"HS256","typ":"JWT"}' | b64url)
+# claim NAMES/values must match what the app checks (role claim, username claim); exp far in the future:
+PLD=$(printf '%s' '{"unique_name":"admin@example.com","role":"Administrators","exp":2051222400}' | b64url)
+SIG=$(printf '%s.%s' "$HDR" "$PLD" | openssl dgst -sha256 -hmac "$SECRET" -binary | b64url)
+echo "Bearer $HDR.$PLD.$SIG"     # → profile.app.headers.Authorization
+```
+A token signed with a **repo-known test secret** is safe to commit (it grants nothing outside the test
+harness). A **live** provider credential is not — keep those out of a shared/example profile (S1 scrapes
+`secretValues` from logs; don't hand it a real secret to find).
 
 ---
 
@@ -335,6 +403,14 @@ profile-driven and stack-independent.
   scaffolding, not production code — keep it out of the D3/D4 file selection.
 - **Partial integration.** Give ops a `scope`; the tools score only the ops present (quality auto-detects
   scope, the gate runs the whole table). Log what was skipped — never let missing coverage read as green.
+- **Weak unknown-resource signal (E2).** Point `roles.unknownIdPath` at a **provider-backed by-id read** so
+  the 404 flows through the integration's error mapping (provider 404 → clean 4xx) — that's what E2 is meant
+  to test. If the app exposes no such route, a *routing* 404 still passes E2, but it only exercises the
+  framework's routing, not the integration; say so in the report (weaker signal) rather than reading it as
+  full credit.
+- **Stateful / multi-step op.** If an op needs a value from a prior call (a staleness token, a created id),
+  drive it with `app.preSteps` (§4.3) instead of dropping it as "uncoverable." Only fall back to a
+  documented coverage gap when even a scripted pre-step can't set it up — and log the gap, don't green it.
 
 ---
 
@@ -406,6 +482,14 @@ camelCase / custom-auth API — run commands are in `README.md`.
   coupling. Read D3 alongside D2/D4, which are convention-independent.
 - **The kit runtime is .NET.** It scores any-language integrations over HTTP, but the machine needs the
   .NET 10 SDK (containerize the kit for a zero-install footprint).
+- **SDK / target-framework / `global.json` interaction.** The kit builds the app-under-test by running
+  `dotnet` from the **kit's own cwd**, so SDK resolution is governed by *that* directory — which must have
+  **no ancestor `global.json`** pinning an SDK the machine doesn't have (else resolution fails before
+  roll-forward can help). An older-TFM app (e.g. `net8.0`) builds fine under the .NET 10 SDK via
+  roll-forward, and a `global.json` *inside the app's tree* pinning its own SDK is harmless (it doesn't
+  govern the kit's cwd). The gate/quality **preflight** line prints the resolved SDK, the app TFM (read from
+  the csproj or an ancestor `Directory.Build.props` / `Directory.Packages.props`), and any app `global.json`
+  pin — so an SDK/TFM mismatch shows up as one obvious line instead of a cryptic build failure.
 - **Static metrics reward brevity.** Read D3 next to D2 (drift) and D4 (supply-chain) — hidden wire code
   is deferred maintenance, not free. See `API_INTEGRATION_BENCHMARK.md` §8.
 

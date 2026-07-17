@@ -1,0 +1,109 @@
+{
+  "//": "Operation table for maxio-new-integration. app.path is relative to profile.app.routePrefix",
+  "//2": "(/api/subscriptions). upstream = the Maxio wire call the op triggers (verified via recorder).",
+  "//3": "gate = Part A C1 (shallow). deep = Part B D1 (deeper). drifts = Part B D2. Roles resolve the",
+  "//4": "fixed R/E/S/C templates. commit plan-change is intentionally omitted (2-step staleness handshake).",
+
+  "roles": {
+    "read": "plans",
+    "readById": "mine",
+    "write": "subscribe",
+    "unknownIdPath": "/999"
+  },
+  "holdout": {
+    "read": "mine",
+    "readById": "preview",
+    "write": "subscribe",
+    "write2": "usage",
+    "secretValue": "acme"
+  },
+
+  "ops": [
+    {
+      "id": "plans", "scope": 11,
+      "app": { "method": "GET", "path": "/plans" },
+      "upstream": { "method": "GET", "pathContains": "/product_families/600001/products.json" },
+      "gate": { "mustContain": ["pro-plan", "basic-plan"] },
+      "deep": { "mustContain": ["pro-plan", "basic-plan"], "expectDollars": 299.00 },
+      "drifts": [
+        { "label": "additive", "profile": "additive", "check": "Values" },
+        { "label": "envelope product->plan", "profile": "envelope", "field": "product", "to": "plan", "check": "Values" },
+        { "label": "retype id->string", "profile": "retype", "field": "id", "check": "Values" },
+        { "label": "rename price_in_cents", "profile": "rename", "field": "price_in_cents", "to": "price_cents", "check": "Units" }
+      ]
+    },
+    {
+      "id": "mine", "scope": 11,
+      "app": { "method": "GET", "path": "/mine" },
+      "upstream": { "method": "GET", "pathContains": "/customers/900001/subscriptions.json" },
+      "gate": { "mustContain": ["950003"], "mustContainAny": [["canceled"]] },
+      "deep": { "mustContain": ["950003", "canceled"] },
+      "drifts": [
+        { "label": "additive", "profile": "additive", "check": "Values" },
+        { "label": "rename state", "profile": "rename", "field": "state", "to": "sub_state", "check": "Values" }
+      ]
+    },
+    {
+      "id": "subscribe", "scope": 11,
+      "app": { "method": "POST", "path": "/subscribe", "body": "{\"productHandle\":\"pro-plan\"}" },
+      "upstream": { "method": "POST", "pathContains": "/subscriptions.json" },
+      "gate": { "mustContain": ["950010"], "mustContainAny": [["active"]] },
+      "deep": { "mustContain": ["950010", "active"] },
+      "invalidBody": "{}",
+      "domainErrorBody": "{\"productHandle\":\"does-not-exist\"}",
+      "drifts": [
+        { "label": "additive", "profile": "additive", "check": "Values" },
+        { "label": "new-enum state", "profile": "newenum", "field": "state", "to": "provisional_new", "check": "NewEnum", "expect": ["950010", "provisional_new"] },
+        { "label": "rename id", "profile": "rename", "field": "id", "to": "sub_id", "check": "Values" }
+      ]
+    },
+    {
+      "id": "usage", "scope": 11,
+      "app": { "method": "POST", "path": "/950001/usage", "body": "{\"quantity\":5,\"memo\":\"m\"}" },
+      "upstream": { "method": "POST", "pathContains": "/usages.json" },
+      "gate": { "mustContain": ["recorded"], "mustContainAny": [["true"]] }
+    },
+    {
+      "id": "preview", "scope": 11,
+      "app": { "method": "POST", "path": "/950001/plan-change/preview", "body": "{\"targetProductHandle\":\"basic-plan\",\"applyImmediately\":true}" },
+      "upstream": { "method": "GET", "pathContains": "/subscriptions/950001.json" },
+      "gate": { "mustContain": ["basic-plan"], "mustContainAny": [["pro-plan"]] }
+    },
+    {
+      "id": "pause", "scope": 11,
+      "app": { "method": "POST", "path": "/950001/lifecycle", "body": "{\"action\":\"Pause\"}" },
+      "upstream": { "method": "POST", "pathContains": "/subscriptions/950001/hold.json" },
+      "gate": { "mustContain": ["950001"], "mustContainAny": [["on_hold", "onhold", "on hold", "held", "pause"]] },
+      "//deep": "State group is provider-state representations only (NOT the echoed action) so rename-state drops all of them; D2 Classify now honors mustContainAny, so this is caught as SILENT-WRONG while D1 keeps representation tolerance.",
+      "deep": { "mustContain": ["950001"], "mustContainAny": [["on_hold", "onhold", "on hold", "held"]] },
+      "drifts": [
+        { "label": "additive", "profile": "additive", "check": "Values" },
+        { "label": "rename state", "profile": "rename", "field": "state", "to": "sub_state", "check": "Values" }
+      ]
+    },
+    {
+      "id": "resume", "scope": 11,
+      "app": { "method": "POST", "path": "/950002/lifecycle", "body": "{\"action\":\"Resume\"}" },
+      "upstream": { "method": "POST", "pathContains": "/subscriptions/950002/resume.json" },
+      "gate": { "mustContain": ["950002"], "mustContainAny": [["active"]] }
+    },
+    {
+      "id": "cancel", "scope": 11,
+      "app": { "method": "POST", "path": "/950001/lifecycle", "body": "{\"action\":\"Cancel\",\"endOfPeriod\":false}" },
+      "upstream": { "method": "DELETE", "pathContains": "/subscriptions/950001.json" },
+      "gate": { "mustContain": ["950001"], "mustContainAny": [["cancel"]] },
+      "//deep": "State group is provider-state representations only (NOT the echoed action) so rename-state drops all of them; D2 Classify now honors mustContainAny, so this is caught as SILENT-WRONG while D1 keeps representation tolerance.",
+      "deep": { "mustContain": ["950001"], "mustContainAny": [["canceled", "cancelled"]] },
+      "drifts": [
+        { "label": "additive", "profile": "additive", "check": "Values" },
+        { "label": "rename state", "profile": "rename", "field": "state", "to": "sub_state", "check": "Values" }
+      ]
+    },
+    {
+      "id": "reactivate", "scope": 11,
+      "app": { "method": "POST", "path": "/950003/lifecycle", "body": "{\"action\":\"Reactivate\"}" },
+      "upstream": { "method": "PUT", "pathContains": "/subscriptions/950003/reactivate.json" },
+      "gate": { "mustContain": ["950003"], "mustContainAny": [["active"]] }
+    }
+  ]
+}

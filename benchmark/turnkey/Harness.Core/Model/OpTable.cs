@@ -64,10 +64,32 @@ public sealed class Op
 public sealed class AppCall
 {
     public string Method { get; init; } = "GET";
-    /// <summary>App route relative to profile.App.RoutePrefix (e.g. "/plans").</summary>
+    /// <summary>App route relative to profile.App.RoutePrefix (e.g. "/plans"). May contain {{capture.X}}
+    /// tokens filled from a preceding <see cref="PreSteps"/> capture.</summary>
     public string Path { get; init; } = "/";
-    /// <summary>Request body for POST/PUT/DELETE happy path (JSON string), or null.</summary>
+    /// <summary>Request body for POST/PUT/DELETE happy path (JSON string), or null. May contain
+    /// {{capture.X}} tokens filled from a preceding <see cref="PreSteps"/> capture.</summary>
     public string? Body { get; init; }
+    /// <summary>Optional app calls run IN ORDER before this one, each capturing response values into named
+    /// vars that interpolate as {{capture.NAME}} into THIS call's path/body. Makes a stateful, multi-step
+    /// operation drivable in one shot — e.g. a commit that needs a staleness token echoed from a prior
+    /// preview call. Empty (the default) ⇒ a plain single request, byte-identical to the old behavior.</summary>
+    public PreStep[] PreSteps { get; init; } = Array.Empty<PreStep>();
+}
+
+/// <summary>One preparatory app call executed before the op's own request. Its response can seed named
+/// captures (JSON dotted-path → value) that later steps and the op's own path/body interpolate via
+/// {{capture.NAME}}. Path/Body may themselves reference captures from earlier steps.</summary>
+public sealed class PreStep
+{
+    public string Method { get; init; } = "GET";
+    /// <summary>App route relative to routePrefix; may contain {{capture.X}} from earlier steps.</summary>
+    public string Path { get; init; } = "/";
+    /// <summary>Optional request body (JSON string); may contain {{capture.X}} from earlier steps.</summary>
+    public string? Body { get; init; }
+    /// <summary>name → dotted JSON path into THIS step's response body (e.g. "data.0.token"). Numeric
+    /// segments index arrays. The extracted scalar becomes {{capture.name}} for subsequent steps/the op.</summary>
+    public Dictionary<string, string> Capture { get; init; } = new();
 }
 
 public sealed class Upstream

@@ -182,7 +182,7 @@ public static class Dispatcher
     }
 
     // A tokened string leaf. One token spanning the whole string ⇒ allow numeric coercion
-    // (e.g. "id":"{{path.sid}}" → 950001). Otherwise splice replacements into the string.
+    // (e.g. "id":"{{path.id}}" → 12345). Otherwise splice replacements into the string.
     static JsonNode? ReplaceLeaf(string s,
         IReadOnlyDictionary<string, string?> path, IReadOnlyDictionary<string, string?> query, JsonElement? body)
     {

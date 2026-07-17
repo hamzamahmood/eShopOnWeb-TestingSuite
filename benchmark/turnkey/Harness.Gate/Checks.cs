@@ -36,7 +36,7 @@ public static class Checks
         string prefix = c.Prefix;
 
         Task<ApiResponse> Drive(Op op, string? bodyOverride = null)
-            => c.App.Call(op.App.Method, prefix + op.App.Path, bodyOverride ?? op.App.Body);
+            => c.App.DriveOp(prefix, op.App, bodyOverride);
 
         var read = Require(c.Ops, c.Ops.Roles.Read, "roles.read");
         var readById = Require(c.Ops, c.Ops.Roles.ReadById, "roles.readById");
@@ -204,7 +204,7 @@ public static class Checks
         string[] leak = c.Profile.Leak.All;
         string? Leak(ApiResponse r) => leak.FirstOrDefault(r.Has);
         string prefix = c.Prefix;
-        Task<ApiResponse> Drive(Op op) => c.App.Call(op.App.Method, prefix + op.App.Path, op.App.Body);
+        Task<ApiResponse> Drive(Op op) => c.App.DriveOp(prefix, op.App);
 
         var h = c.Ops.Holdout;
         var read = Require(c.Ops, h.Read, "holdout.read");

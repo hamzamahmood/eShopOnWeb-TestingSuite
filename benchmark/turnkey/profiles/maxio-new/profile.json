@@ -1,0 +1,54 @@
+{
+  "name": "maxio-new",
+
+  "app": {
+    "//": "project passed per-run via --app-project. routePrefix = the integration's subscription surface.",
+    "project": "",
+    "baseUrl": "http://127.0.0.1:5111",
+    "readyPath": "/",
+    "routePrefix": "/api/subscriptions",
+    "launchArgs": ["--no-launch-profile"],
+
+    "//headers": "Bearer JWT (HS256, in-repo secret) for admin@microsoft.com/Administrators, exp 2035.",
+    "//headers2": "Test scaffolding so the [Authorize] routes are reachable; does not change the integration.",
+    "headers": {
+      "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1bmlxdWVfbmFtZSI6ImFkbWluQG1pY3Jvc29mdC5jb20iLCJyb2xlIjoiQWRtaW5pc3RyYXRvcnMiLCJuYmYiOjE3MDAwMDAwMDAsImlhdCI6MTcwMDAwMDAwMCwiZXhwIjoyMDUxMjIyNDAwfQ.6eV-jYqbKAA96d7V8eppQVUdX9Hd34Uwgk4GMG9-WYI"
+    },
+
+    "config": {
+      "Maxio__BaseUrl": "${mockUrl}",
+      "Maxio__ApiKey": "test-api-key",
+      "Maxio__Subdomain": "acme",
+      "Maxio__Environment": "US",
+      "Maxio__ProductFamilyId": "600001",
+      "Maxio__ProductFamilyHandle": "eshop-plans",
+      "Maxio__MeteredComponentId": "800001",
+      "Maxio__MeteredComponentHandle": "api-calls",
+      "Maxio__DefaultProductHandle": "pro-plan",
+      "Maxio__DefaultProductId": "700001",
+      "Maxio__AlternateProductHandle": "basic-plan",
+      "Maxio__AlternateProductId": "700002",
+      "UseOnlyInMemoryDatabase": "true",
+      "ASPNETCORE_ENVIRONMENT": "Development",
+      "DOTNET_ROLL_FORWARD": "Major"
+    },
+    "secretConfigKeys": ["Maxio__ApiKey"],
+    "secretValues": ["test-api-key", "acme"]
+  },
+
+  "mock": { "baseUrl": "http://localhost:8080", "contract": "contract.json" },
+
+  "leak": {
+    "generic": ["System.", "Microsoft.", "   at ", ".cs:line", "StackTrace", "Traceback", "HttpRequestException", "NullReference"],
+    "extra": ["test-api-key", "price_in_cents", "product_family"]
+  },
+
+  "analysis": {
+    "//": "Filename-anchored: the provider-facing layer here is a set of Billing*/Maxio*-NAMED files, not a",
+    "//2": "single directory, so match the last path segment. The pattern is matched against the tree-RELATIVE",
+    "//3": "path (the harness strips the tree root), so the 'maxio-new-integration' root dir can't pollute it.",
+    "stack": "dotnet",
+    "integrationPathPattern": "/[^/]*(Billing|Maxio)[^/]*\\.cs$",
+    "depProjectFile": "Infrastructure.csproj"
+  }
+}

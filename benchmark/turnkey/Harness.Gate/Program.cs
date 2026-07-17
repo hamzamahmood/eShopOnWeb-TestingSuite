@@ -24,6 +24,7 @@ var appLog = new StringBuilder();
 try
 {
     Console.WriteLine($"gate: profile={profile.Name} mode={mode} app={appProject}");
+    Console.WriteLine("• preflight: " + Proc.Preflight(appProject));
     Console.WriteLine("• building app + mock …");
     if (!Proc.Build(appProject, out var berr)) { Console.WriteLine("[FAIL] BUILD — app did not compile:\n" + Trunc(berr, 1500)); return 1; }
     Proc.Build(mockProject, out _);
@@ -38,7 +39,7 @@ try
     app = Proc.SpawnRun(appProject, profile.App.LaunchArgs, Array.Empty<string>(), env, appLog);
     if (!await Proc.WaitHttp(appUrl + profile.App.ReadyPath, () => app!.HasExited, 90)) { Console.WriteLine("[FAIL] BOOT — app did not start / crashed at startup"); return 1; }
 
-    var ctx = new GateContext(new AppClient(appUrl), new MockClient(mockUrl), () => { lock (appLog) { return appLog.ToString(); } }, profile, optable);
+    var ctx = new GateContext(new AppClient(appUrl, profile.App.Headers), new MockClient(mockUrl), () => { lock (appLog) { return appLog.ToString(); } }, profile, optable);
     var checks = mode == "holdout" ? Checks.Holdout(ctx) : Checks.Public(ctx);
 
     int pass = 0, total = 0;

@@ -29,17 +29,32 @@ public static class Metrics
         var src = Path.Combine(treeRoot, "src");
         var root = Directory.Exists(src) ? src : treeRoot;
         var re = new Regex(pathPattern, RegexOptions.IgnoreCase);
-        return Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
-            .Where(f =>
-            {
-                var p = f.Replace('\\', '/');
-                var isIntegration = re.IsMatch(p);
-                var isNoise = p.Contains("/obj/") || p.Contains("/bin/") ||
-                              p.EndsWith(".g.cs") || p.Contains("AssemblyInfo") ||
-                              Regex.IsMatch(p, @"/(Test|Tests)/", RegexOptions.IgnoreCase);
-                return isIntegration && !isNoise;
-            })
+
+        // Match the pattern against the path RELATIVE TO the tree root (leading '/'), never the absolute
+        // path. Otherwise the tree's own root directory name and the repo path above it leak into every
+        // match — a broad pattern matches every file whenever the tree's own root dir name happens to
+        // contain one of the pattern's tokens. Relative matching keeps the pattern scoped to the
+        // integration's own layout.
+        static bool IsNoise(string p) =>
+            p.Contains("/obj/") || p.Contains("/bin/") || p.EndsWith(".g.cs") ||
+            p.Contains("AssemblyInfo") || Regex.IsMatch(p, @"/(Test|Tests)/", RegexOptions.IgnoreCase);
+
+        var all = Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
+            .Where(f => !IsNoise(f.Replace('\\', '/'))).ToList();
+        var selected = all
+            .Where(f => re.IsMatch("/" + Path.GetRelativePath(treeRoot, f).Replace('\\', '/')))
             .OrderBy(f => f).ToList();
+
+        // Plausibility guard: the integration's OWN provider-facing files are a small slice of a tree.
+        // If the selection swallows most of the source, the pattern is almost certainly too broad —
+        // surface it loudly instead of silently reporting inflated LOC/complexity.
+        if (selected.Count > 25 && all.Count > 0 && selected.Count > all.Count * 0.5)
+            Console.Error.WriteLine(
+                $"[WARN] D3 selected {selected.Count} of {all.Count} source files — integrationPathPattern " +
+                $"'{pathPattern}' looks too broad (matching the tree's own directory name?). Expected only " +
+                "the integration's own provider-facing files.");
+
+        return selected;
     }
 
     static readonly Regex JsonUrl = new(@"""[^""]*\.json[^""]*""", RegexOptions.Compiled);

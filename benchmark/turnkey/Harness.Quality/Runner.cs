@@ -45,7 +45,7 @@ public static class Runner
         {
             var d = op.DeepOrGate;
             await mock.Reset();
-            var r = await app.Call(op.App.Method, prefix + op.App.Path, op.App.Body);
+            var r = await app.DriveOp(prefix, op.App);
 
             var missing = d.MustContain.Where(v => !r.Has(v)).ToArray();
             var anyOk = d.MustContainAny.All(r.HasAnyOf);
@@ -82,7 +82,7 @@ public static class Runner
                                    || op.Upstream.Method.Equals("GET", StringComparison.OrdinalIgnoreCase))
                                   ? null : op.Upstream.Method;
                 await mock.Drift(op.Upstream.PathContains, driftMethod, dc.Profile, dc.Field, dc.To);
-                var r = await app.Call(op.App.Method, prefix + op.App.Path, op.App.Body);
+                var r = await app.DriveOp(prefix, op.App);
                 var (cls, detail) = Classify(op, dc, r, leak);
                 cells.Add(new Cell(op.Id, dc.Label, cls, r.Status, detail));
             }
@@ -114,11 +114,24 @@ public static class Runner
                     ? ("CORRECT", "price still surfaced")
                     : ("SILENT-WRONG", "2xx but price silently dropped");
             default: // values
-                var want = dc.Expect ?? op.DeepOrGate.MustContain;
-                var miss = want.Where(v => !r.Has(v)).ToArray();
-                return miss.Length == 0
+                // A drift with an explicit Expect fully specifies the post-drift oracle. Otherwise the
+                // op's deep block is the oracle — and it must be read the SAME way D1 (RunDeep) reads it:
+                // ALL of MustContain present AND each MustContainAny group satisfied. Honoring
+                // MustContainAny here is what makes a renamed field whose value lives in a tolerance group
+                // (e.g. a lifecycle state) classify as SILENT-WRONG instead of a false CORRECT.
+                if (dc.Expect is { Length: > 0 })
+                {
+                    var missE = dc.Expect.Where(v => !r.Has(v)).ToArray();
+                    return missE.Length == 0
+                        ? ("CORRECT", "all required values present")
+                        : ("SILENT-WRONG", $"2xx but missing [{string.Join(",", missE)}]");
+                }
+                var deep = op.DeepOrGate;
+                var miss = deep.MustContain.Where(v => !r.Has(v)).ToArray();
+                var missAny = deep.MustContainAny.Where(g => !r.HasAnyOf(g)).ToArray();
+                return miss.Length == 0 && missAny.Length == 0
                     ? ("CORRECT", "all required values present")
-                    : ("SILENT-WRONG", $"2xx but missing [{string.Join(",", miss)}]");
+                    : ("SILENT-WRONG", $"2xx but missing [{string.Join(",", miss.Concat(missAny.Select(g => $"any({string.Join("|", g)})")))}]");
         }
     }
 }

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace Harness.Core;
 
@@ -10,6 +11,78 @@ namespace Harness.Core;
 /// </summary>
 public static class Proc
 {
+    /// <summary>One-line preflight surfacing the SDK/TFM/global.json interaction that silently governs the
+    /// build. Prints: the SDK version `dotnet` resolves in the HARNESS cwd (which is where the build runs);
+    /// the app's target framework (searched in the csproj, then in an ancestor Directory.Build.props /
+    /// Directory.Packages.props); and — the actual trap — whether the app tree carries a global.json
+    /// pinning an SDK. The kit builds an older-TFM app under a newer SDK only because it runs `dotnet` from
+    /// its own cwd (no ancestor global.json) with roll-forward on; a global.json pinning an uninstalled SDK
+    /// would break a build run from the app dir. Making all three visible turns a confusing SDK-resolution
+    /// failure into an obvious one. Never throws.</summary>
+    public static string Preflight(string appProject)
+    {
+        string sdk = "unknown";
+        try
+        {
+            var psi = new ProcessStartInfo("dotnet", "--version")
+                { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+            var p = Process.Start(psi)!;
+            sdk = p.StandardOutput.ReadToEnd().Trim();
+            p.WaitForExit();
+            if (string.IsNullOrWhiteSpace(sdk)) sdk = "unknown";
+        }
+        catch { /* dotnet not on PATH — the build step will report it */ }
+
+        var appDir = Path.GetDirectoryName(Path.GetFullPath(appProject)) ?? ".";
+        string tfm = FindTfm(appProject) ?? "?";
+
+        string pin = "";
+        try
+        {
+            var gj = FindUp(appDir, "global.json");
+            if (gj is not null)
+            {
+                var m = Regex.Match(File.ReadAllText(gj), "\"version\"\\s*:\\s*\"([^\"]+)\"");
+                if (m.Success)
+                    pin = $" · app global.json pins SDK {m.Groups[1].Value} (not applied — harness builds from its own cwd)";
+            }
+        }
+        catch { /* global.json unreadable — not fatal here */ }
+
+        return $".NET SDK {sdk} · app TFM {tfm}{pin}";
+    }
+
+    /// <summary>The app's target framework: the csproj if it declares one, else the nearest ancestor
+    /// Directory.Build.props / Directory.Packages.props that does (some projects pin the TFM centrally via
+    /// an MSBuild import rather than per-project).</summary>
+    private static string? FindTfm(string appProject)
+    {
+        static string? FromText(string path)
+        {
+            try
+            {
+                var m = Regex.Match(File.ReadAllText(path), @"<TargetFrameworks?>([^<]+)</");
+                return m.Success ? m.Groups[1].Value.Trim() : null;
+            }
+            catch { return null; }
+        }
+
+        var fromProj = FromText(appProject);
+        if (fromProj is not null) return fromProj;
+
+        var dir = new DirectoryInfo(Path.GetDirectoryName(Path.GetFullPath(appProject)) ?? ".");
+        while (dir is not null)
+        {
+            foreach (var name in new[] { "Directory.Build.props", "Directory.Packages.props" })
+            {
+                var props = Path.Combine(dir.FullName, name);
+                if (File.Exists(props) && FromText(props) is { } tfm) return tfm;
+            }
+            dir = dir.Parent;
+        }
+        return null;
+    }
+
     public static bool Build(string project, out string output)
     {
         var psi = new ProcessStartInfo("dotnet", $"build \"{project}\" -v quiet -clp:ErrorsOnly")

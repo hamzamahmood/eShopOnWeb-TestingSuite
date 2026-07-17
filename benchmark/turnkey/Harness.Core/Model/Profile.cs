@@ -32,6 +32,11 @@ public sealed class AppSpec
     public string RoutePrefix { get; init; } = "";
     /// <summary>Extra process args (e.g. ["--no-launch-profile"] for ASP.NET launchSettings.json).</summary>
     public string[] LaunchArgs { get; init; } = Array.Empty<string>();
+    /// <summary>Extra HTTP headers the harness attaches to EVERY request it sends to the app under test
+    /// (all three of gate happy-path/fault drives, holdout, and quality drift replay). Intended for an
+    /// integration whose routes require auth — e.g. {"Authorization":"Bearer &lt;jwt&gt;"}. This is test
+    /// scaffolding that makes the endpoints reachable; it does NOT change the integration. See PLAYBOOK §5.</summary>
+    public Dictionary<string, string> Headers { get; init; } = new();
     /// <summary>Environment/config the app boots with. Values may contain ${mockUrl}/${appUrl}.</summary>
     public Dictionary<string, string> Config { get; init; } = new();
     /// <summary>Config keys removed one-at-a-time for the S3 fail-fast check (each must break boot).</summary>
@@ -69,9 +74,10 @@ public sealed class AnalysisSpec
 {
     /// <summary>Static-analysis adapter to use. "dotnet" ships; others documented in the playbook.</summary>
     public string Stack { get; init; } = "dotnet";
-    /// <summary>Regex matched against each source file's forward-slashed path; matches select the
+    /// <summary>Regex matched against each source file's TREE-RELATIVE forward-slashed path (the tree root
+    /// is stripped, so the tree's own directory name can't pollute the match); matches select the
     /// integration's OWN code. Non-matching files (host app, tests, generated code) are excluded from
-    /// D3/D4 source metrics. e.g. "/(Billing|Maxio)" — a Billing/ dir or a Maxio-prefixed file.</summary>
+    /// D3/D4 source metrics. e.g. "/(Billing|Provider)" — a Billing/ dir or a Provider-prefixed file.</summary>
     public string IntegrationPathPattern { get; init; } = "";
     /// <summary>Filename of the project/manifest whose dependency graph is counted for D4
     /// (e.g. Infrastructure.csproj, package.json, go.mod). Empty ⇒ the adapter's default discovery.</summary>
